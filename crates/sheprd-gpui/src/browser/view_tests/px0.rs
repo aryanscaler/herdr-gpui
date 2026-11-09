@@ -137,4 +137,16 @@ fn an_ssh_workspace_opens_its_hosts_own_workbench(cx: &mut gpui::TestAppContext)
     cx.update(|window, cx| view.update(cx, |view, cx| view.ensure_px0_page(window, cx)));
     let expected = crate::px0::workspace_url(&base, "/srv/checkout").unwrap();
     assert_eq!(location(cx), Some(Location::Web { url: expected }));
+    // Retry on another host leaves this page; on its own host it drops it,
+    // as the workbench comes back at a new address.
+    cx.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            assert_eq!(view.px0_bound_tabs(), [id]);
+            view.restart_px0(&Px0Host::Ssh("dev@other".into()), cx);
+            assert_eq!(view.px0_bound_tabs(), [id]);
+            view.restart_px0(&Px0Host::Ssh("dev@build".into()), cx);
+            assert!(view.px0_bound_tabs().is_empty());
+            assert!(matches!(Hosts::state(cx, "dev@build"), State::Idle));
+        });
+    });
 }

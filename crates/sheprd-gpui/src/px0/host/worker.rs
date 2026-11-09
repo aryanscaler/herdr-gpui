@@ -18,7 +18,7 @@ use std::{
         Arc, Mutex, MutexGuard, PoisonError,
         mpsc::{self, Receiver, SyncSender, TryRecvError},
     },
-    thread,
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
@@ -31,8 +31,12 @@ const READY_WAIT: Duration = Duration::from_secs(30);
 const TICK: Duration = Duration::from_millis(100);
 /// How often a ready workbench is asked whether it still answers.
 const CHECK: Duration = Duration::from_secs(3);
-/// How long the script gets to stop px0 before its `ssh` is killed.
+/// How long the script gets to stop px0 before its `ssh` is killed, as the
+/// app quits.
 const GRACE: Duration = Duration::from_millis(500);
+/// The same off the app's quit: a replacement waits for this, so it never
+/// finds the old workbench still stopping and reuses it.
+const STOP_GRACE: Duration = Duration::from_secs(10);
 /// `port 65535` and a line break fit with room to spare; a longer line is
 /// not the script's.
 const LINE: u64 = 64;
@@ -41,6 +45,7 @@ pub(super) struct Worker {
     state: Arc<Mutex<State>>,
     stop: SyncSender<()>,
     owned: Arc<Mutex<Owned>>,
+    thread: Option<JoinHandle<()>>,
 }
 
 /// What the worker started, so a stop from any thread can end it.
@@ -58,22 +63,32 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Worker {
-    pub(super) fn start(target: String) -> Result<Self, Px0Error> {
+    /// Starts `target`'s workbench once `previous`, the one it replaces,
+    /// has stopped, so the new script never reuses a workbench being stopped.
+    pub(super) fn start(target: String, previous: Option<Self>) -> Result<Self, Px0Error> {
         let state = Arc::new(Mutex::new(State::Starting));
         let (stop, stopped) = mpsc::sync_channel(1);
         let owned = Arc::new(Mutex::new(Owned::default()));
         let (output, slot) = (state.clone(), owned.clone());
-        thread::Builder::new()
+        let thread = thread::Builder::new()
             .name("herdr-px0-host".into())
             .spawn(move || {
+                if let Some(previous) = previous {
+                    previous.finish();
+                }
                 if let Err(error) = run(&target, &stopped, &output, &slot) {
                     tracing::warn!(%error, target, "px0 on a host stopped");
                     *lock(&output) = State::Failed(Arc::new(error));
                 }
-                cleanup(&slot);
+                cleanup(&slot, STOP_GRACE);
             })
             .map_err(Px0Error::Worker)?;
-        Ok(Self { state, stop, owned })
+        Ok(Self {
+            state,
+            stop,
+            owned,
+            thread: Some(thread),
+        })
     }
 
     pub(super) fn state(&self) -> State {
@@ -84,7 +99,24 @@ impl Worker {
     /// for the app's quit, which runs it off the UI thread.
     pub(super) fn shutdown(self) {
         let _ = self.stop.try_send(());
-        cleanup(&self.owned);
+        cleanup(&self.owned, GRACE);
+    }
+
+    /// Asks the worker to stop; its thread ends what it started.
+    pub(super) fn stop(&self) {
+        let _ = self.stop.try_send(());
+    }
+
+    /// Stops the worker and waits until its script and `ssh` have ended,
+    /// on a replacement's thread.
+    fn finish(mut self) {
+        self.stop();
+        cleanup(&self.owned, STOP_GRACE);
+        // Whichever of the two took the `ssh` waits out its grace; the
+        // thread's end covers the case where it was the worker's own.
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
@@ -107,7 +139,7 @@ fn cancelled(stop: &Receiver<()>, wait: Duration) -> bool {
     )
 }
 
-fn cleanup(owned: &Mutex<Owned>) {
+fn cleanup(owned: &Mutex<Owned>, grace: Duration) {
     let (child, input, forward) = {
         let mut slot = lock(owned);
         slot.stopped = true;
@@ -120,7 +152,7 @@ fn cleanup(owned: &Mutex<Owned>) {
     let Some(mut child) = child else {
         return;
     };
-    let deadline = Instant::now() + GRACE;
+    let deadline = Instant::now() + grace;
     while Instant::now() < deadline && !process::exited(&mut child).unwrap_or(true) {
         thread::sleep(Duration::from_millis(25));
     }

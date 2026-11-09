@@ -114,20 +114,9 @@ impl SheprdWindow {
         }
         // A workbench starting again has a new address, so its pages close;
         // one that failed keeps them, and the edits in them.
-        let restarting: Vec<TabId> = self
-            .browser
-            .px0
-            .bound
-            .iter()
-            .filter(|(_, binding)| matches!(binding.host.state(cx), State::Idle | State::Starting))
-            .map(|(id, _)| *id)
-            .collect();
-        for id in restarting {
-            #[cfg(any(target_os = "macos", windows))]
-            self.browser.pages.close(id);
-            self.browser.failed.remove(&id);
-            self.browser.px0.bound.remove(&id);
-        }
+        self.unbind_px0_pages(|binding| {
+            matches!(binding.host.state(cx), State::Idle | State::Starting)
+        });
         self.browser
             .px0
             .bound
@@ -166,6 +155,37 @@ impl SheprdWindow {
         self.create_editor_page(&tab, window, cx);
     }
 
+    /// Starts `host`'s workbench again on the next ensure. Every page on the
+    /// host, not only the focused workspace's, is at the old address.
+    pub(super) fn restart_px0(&mut self, host: &Px0Host, cx: &mut App) {
+        host.reset(cx);
+        self.unbind_px0_pages(|binding| binding.host == *host);
+    }
+
+    /// The tabs bound to a workbench, for tests.
+    #[cfg(test)]
+    pub(super) fn px0_bound_tabs(&self) -> Vec<TabId> {
+        self.browser.px0.bound.keys().copied().collect()
+    }
+
+    /// Closes the pages whose binding is `stale` and forgets the bindings.
+    fn unbind_px0_pages(&mut self, stale: impl Fn(&Binding) -> bool) {
+        let ids: Vec<TabId> = self
+            .browser
+            .px0
+            .bound
+            .iter()
+            .filter(|(_, binding)| stale(binding))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            #[cfg(any(target_os = "macos", windows))]
+            self.browser.pages.close(id);
+            self.browser.failed.remove(&id);
+            self.browser.px0.bound.remove(&id);
+        }
+    }
+
     pub(super) fn render_px0_status(
         &self,
         failure: Option<SharedString>,
@@ -199,11 +219,7 @@ impl SheprdWindow {
                         .child(fl!("browser-px0-retry"))
                         .on_click(cx.listener(|this, _, window, cx| {
                             if let Some((host, _)) = this.px0_target() {
-                                host.reset(cx);
-                                this.browser
-                                    .px0
-                                    .bound
-                                    .retain(|_, binding| binding.host != host);
+                                this.restart_px0(&host, cx);
                             }
                             this.ensure_px0_page(window, cx);
                             cx.notify();

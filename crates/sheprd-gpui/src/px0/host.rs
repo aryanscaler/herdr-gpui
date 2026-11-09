@@ -30,6 +30,9 @@ enum Slot {
 /// The workbenches on the hosts, by SSH target.
 #[derive(Default)]
 pub(crate) struct Hosts {
+    /// Workers a Retry replaced, stopping; the next start on their host
+    /// waits for them.
+    retired: HashMap<String, worker::Worker>,
     slots: HashMap<String, Slot>,
     quitting: bool,
 }
@@ -44,6 +47,7 @@ impl Hosts {
         cx.on_app_quit(|cx| {
             let hosts = cx.global_mut::<Self>();
             hosts.quitting = true;
+            let retired = hosts.retired.drain().map(|(_, worker)| worker);
             let workers: Vec<_> = hosts
                 .slots
                 .drain()
@@ -51,6 +55,7 @@ impl Hosts {
                     Slot::Running(worker) => Some(worker),
                     Slot::Known(_) => None,
                 })
+                .chain(retired)
                 .collect();
             cx.background_executor().spawn(async move {
                 for worker in workers {
@@ -73,7 +78,8 @@ impl Hosts {
         if hosts.quitting || hosts.slots.contains_key(target) {
             return;
         }
-        let slot = match worker::Worker::start(target.to_owned()) {
+        let previous = cx.global_mut::<Self>().retired.remove(target);
+        let slot = match worker::Worker::start(target.to_owned(), previous) {
             Ok(worker) => {
                 tracing::info!(target, "Starting px0 on a host");
                 Slot::Running(worker)
@@ -97,11 +103,16 @@ impl Hosts {
     }
 
     /// Forgets `target`'s workbench, so the next [`Self::want`] starts it
-    /// again. Dropping its worker only asks it to stop: its own thread ends
-    /// the `ssh`, which stops a workbench the script started.
+    /// again. Its worker is asked to stop and kept, so that start first waits
+    /// for it to end the `ssh`, which stops a workbench the script started.
     pub(crate) fn reset(cx: &mut App, target: &str) {
-        if cx.has_global::<Self>() {
-            cx.global_mut::<Self>().slots.remove(target);
+        if !cx.has_global::<Self>() {
+            return;
+        }
+        let hosts = cx.global_mut::<Self>();
+        if let Some(Slot::Running(worker)) = hosts.slots.remove(target) {
+            worker.stop();
+            hosts.retired.insert(target.to_owned(), worker);
         }
     }
 
@@ -113,7 +124,7 @@ impl Hosts {
                 .into_iter()
                 .map(|(target, state)| (target, Slot::Known(state)))
                 .collect(),
-            quitting: false,
+            ..Self::default()
         });
     }
 }
