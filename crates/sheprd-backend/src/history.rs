@@ -68,6 +68,9 @@ pub struct ScrollMetrics {
     pub history: usize,
     /// Rows the view shows.
     pub rows: u16,
+    /// Whether the history holds all it keeps, so each new line drops the
+    /// oldest and every row counted from the top moves up one.
+    pub full: bool,
 }
 
 /// A search of the history for `query`, matched as text: case-insensitive

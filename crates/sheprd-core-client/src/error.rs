@@ -31,6 +31,8 @@ pub enum Error {
         #[source]
         source: io::Error,
     },
+    #[error(transparent)]
+    Convert(#[from] sheprd_client::herdr::convert::Error),
     #[error("the step ran out of time")]
     Expired,
     #[error(transparent)]

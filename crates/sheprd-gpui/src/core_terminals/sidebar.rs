@@ -15,11 +15,15 @@ use gpui::{prelude::*, *};
 use sheprd_backend::TerminalId;
 
 impl SheprdWindow {
-    /// The Herdr 2 rows, or nothing when the workspace has no herdr-core tab.
-    pub(crate) fn core_sidebar_rows(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let store = cx.try_global::<Store>()?;
-        let (scope, workspace) = self.browser_key()?;
-        let panes: Vec<(TabId, TerminalId)> = store
+    /// Every pane of the focused workspace's herdr-core tabs that type into
+    /// their terminals, tab by tab, as the sidebar and Go To list them.
+    pub(crate) fn listed_core_panes(&self, cx: &App) -> Vec<(TabId, TerminalId)> {
+        let (Some(store), Some((scope, workspace))) =
+            (cx.try_global::<Store>(), self.browser_key())
+        else {
+            return Vec::new();
+        };
+        store
             .in_workspace(&scope, &workspace)
             .filter_map(|tab| match &tab.location {
                 Some(Location::CoreTerminal {
@@ -34,7 +38,12 @@ impl SheprdWindow {
                     .into_iter()
                     .map(move |terminal| (tab, terminal.clone()))
             })
-            .collect();
+            .collect()
+    }
+
+    /// The Herdr 2 rows, or nothing when the workspace has no herdr-core tab.
+    pub(crate) fn core_sidebar_rows(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let panes = self.listed_core_panes(cx);
         if panes.is_empty() {
             return None;
         }
@@ -143,7 +152,7 @@ impl SheprdWindow {
 
     /// Shows `tab` with `terminal` as its pane in use, unzoomed if another
     /// pane filled it, and gives that pane the keyboard.
-    pub(super) fn show_core_pane(
+    pub(crate) fn show_core_pane(
         &mut self,
         tab: TabId,
         terminal: &TerminalId,

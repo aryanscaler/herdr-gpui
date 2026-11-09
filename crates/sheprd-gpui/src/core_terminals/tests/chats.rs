@@ -93,5 +93,5 @@ fn a_core_that_does_not_answer_reports_no_agent() {
     // Its last list stays known for the panes' chrome, but no agent in it
     // is counted until the core answers again.
     assert!(terminals.infos.get(&id("t1")).is_some());
-    assert!(terminals.reported(&id("t1")).is_none());
+    assert!(terminals.reported(&Host::Local, &id("t1")).is_none());
 }

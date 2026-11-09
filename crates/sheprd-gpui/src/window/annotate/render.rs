@@ -5,7 +5,13 @@ use crate::{config::corners, fonts::StyledFont};
 
 /// Prefer just below the selection, flip above it at the bottom edge, and
 /// clamp to the pane. Both the pill and composer use these same coordinates.
-fn placement(
+/// The note card's size in `font`: 14px padding, two 12px gaps, a 24px
+/// header, the padded input, and a 32px footer.
+pub(super) fn card_size(font: &crate::config::FontConfig) -> Size<Pixels> {
+    size(px(410.), px(132. + font.line_height()))
+}
+
+pub(super) fn placement(
     pane: Bounds<Pixels>,
     anchor: Bounds<Pixels>,
     desired: Size<Pixels>,
@@ -42,7 +48,12 @@ impl SheprdWindow {
         let surface = surface.filter(|surface| surface.popup.is_none())?;
         let composer = self.terminal_notes.composer.as_ref();
         let selection = match composer {
-            Some(composer) => &composer.selection,
+            Some(Composer {
+                source: Source::Pane { selection, .. },
+                ..
+            }) => selection,
+            // A herdr-core pane's note is drawn over that pane instead.
+            Some(_) => return None,
             None => {
                 &self
                     .terminal_notes
@@ -87,12 +98,27 @@ impl SheprdWindow {
         let mut font = self.config.ui.clone();
         font.size = font.size.max(14.);
         let desired = if composer.is_some() {
-            // 14px padding, two 12px gaps, 24px header, padded input, 32px footer.
-            size(px(410.), px(132. + font.line_height()))
+            card_size(&font)
         } else {
             size(px(font.size * 6. + 48.), px(font.line_height() + 12.))
         };
         let bounds = placement(pane_bounds, anchor, desired);
+        Some(
+            self.size_terminal_note(composer, bounds.size, &font, cx)
+                .absolute()
+                .left(bounds.left())
+                .top(bounds.top()),
+        )
+    }
+
+    /// The note card, or the offer pill, `size` large; the caller places it.
+    pub(super) fn size_terminal_note(
+        &self,
+        composer: Option<&Composer>,
+        size: Size<Pixels>,
+        font: &crate::config::FontConfig,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let theme = &self.theme;
         let content = match composer {
             Some(composer) => self.terminal_note_card(composer, cx),
@@ -134,19 +160,14 @@ impl SheprdWindow {
                         .child(fl!("window-annotate-offer")),
                 ),
         };
-        Some(
-            div()
-                .absolute()
-                .left(bounds.left())
-                .top(bounds.top())
-                .w(bounds.size.width)
-                .h(bounds.size.height)
-                .text_font(&font)
-                .text_size(px(font.size))
-                .line_height(px(font.line_height()))
-                .text_color(rgb(theme.foreground))
-                .child(content),
-        )
+        div()
+            .w(size.width)
+            .h(size.height)
+            .text_font(font)
+            .text_size(px(font.size))
+            .line_height(px(font.line_height()))
+            .text_color(rgb(theme.foreground))
+            .child(content)
     }
 
     fn terminal_note_card(&self, composer: &Composer, cx: &mut Context<Self>) -> Stateful<Div> {

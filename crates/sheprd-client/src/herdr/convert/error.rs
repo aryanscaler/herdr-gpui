@@ -17,11 +17,21 @@ pub enum Error {
     #[error("the pane runs no agent")]
     NoAgent,
     #[error(
+        "herdr-core reports no session for {}; only Claude Code's own session record can be read",
+        .0.display_name()
+    )]
+    NoCoreSession(Agent),
+    #[error(
         "Herdr reports no session for {} in this pane; run `herdr integration install {}`, then restart the agent",
         .0.display_name(),
         .0.name()
     )]
     NoSession(Agent),
+    #[error(
+        "{} is the terminal's own program, with no shell to start its chat in",
+        .0.display_name()
+    )]
+    NoShell(Agent),
     #[error("{} is not the program running in this pane", .0.display_name())]
     NotRunning(Agent),
     #[error("{} did not stop in time; it is still in its terminal", .0.display_name())]

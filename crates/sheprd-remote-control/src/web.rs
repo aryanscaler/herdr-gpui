@@ -470,7 +470,6 @@ impl IntoResponse for ApiError {
             }
             Self::Hub(crate::hub::Error::Convert(
                 crate::hub::ConvertError::AlreadyConverting
-                | crate::hub::ConvertError::Core
                 | crate::hub::ConvertError::Platform
                 | crate::hub::ConvertError::Refused(_),
             )) => StatusCode::CONFLICT,

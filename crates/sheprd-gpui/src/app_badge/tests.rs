@@ -7,6 +7,7 @@ use crate::{
 };
 use sheprd_client::ConnectTarget;
 
+mod core;
 mod locale;
 mod mutes;
 mod permission;

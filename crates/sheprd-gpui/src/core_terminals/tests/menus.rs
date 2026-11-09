@@ -38,6 +38,7 @@ fn a_pane_menu_offers_what_its_pane_can_do(cx: &mut TestAppContext) {
             Action::SplitRight,
             Action::SplitDown,
             Action::Zoom,
+            Action::MoveTo,
             Action::Mirror,
             Action::Close,
         ]
@@ -110,6 +111,147 @@ fn rename_opens_on_the_focused_tab_and_a_name_stands_over_the_title(cx: &mut Tes
     });
     let label = cx.update(|_, cx| view.read(cx).core_pane_label(tab, &id("t2"), cx).0);
     assert_ne!(label, "tests");
+}
+
+#[gpui::test]
+fn the_strip_shows_the_pane_in_use_by_name_and_a_cleared_name_goes(cx: &mut TestAppContext) {
+    let (view, cx, tab) = window_with_split(cx, &["t1", "t2"]);
+    let title = |cx: &mut gpui::VisualTestContext| {
+        cx.update(|_, cx| cx.global::<Store>().get(tab).unwrap().title.clone())
+    };
+    let opened = title(cx);
+    let pane = Target::Pane {
+        tab,
+        terminal: id("t1"),
+    };
+    cx.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.set_core_name(&pane, clean_name("api"), cx)
+        })
+    });
+    assert_eq!(title(cx), "api", "the pane in use names its tab");
+    cx.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.set_core_name(&Target::Tab(tab), clean_name("build"), cx);
+            view.set_core_name(&Target::Tab(tab), None, cx);
+            view.set_core_name(&pane, None, cx);
+        })
+    });
+    // No program title came, so the tab reads as it opened.
+    assert_eq!(title(cx), opened);
+}
+
+#[gpui::test]
+fn moving_on_from_a_named_pane_drops_its_name_from_the_strip(cx: &mut TestAppContext) {
+    let (view, cx, tab) = window_with_split(cx, &["t1", "t2"]);
+    let title = |cx: &mut gpui::VisualTestContext| {
+        cx.update(|_, cx| cx.global::<Store>().get(tab).unwrap().title.clone())
+    };
+    let opened = title(cx);
+    let pane = Target::Pane {
+        tab,
+        terminal: id("t1"),
+    };
+    cx.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.set_core_name(&pane, clean_name("api"), cx)
+        })
+    });
+    assert_eq!(title(cx), "api");
+    // t2 has no name, and its program set no title yet.
+    run(&view, cx, Command::FocusRight);
+    cx.update(|window, cx| view.update(cx, |view, cx| view.poll_core_panes(window, cx)));
+    assert_eq!(title(cx), opened);
+}
+
+#[gpui::test]
+fn closing_a_pane_while_disconnected_ends_it_once_the_core_answers(cx: &mut TestAppContext) {
+    let (view, cx, tab) = window_with_split(cx, &["t1", "t2"]);
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.close_core_pane(tab, id("t2"), window, cx)
+        })
+    });
+    let unended = cx.update(|_, cx| view.read(cx).core_terminals.unended.lock().unwrap().clone());
+    assert_eq!(unended, [(crate::core_terminals::Host::Local, id("t2"))]);
+}
+
+#[gpui::test]
+fn a_menu_left_on_a_pane_that_went_closes_nothing(cx: &mut TestAppContext) {
+    let (view, cx, tab) = window_with_split(cx, &["t1", "t2"]);
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            // t2's program ended while its menu was open.
+            view.remove_core_pane(tab, &id("t2"), window, cx);
+            view.close_core_pane(tab, id("t2"), window, cx);
+        })
+    });
+    let open = cx.update(|_, cx| cx.global::<Store>().get(tab).is_some());
+    assert!(open, "t1, the pane left, still runs in its tab");
+}
+
+#[gpui::test]
+fn closing_a_menu_gives_the_keyboard_back_to_the_pane(cx: &mut TestAppContext) {
+    let (view, cx, tab) = window_with_split(cx, &["t1", "t2"]);
+    run(&view, cx, Command::RenameTab);
+    let focused = cx.update(|window, cx| {
+        view.update(cx, |view, cx| view.dismiss_menu(window, cx));
+        let view = view.read(cx);
+        view.core_terminals.views[&(tab, id("t1"))]
+            .read(cx)
+            .focus_handle()
+            .is_focused(window)
+    });
+    assert!(focused);
+}
+
+#[gpui::test]
+fn closing_a_menu_gives_the_keyboard_back_to_what_held_it(cx: &mut TestAppContext) {
+    let (view, cx, tab) = window_with_split(cx, &["t1", "t2"]);
+    // A chat's composer over the pane, say, holds the keyboard.
+    let composer = cx.update(|window, cx| {
+        let composer = cx.focus_handle();
+        window.focus(&composer, cx);
+        composer
+    });
+    let kept = cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            let pane = Target::Pane {
+                tab,
+                terminal: id("t2"),
+            };
+            view.open_core_menu(pane, point(px(10.), px(10.)), window, cx);
+            assert_eq!(view.menu.page, Some(Page::CoreMenu));
+            view.dismiss_menu(window, cx);
+        });
+        composer.is_focused(window)
+    });
+    assert!(kept, "not the terminal behind it");
+}
+
+#[gpui::test]
+fn a_pane_that_exits_under_its_menu_hands_the_keyboard_on(cx: &mut TestAppContext) {
+    let (view, cx, tab) = window_with_split(cx, &["t1", "t2"]);
+    run(&view, cx, Command::FocusRight);
+    let focused = cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            let pane = Target::Pane {
+                tab,
+                terminal: id("t2"),
+            };
+            view.open_core_menu(pane, point(px(10.), px(10.)), window, cx);
+            // Its program exits while the menu is open.
+            assert!(view.remove_core_pane(tab, &id("t2"), window, cx));
+            view.core_terminals.views.remove(&(tab, id("t2")));
+            view.dismiss_menu(window, cx);
+        });
+        let view = view.read(cx);
+        view.core_terminals.views[&(tab, id("t1"))]
+            .read(cx)
+            .focus_handle()
+            .is_focused(window)
+    });
+    assert!(focused);
 }
 
 #[test]

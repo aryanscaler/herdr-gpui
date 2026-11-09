@@ -222,6 +222,16 @@ impl Core {
         )
     }
 
+    /// Presses `keys` in `terminal`, named as herdr-core names them
+    /// (`enter`, `ctrl+c`).
+    pub fn keys(&self, terminal: &str, keys: &[&str]) -> Result<()> {
+        self.call(
+            Method::TerminalKeys,
+            &json!({"terminal": terminal, "keys": keys}),
+        )
+        .map(drop)
+    }
+
     pub fn kill(&self, terminal: &str) -> Result<Terminal> {
         self.typed(Method::TerminalKill, &json!({"terminal": terminal}))
     }

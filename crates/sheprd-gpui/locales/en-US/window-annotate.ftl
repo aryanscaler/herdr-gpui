@@ -33,3 +33,5 @@ window-annotate-queued =
        *[other] { $count } notes queued; Enter on the next one sends them
     }
 window-annotate-stale-copied = Notes whose original daemon is not selected were copied
+window-annotate-history-moved = new output moved the selection before it was read; select it again
+window-annotate-history-unread = the selection could not be read from the scrollback

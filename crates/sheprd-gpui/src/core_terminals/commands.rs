@@ -146,6 +146,8 @@ impl SheprdWindow {
             }
             // Pane and tab commands herdr-core panes cannot run yet say so,
             // rather than reaching the Herdr pane behind them.
+            Command::MovePane if !shown.observe => self.open_core_move(tab, terminal, window, cx),
+            // A mirror's pane is renamed and moved where it types.
             Command::RenamePane | Command::MovePane => {
                 self.show_flash(Flash::warning(fl!("core-terminals-unsupported")), cx);
             }

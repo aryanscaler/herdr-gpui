@@ -1,12 +1,15 @@
 //! A deduplicated attention count across all windows, with a QA preview: the
 //! Dock badge on macOS and the taskbar overlay on Windows. Agents in a
-//! workspace or tab the user muted are not counted.
+//! workspace or tab the user muted are not counted. Herdr 2 agents count
+//! too: every window shares this computer's herdr-core, so each terminal
+//! counts once however many windows show it.
 
 use crate::{
     endpoint::Endpoint,
     notification_mutes::{Daemon, Mutes, Silenced},
 };
 use gpui::{App, BorrowAppContext, Global, WindowId};
+use sheprd_backend::TerminalId;
 use sheprd_client::ConnectTarget;
 use sheprd_client::protocol::{AgentStatus, ClientShellSnapshot};
 use std::{
@@ -24,6 +27,8 @@ struct Shown {
 
 #[derive(Default)]
 struct Contribution {
+    /// The window's herdr-core terminals whose agent needs the user.
+    core: HashSet<TerminalId>,
     snapshots: Vec<Shown>,
     /// The mutes' revision the silent panes were found under.
     mutes: u64,
@@ -129,10 +134,12 @@ impl Badge {
                 }
             }
         }
-        let count = agents
+        let core: HashSet<&TerminalId> = self
+            .windows
             .values()
-            .filter(|(_, attention)| *attention)
-            .count()
+            .flat_map(|window| &window.core)
+            .collect();
+        let count = (agents.values().filter(|(_, attention)| *attention).count() + core.len())
             .max(if self.preview { 2 } else { 0 });
         let locale = crate::i18n::shown_locale();
         if self.published != Some(count) || self.published_in != locale {
@@ -194,6 +201,18 @@ pub(super) fn sync(window: WindowId, endpoints: &[Endpoint], cx: &mut App) {
             .or_default()
             .update(shown, Mutes::of(cx));
         if changed || badge.published_in != crate::i18n::shown_locale() {
+            badge.publish();
+        }
+    });
+}
+
+/// Takes the window's herdr-core terminals whose agent needs the user.
+pub(super) fn sync_core(window: WindowId, core: HashSet<TerminalId>, cx: &mut App) {
+    cx.default_global::<Badge>();
+    cx.update_global::<Badge, _>(|badge, _| {
+        let contribution = badge.windows.entry(window).or_default();
+        if contribution.core != core {
+            contribution.core = core;
             badge.publish();
         }
     });

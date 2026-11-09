@@ -91,6 +91,12 @@ pub enum StatusState {
     Other,
 }
 
+/// The refusal kind of a send to a program that waits on the user.
+pub const BLOCKED: &str = "blocked";
+
+/// The refusal kind of a send whose `if` status no longer holds.
+pub const STATUS_MISMATCH: &str = "status_mismatch";
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct List {
     #[serde(default)]
@@ -185,6 +191,11 @@ pub struct SendText<'a> {
     /// Type even while the program is blocked on a dialog.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub force: bool,
+    /// Type only while the program reports exactly this status (`idle` or
+    /// `working`), checked by the core as it types; refused with
+    /// [`STATUS_MISMATCH`] otherwise.
+    #[serde(rename = "if", skip_serializing_if = "Option::is_none")]
+    pub only_if: Option<&'a str>,
     pub terminal: &'a str,
     pub text: &'a str,
 }

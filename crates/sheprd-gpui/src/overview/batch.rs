@@ -58,7 +58,7 @@ impl SheprdWindow {
             .map(|row| (row.key.clone(), row.state))
             .collect();
         let settled = targets.clone();
-        let replies = rows.iter().any(|row| row.pane().is_some());
+        let replies = rows.iter().any(|row| row.reply_pane().is_some());
         let mut bar = div()
             .debug_selector(|| "overview-batch".into())
             .relative()

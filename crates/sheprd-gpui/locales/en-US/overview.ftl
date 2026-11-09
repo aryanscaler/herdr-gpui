@@ -124,3 +124,5 @@ overview-reply-not-queued = { $count ->
 overview-alert-gone = That pane is no longer there
 # The Notification History command, when no host kept an alert yet.
 overview-alerts-empty = No alerts yet
+# The host a Herdr 2 agent row names when no Herdr 1 runs on this computer.
+overview-core-host = This computer

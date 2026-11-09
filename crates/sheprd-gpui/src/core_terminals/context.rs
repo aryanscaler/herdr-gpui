@@ -7,6 +7,13 @@
 //! and be targeted as, a pane it is not in. Every spawn therefore names its
 //! Herdr identity outright: the workspace and daemon of a Herdr workspace it
 //! opens in, and no pane or tab, which herdr-core terminals are not.
+//!
+//! On a saved host a terminal starts in that host's folders but names no
+//! Herdr workspace: its daemon's API socket lies under that host's home,
+//! which this computer does not know, and a spawn cannot clear an inherited
+//! `HERDR_SOCKET_PATH`, which would win over a session named beside it. A
+//! workspace the app keeps names none either: its terminals are found by
+//! `HC_TERMINAL_ID` and the tab that holds them.
 
 use super::{Host, Purpose};
 use crate::{SheprdWindow, browser::Shown};
@@ -72,8 +79,8 @@ impl SheprdWindow {
     /// Gives `spawn` the folder and Herdr variables of where `purpose` opens
     /// it: a split starts where the pane it splits is, a tab in its
     /// workspace's folder. A saved host's core knows none of this
-    /// computer's folders or daemons, so there a split alone names a folder,
-    /// its pane's on that host.
+    /// computer's folders or daemons, so there the folders are that host's
+    /// own and no Herdr workspace is named.
     pub(super) fn give_core_context(
         &self,
         purpose: &Purpose,
@@ -81,15 +88,17 @@ impl SheprdWindow {
         spawn: &mut Spawn,
         cx: &App,
     ) {
-        if let Host::Remote(_) = host {
-            let beside = match purpose {
+        if let Host::Remote(scope) = host {
+            let folder = match purpose {
                 Purpose::Split { tab, at, .. } => self
                     .core_terminals
                     .info(*tab, at)
                     .and_then(|info| info.cwd.clone()),
-                Purpose::Tab { .. } => None,
+                Purpose::Tab { workspace, .. } => {
+                    self.remote_workspace_folder(scope, workspace, cx)
+                }
             };
-            apply(spawn, beside, None);
+            apply(spawn, folder, None);
             return;
         }
         let workspace = match purpose {
@@ -178,5 +187,32 @@ impl SheprdWindow {
             api_socket: api_socket(&client)?,
             workspace,
         })
+    }
+
+    /// The folder a new tab in `workspace` of the saved host `scope` starts
+    /// in, on that host: a kept workspace's own, else the one its Herdr
+    /// workspace started in.
+    fn remote_workspace_folder(
+        &self,
+        scope: &crate::browser::Scope,
+        workspace: &str,
+        cx: &App,
+    ) -> Option<PathBuf> {
+        if let Some(kept) = cx
+            .try_global::<crate::browser::Store>()
+            .and_then(|store| store.kept_workspace(scope, workspace))
+        {
+            return (!kept.cwd.is_empty()).then(|| PathBuf::from(&kept.cwd));
+        }
+        let index = self.endpoint_of_scope(scope)?;
+        let snapshot = self.live_at(index).snapshot.as_deref()?;
+        crate::palette::launch_root(snapshot, workspace).map(PathBuf::from)
+    }
+
+    /// The endpoint whose workspaces `scope` names.
+    fn endpoint_of_scope(&self, scope: &crate::browser::Scope) -> Option<usize> {
+        self.endpoints
+            .iter()
+            .position(|endpoint| crate::browser::scope(endpoint) == *scope)
     }
 }

@@ -3,6 +3,7 @@
 
 mod chats;
 mod checkouts;
+mod convert;
 mod create;
 pub(super) use create::Place;
 mod error;

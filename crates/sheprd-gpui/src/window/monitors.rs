@@ -65,15 +65,35 @@ impl SheprdWindow {
         // stand-in workspace, when that host is this computer.
         let fallback = (!self.selected_is_remote())
             .then(|| crate::browser::scope(&self.endpoints[self.selected_endpoint]));
-        changed |= self
-            .listening_ports
-            .place_terminals(self.core_terminals.terminal_workspaces(fallback));
+        let places = self
+            .core_terminals
+            .terminal_workspaces(fallback)
+            .into_iter()
+            .filter_map(|(host, terminal, place)| {
+                Some((self.scanned_host(&host)?, terminal, place))
+            })
+            .collect();
+        changed |= self.listening_ports.place_terminals(places);
         // A tunnel lives as long as its remote port is listed at the address
         // it dials and its SSH child runs; either ending removes its close
         // button.
         let ports = &self.listening_ports;
         let closed = self.tunnels.retain(|key| ports.tunnels_to(key));
         changed || closed
+    }
+
+    /// The host whose port scan finds the listeners of `host`'s core: this
+    /// computer, or the machine the saved device reaches, while that one is
+    /// a device. A cloud machine is not scanned.
+    fn scanned_host(&self, host: &crate::core_terminals::Host) -> Option<crate::usage::Host> {
+        match host {
+            crate::core_terminals::Host::Local => Some(crate::usage::Host::Local),
+            crate::core_terminals::Host::Remote(scope) => self
+                .endpoints
+                .iter()
+                .find(|endpoint| crate::browser::scope(endpoint) == *scope)
+                .and_then(|endpoint| crate::usage::Host::of(&endpoint.connection.target)),
+        }
     }
 
     /// This computer's ports are listed while the Ports section is shown,
@@ -88,8 +108,8 @@ impl SheprdWindow {
     }
 
     /// The machines background monitors watch: this one always, a remote
-    /// host while it is connected, so a dropped host is not dialled every
-    /// few seconds.
+    /// host while its Herdr 1 or its herdr-core is connected, so a dropped
+    /// host is not dialled every few seconds.
     pub(super) fn watched_hosts(&self) -> Vec<crate::usage::Host> {
         self.connected_hosts(crate::usage::Host::of)
     }
@@ -110,8 +130,13 @@ impl SheprdWindow {
                 } else {
                     &endpoint.live
                 };
+                // A host whose core answers while its Herdr 1 does not
+                // keeps workspaces too, with ports and load of its own.
+                let core = crate::core_terminals::Host::of(&crate::browser::scope(endpoint));
                 endpoint.enabled
-                    && (live.status.is_connected() || !endpoint.connection.target.is_remote())
+                    && (live.status.is_connected()
+                        || !endpoint.connection.target.is_remote()
+                        || self.core_terminals.answers(&core))
             })
             .filter_map(|(_, endpoint)| host(&endpoint.connection.target))
             .collect()

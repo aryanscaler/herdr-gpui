@@ -15,7 +15,7 @@ use sheprd_client::protocol::CellData;
 
 use crate::core_terminals::CoreTerminalView;
 
-fn frame(width: u16, height: u16) -> FrameData {
+pub(super) fn frame(width: u16, height: u16) -> FrameData {
     let blank = CellData {
         symbol: " ".into(),
         fg: 0,
@@ -36,7 +36,9 @@ fn frame(width: u16, height: u16) -> FrameData {
 
 /// A view showing a ten-column, three-row screen under seven lines of
 /// history, at text revision 4.
-fn shown(cx: &mut TestAppContext) -> (Entity<CoreTerminalView>, &mut VisualTestContext, Scripted) {
+pub(super) fn shown(
+    cx: &mut TestAppContext,
+) -> (Entity<CoreTerminalView>, &mut VisualTestContext, Scripted) {
     let backend = Scripted::default();
     backend.push(vec![
         SurfaceUpdate::Frame(frame(10, 3)),
@@ -45,20 +47,28 @@ fn shown(cx: &mut TestAppContext) -> (Entity<CoreTerminalView>, &mut VisualTestC
                 offset: 0,
                 history: 7,
                 rows: 3,
+                full: false,
             },
             revision: 4,
         },
     ]);
     let (view, cx, _) = open_on(cx, backend.clone(), false);
+    // Releasing a selection copies nothing here, so a test's history reads
+    // are only the ones it asks for.
+    let quiet = crate::core_terminals::Look {
+        copy_on_select: false,
+        ..super::accessibility::look()
+    };
+    cx.update(|_, cx| view.update(cx, |view, cx| view.set_look(quiet, cx)));
     until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)))
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)))
             .then_some(())
     });
     (view, cx, backend)
 }
 
 /// The history requests the terminal received, once `count` arrived.
-fn requests(backend: &Scripted, count: usize) -> Vec<History> {
+pub(super) fn requests(backend: &Scripted, count: usize) -> Vec<History> {
     until(|| {
         let requests: Vec<History> = backend
             .received
@@ -74,7 +84,7 @@ fn requests(backend: &Scripted, count: usize) -> Vec<History> {
     })
 }
 
-fn point(row: u32, col: u16) -> TextPoint {
+pub(super) fn point(row: u32, col: u16) -> TextPoint {
     TextPoint { row, col }
 }
 
@@ -107,7 +117,7 @@ fn find_searches_the_views_history_and_shows_its_match(cx: &mut TestAppContext) 
     };
     assert_eq!(first.query, "f");
     let search = until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)));
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)));
         requests(&backend, 1).get(1).cloned()
     });
     // The bar searches upward from the bottom of what the view shows.
@@ -119,7 +129,7 @@ fn find_searches_the_views_history_and_shows_its_match(cx: &mut TestAppContext) 
     assert_eq!(search.cursor, point(10, 0));
     // The match is above the screen, so the view scrolls to center it.
     let scrolled = until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)));
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)));
         requests(&backend, 1).get(2).cloned()
     });
     assert_eq!(scrolled, History::ScrollTo { offset: 6 });
@@ -130,13 +140,14 @@ fn find_searches_the_views_history_and_shows_its_match(cx: &mut TestAppContext) 
             offset: 6,
             history: 7,
             rows: 3,
+            full: false,
         },
         revision: 4,
     }]);
     let highlights = until(|| {
-        cx.update(|_, cx| {
+        cx.update(|window, cx| {
             view.update(cx, |view, cx| {
-                view.poll(cx);
+                view.poll(window, cx);
                 let highlights = view.find_highlights();
                 (!highlights.is_empty()).then_some(highlights)
             })
@@ -174,9 +185,9 @@ fn editing_reads_the_whole_text_once(cx: &mut TestAppContext) {
     cx.update(|_, cx| view.update(cx, |view, _| view.request_edit()));
     assert_eq!(requests(&backend, 1), vec![History::Text]);
     let text = until(|| {
-        cx.update(|_, cx| {
+        cx.update(|window, cx| {
             view.update(cx, |view, cx| {
-                view.poll(cx);
+                view.poll(window, cx);
                 view.take_edit()
             })
         })

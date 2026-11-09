@@ -56,10 +56,12 @@ impl Localize for ConvertError {
             Self::AlreadyConverting => fl!("error-chat-convert-already-converting"),
             Self::Answer(_) => fl!("error-chat-convert-answer"),
             Self::Convert(error) => error.localize(),
+            Self::Core(error) => fl!("error-chat-convert-core", error = error.to_string()),
             Self::Disabled => fl!("error-chat-start-disabled"),
             // Discovery's own diagnostics, which have no message of their own.
             Self::Existing(error) => error.to_string(),
             Self::HostProgram(_) => fl!("error-chat-convert-host-program"),
+            Self::NoHome => fl!("error-chat-convert-no-home"),
             Self::NotConnected => fl!("error-chat-start-not-connected"),
             Self::NotReachable => fl!("error-chat-convert-not-reachable"),
             Self::Program(error) => error.localize(),
@@ -80,12 +82,19 @@ impl Localize for sheprd_client::herdr::convert::Error {
             Self::Line => fl!("error-chat-convert-line"),
             Self::Moved => fl!("error-chat-convert-moved"),
             Self::NoAgent => fl!("error-chat-convert-no-agent"),
+            Self::NoCoreSession(agent) => fl!(
+                "error-chat-convert-no-core-session",
+                agent = agent.display_name()
+            ),
             Self::NoSession(agent) => {
                 fl!(
                     "error-chat-convert-no-session",
                     agent = agent.display_name(),
                     command = agent.name()
                 )
+            }
+            Self::NoShell(agent) => {
+                fl!("error-chat-convert-no-shell", agent = agent.display_name())
             }
             Self::NotRunning(agent) => {
                 fl!(

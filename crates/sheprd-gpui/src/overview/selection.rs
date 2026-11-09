@@ -15,7 +15,7 @@ pub(crate) enum Pick {
 
 impl Row {
     pub(crate) fn pick(&self) -> Pick {
-        match self.pane() {
+        match self.reply_pane() {
             Some((endpoint, pane)) => Pick::Pane {
                 endpoint: endpoint.to_owned(),
                 pane: pane.to_owned(),

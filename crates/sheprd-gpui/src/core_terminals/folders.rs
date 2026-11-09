@@ -45,24 +45,25 @@ impl CoreTerminals {
         self.tabs.get(&tab)?.workspace.as_ref()
     }
 
-    /// Each terminal of this computer's core the window shows and the
-    /// workspace it is in, by address, for what names a terminal but not
-    /// its workspace: the terminals of its tabs, and the shell shown in
-    /// place of Herdr 1, in the workspace that stands in for Herdr's. A
-    /// saved host's terminals run elsewhere, and their addresses mean
-    /// nothing here.
+    /// Each terminal the window shows, by its core and its address there,
+    /// and the workspace it is in, for what names a terminal but not its
+    /// workspace: the terminals of its tabs, and the shell shown in place of
+    /// Herdr 1, in the workspace that stands in for Herdr's. A saved host's
+    /// terminals are named with that host, as the same address there is
+    /// another terminal than here.
     ///
     /// Each workspace is named with the daemon whose tabs hold it, and the
     /// shell's with `fallback`, the daemon of the host the window shows.
     pub(crate) fn terminal_workspaces(
         &self,
         fallback: Option<Scope>,
-    ) -> Vec<(String, crate::listening_ports::Place)> {
+    ) -> Vec<(super::Host, String, crate::listening_ports::Place)> {
         let fallback = self
             .fallback_terminal()
             .zip(fallback)
             .map(|(terminal, scope)| {
                 (
+                    super::Host::Local,
                     terminal.as_str().to_owned(),
                     (scope, super::WORKSPACE.to_owned()),
                 )
@@ -73,7 +74,6 @@ impl CoreTerminals {
         let mut tabs: Vec<_> = self
             .tabs
             .iter()
-            .filter(|(_, shown)| shown.host == super::Host::Local)
             .filter_map(|(id, shown)| Some((shown.observe, *id, shown, shown.workspace.as_ref()?)))
             .collect();
         tabs.sort_unstable_by_key(|(observe, id, ..)| (*observe, *id));
@@ -84,7 +84,11 @@ impl CoreTerminals {
                 places.push(shell);
             }
             for terminal in shown.panes.terminals() {
-                places.push((terminal.as_str().to_owned(), place.clone()));
+                places.push((
+                    shown.host.clone(),
+                    terminal.as_str().to_owned(),
+                    place.clone(),
+                ));
             }
         }
         places.extend(fallback);

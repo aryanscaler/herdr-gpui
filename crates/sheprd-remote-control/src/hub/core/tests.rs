@@ -122,6 +122,7 @@ mod socket {
     };
 
     mod chat_recovery;
+    mod convert;
     mod holds;
     mod new_work;
     mod recovery;

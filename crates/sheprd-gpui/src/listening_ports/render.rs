@@ -68,11 +68,16 @@ impl SheprdWindow {
     }
 
     /// The ports `workspace` of endpoint `index` listens on: its Herdr
-    /// panes', else, on this computer, its herdr-core terminals'.
+    /// panes', else its herdr-core terminals', on this computer or the
+    /// saved host the endpoint reaches.
     pub(crate) fn listed_ports(&self, index: usize, workspace: &str) -> Option<super::Listed<'_>> {
-        let target = &self.endpoints.get(index)?.connection.target;
-        let daemon = super::Daemon::of(target)?;
-        self.listening_ports.get(&daemon, workspace)
+        let endpoint = self.endpoints.get(index)?;
+        super::Daemon::of(&endpoint.connection.target)
+            .and_then(|daemon| self.listening_ports.get(&daemon, workspace))
+            .or_else(|| {
+                let scope = crate::browser::scope(endpoint);
+                self.listening_ports.core_ports(&scope, workspace)
+            })
     }
 
     /// The workspace a window with no Herdr state shows, when it is one of

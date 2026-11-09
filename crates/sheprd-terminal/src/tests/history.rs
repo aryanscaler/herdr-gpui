@@ -252,3 +252,17 @@ fn output_resizes_and_clears_advance_the_revision() {
     emulator.resize(size(12, 3));
     assert_eq!(emulator.revision(), start + 2);
 }
+
+#[test]
+fn a_history_is_full_once_it_holds_all_it_keeps() {
+    let mut emulator = Emulator::new(Size::new(20, 3).unwrap(), 4);
+    emulator.feed(b"a\r\nb\r\nc\r\nd\r\ne\r\nf");
+    let metrics = emulator.scroll_metrics();
+    assert_eq!((metrics.history, metrics.full), (3, false));
+    emulator.feed(b"\r\ng");
+    let metrics = emulator.scroll_metrics();
+    assert_eq!((metrics.history, metrics.full), (4, true));
+    // Another line drops the oldest; the history stays full.
+    emulator.feed(b"\r\nh");
+    assert!(emulator.scroll_metrics().full);
+}

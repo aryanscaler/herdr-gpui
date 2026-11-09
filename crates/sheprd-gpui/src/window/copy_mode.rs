@@ -12,7 +12,7 @@
 use super::SheprdWindow;
 use crate::i18n::{Localize, fl};
 use crate::{
-    copy_mode::{Command, CopyMode, Outcome, Request},
+    copy_mode::{Command, CopyMode, Outcome, Request, badge},
     scrollback::Inbox,
     search_input::SearchInput,
     terminal_painter::Highlight,
@@ -500,56 +500,22 @@ impl SheprdWindow {
             .justify_end()
             .px(px(6.));
         if let Some(prompt) = &state.prompt {
-            let marker = match prompt.direction {
-                SearchDirection::Forward => "/",
-                SearchDirection::Backward => "?",
-            };
-            return Some(
-                corner.top(px(bottom - 44.)).child(
-                    div()
-                        .id("copy-search")
-                        .debug_selector(|| "copy-search".into())
-                        .occlude()
-                        .min_w_0()
-                        .w(px(280.))
-                        .flex_shrink(1.)
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .p(px(4.))
-                        .rounded(px(crate::config::corners::CONTROL))
-                        .border_1()
-                        .border_color(rgb(theme.active))
-                        .bg(rgb(theme.surface))
-                        .text_color(rgb(theme.foreground))
-                        .text_size(px(self.config.ui.size))
-                        .shadow_md()
-                        .on_key_down(cx.listener(Self::copy_search_key_down))
-                        .child(div().flex_none().px(px(4.)).child(marker))
-                        .child(div().flex_1().min_w_0().child(prompt.input.clone())),
-                ),
-            );
+            return Some(corner.top(px(bottom - 44.)).child(badge::prompt(
+                &prompt.input,
+                prompt.direction,
+                theme,
+                self.config.ui.size,
+                cx.listener(Self::copy_search_key_down),
+            )));
         }
         let label = state.mode.search_label().map_or_else(
             || fl!("window-find-copy-mode"),
             |search| fl!("window-find-copy-mode-search", search = search),
         );
         Some(
-            corner.top(px(bottom - 32.)).child(
-                div()
-                    .debug_selector(|| "copy-mode".into())
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .px(px(8.))
-                    .py(px(2.))
-                    .rounded(px(crate::config::corners::CONTROL))
-                    .bg(rgb(theme.palette[3]))
-                    .text_color(rgb(theme.text_on(theme.palette[3])))
-                    .text_size(px(self.config.ui.size))
-                    .child(label),
-            ),
+            corner
+                .top(px(bottom - 32.))
+                .child(badge::label(label, theme, self.config.ui.size)),
         )
     }
 }

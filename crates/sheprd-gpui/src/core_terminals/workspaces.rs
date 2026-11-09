@@ -1,7 +1,9 @@
 //! The workspaces the app keeps for Herdr 2 terminals: which one is in
 //! front, and creating, renaming, closing, and moving them. herdr-core has
 //! no workspaces, so these are the app's own, saved with its tabs
-//! (`browser::Store`), and shown beside Herdr 1's on this computer.
+//! (`browser::Store`) under the scope of the host whose core runs their
+//! terminals, and shown beside Herdr 1's: on this computer, or on a saved
+//! SSH, cloud, or WSL host.
 
 use super::{Host, Purpose, WORKSPACE};
 use crate::{
@@ -19,15 +21,13 @@ impl SheprdWindow {
     /// The kept workspace in front of the selected host, if one is: the one
     /// the user last chose, or with no Herdr 1 installed, the first.
     pub(crate) fn kept_in_front(&self) -> Option<&str> {
-        let (scope, session) = self.core_terminals.session.as_ref()?;
-        if *scope != scope_of(self) {
-            return None;
-        }
+        let scope = scope_of(self);
+        let session = self.core_terminals.session_of(&scope)?;
         let chosen = self
             .core_terminals
             .in_front
             .as_ref()
-            .filter(|(chosen, _)| chosen == scope)
+            .filter(|(chosen, _)| *chosen == scope)
             .and_then(|(_, id)| session.workspace(id));
         let chosen = match chosen {
             Some(workspace) => Some(workspace),
@@ -40,11 +40,8 @@ impl SheprdWindow {
     /// Whether `id` is a workspace the app keeps on the selected host.
     pub(crate) fn is_kept_workspace(&self, id: &str) -> bool {
         self.core_terminals
-            .session
-            .as_ref()
-            .is_some_and(|(scope, session)| {
-                *scope == scope_of(self) && session.workspace(id).is_some()
-            })
+            .session_of(&scope_of(self))
+            .is_some_and(|session| session.workspace(id).is_some())
     }
 
     /// Brings a kept workspace to the front; whether it is one.
@@ -64,8 +61,9 @@ impl SheprdWindow {
         self.core_terminals.in_front = None;
     }
 
-    /// Keeps a new workspace on this computer, brings it to the front, and
-    /// starts a shell in a tab of it, in `cwd` when given.
+    /// Keeps a new workspace on the selected host, brings it to the front,
+    /// and starts a shell in a tab of it, in `cwd` when given: a folder on
+    /// that host.
     pub(crate) fn new_kept_workspace(
         &mut self,
         label: Option<&str>,
@@ -105,16 +103,17 @@ impl SheprdWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<String> {
+        let scope = scope_of(self);
+        let host = Host::of(&scope);
         let Some(id) = self.keep_new_workspace(label, Some(cwd), cx) else {
-            self.end_location(&location);
+            self.end_location(&host, &location);
             return None;
         };
-        let scope = scope_of(self);
         let shown = location.clone();
         let tab = Store::update(cx, |store| store.open(scope, &id, Some(shown), None));
         let Some(tab) = tab else {
             self.close_kept_workspace(&id, window, cx);
-            self.end_location(&location);
+            self.end_location(&host, &location);
             self.show_flash(Flash::warning(fl!("core-terminals-too-many-tabs")), cx);
             return None;
         };
@@ -123,9 +122,9 @@ impl SheprdWindow {
         Some(id)
     }
 
-    /// Ends the herdr-core terminals `location` drives; a mirror only
-    /// watches.
-    fn end_location(&self, location: &Location) {
+    /// Ends the herdr-core terminals `location` drives on `host`'s core; a
+    /// mirror only watches.
+    fn end_location(&self, host: &Host, location: &Location) {
         if let Location::CoreTerminal {
             panes,
             observe: false,
@@ -133,7 +132,7 @@ impl SheprdWindow {
         } = location
         {
             for terminal in panes.terminals() {
-                self.end_core_terminal(&Host::Local, terminal.clone());
+                self.end_core_terminal(host, terminal.clone());
             }
         }
     }
@@ -180,12 +179,8 @@ impl SheprdWindow {
 
     /// The kept workspace on the selected host whose folder is `cwd`.
     pub(crate) fn kept_workspace_at(&self, cwd: &Path) -> Option<String> {
-        let (_, session) = self
-            .core_terminals
-            .session
-            .as_ref()
-            .filter(|(scope, _)| *scope == scope_of(self))?;
-        session
+        self.core_terminals
+            .session_of(&scope_of(self))?
             .workspaces
             .iter()
             .find(|workspace| !workspace.cwd.is_empty() && Path::new(&workspace.cwd) == cwd)
@@ -200,14 +195,14 @@ impl SheprdWindow {
         cwd: Option<&Path>,
         cx: &mut Context<Self>,
     ) -> Option<String> {
-        if self.selected_is_remote() {
+        let scope = scope_of(self);
+        if self.core_terminals.lacks_core(&Host::of(&scope)) {
             self.show_flash(
-                Flash::warning(fl!("core-terminals-workspaces-local-only")),
+                Flash::warning(fl!("core-terminals-workspaces-need-core")),
                 cx,
             );
             return None;
         }
-        let scope = scope_of(self);
         let folder = cwd.map(|cwd| cwd.display().to_string());
         let named = cwd
             .and_then(|cwd| cwd.file_name())
@@ -256,9 +251,10 @@ impl SheprdWindow {
         cx: &mut Context<Self>,
     ) {
         let scope = scope_of(self);
+        let host = Host::of(&scope);
         let tabs = Store::update(cx, |store| store.forget_kept(&scope, id));
         for location in tabs.iter().filter_map(|tab| tab.location.as_ref()) {
-            self.end_location(location);
+            self.end_location(&host, location);
         }
         self.forget_browser_tabs(|gone| tabs.iter().any(|tab| tab.id == gone));
         if self
@@ -273,6 +269,30 @@ impl SheprdWindow {
         self.refresh_core_session(cx);
         window.focus(&self.focus, cx);
         cx.notify();
+    }
+
+    /// Closes the kept workspace `id` of `scope` when it has no tab left,
+    /// as when the first terminal it was made for could not start.
+    pub(super) fn forget_empty_kept_workspace(
+        &mut self,
+        scope: &Scope,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let empty = cx.try_global::<Store>().is_some_and(|store| {
+            store.kept_workspace(scope, id).is_some()
+                && store.in_workspace(scope, id).next().is_none()
+        });
+        if !empty {
+            return;
+        }
+        if *scope == scope_of(self) {
+            self.close_kept_workspace(id, window, cx);
+            return;
+        }
+        Store::update(cx, |store| store.forget_kept(scope, id));
+        self.refresh_core_session(cx);
     }
 
     /// Moves a kept workspace beside another of the selected host's.

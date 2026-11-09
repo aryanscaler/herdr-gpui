@@ -94,7 +94,7 @@ fn effects_of_a_view(cx: &mut gpui::TestAppContext, observe: bool) -> (Effects, 
     ]);
     let (view, cx, _) = super::accessibility::open_on(cx, backend, observe);
     until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)))
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)))
             .then_some(())
     });
     cx.update(|_, cx| view.update(cx, |view, _| (view.take_effects(), view.take_effects())))

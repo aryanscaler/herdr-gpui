@@ -19,6 +19,25 @@ use sheprd_backend::{Backend as _, Role, Size, TerminalId};
 /// The size a terminal starts at, before its pane is laid out.
 const FIRST_SIZE: (u16, u16) = (80, 24);
 
+/// Kills that did not reach their core, kept for the whole app rather than
+/// one window: a pane closed while disconnected leaves its window's saved
+/// layout and the shared ending queue, so if its window closes before the
+/// core answers, only another window holding the same list can end it.
+#[derive(Clone, Default)]
+struct Unended(std::sync::Arc<std::sync::Mutex<Vec<crate::browser::Ending>>>);
+
+impl Global for Unended {}
+
+impl super::CoreTerminals {
+    /// A window's herdr-core state, sharing the app's unended kills.
+    pub(crate) fn shared(cx: &mut App) -> Self {
+        Self {
+            unended: std::sync::Arc::clone(&cx.default_global::<Unended>().0),
+            ..Self::default()
+        }
+    }
+}
+
 impl SheprdWindow {
     /// Gives every pane of the focused workspace's herdr-core tabs a view,
     /// once the hub is connected, and drops the views of closed tabs and
@@ -60,6 +79,7 @@ impl SheprdWindow {
         };
         let mut missing: Vec<(TabId, TerminalId, Role, Host)> = Vec::new();
         let mut overflow = Vec::new();
+        let mut emptied = Vec::new();
         for tab in store.in_workspace(&scope, &workspace) {
             let Some(location) = &tab.location else {
                 continue;
@@ -78,7 +98,11 @@ impl SheprdWindow {
             // Each window holds its own copy: one another window saved over
             // is read again, names and all, before this one can save.
             if shown.saved.as_ref() != Some(location) {
-                overflow.extend(shown.refresh(location));
+                let left = shown.refresh(location);
+                overflow.extend(left.overflow);
+                if left.emptied {
+                    emptied.push(tab.id);
+                }
             }
             if shown.workspace.is_none() {
                 shown.workspace = Some((scope.clone(), workspace.clone()));
@@ -107,6 +131,12 @@ impl SheprdWindow {
                         (tab.id, terminal.clone(), role, shown.host.clone())
                     }),
             );
+        }
+        // Each window closed the other's last pane: the tab goes, as one
+        // whose last pane closed does.
+        for tab in emptied {
+            self.core_terminals.tabs.remove(&tab);
+            Store::update(cx, |store| store.close(tab));
         }
         // Panes another window opened in a tab this one filled meanwhile
         // run on in a tab of their own rather than in none.
@@ -275,20 +305,13 @@ impl SheprdWindow {
             .tabs
             .iter()
             .filter_map(|(tab, shown)| {
-                // A name the user gave stands over the program's title.
-                if let Some(name) = &shown.name {
-                    return Some((*tab, name.clone()));
-                }
-                let view = self
-                    .core_terminals
-                    .views
-                    .get(&(*tab, shown.active.clone()))?;
-                // Without a title of its program's, the tab's default stands,
-                // so a name the user cleared does not linger.
-                let title = view
-                    .read(cx)
-                    .title()
-                    .map_or_else(|| shown.location().default_title(), str::to_owned);
+                let title = self.core_tab_title(*tab, shown, cx);
+                // A pane's name left over from when it was in use goes, even
+                // before the pane now in use has a title of its own.
+                let shown_title = store_title(*tab, cx);
+                let stale = shown_title
+                    .is_some_and(|title| shown.names.values().any(|name| *name == title));
+                let title = title.or_else(|| stale.then(|| shown.location().default_title()))?;
                 Some((*tab, title))
             })
             .collect();
@@ -301,6 +324,20 @@ impl SheprdWindow {
                 Store::update(cx, |store| store.visited(tab, None, Some(&title)));
             }
         }
+    }
+
+    /// What `tab`'s strip shows: the name the user gave the tab, else that
+    /// of its pane in use, else the title its program set, if any.
+    pub(super) fn core_tab_title(&self, tab: TabId, shown: &TabPanes, cx: &App) -> Option<String> {
+        (shown.name.clone())
+            .or_else(|| shown.names.get(&shown.active).cloned())
+            .or_else(|| {
+                let view = self
+                    .core_terminals
+                    .views
+                    .get(&(tab, shown.active.clone()))?;
+                view.read(cx).title().map(str::to_owned)
+            })
     }
 
     /// Puts a started terminal of `host`'s core beside `at` in `tab`, and
@@ -393,10 +430,14 @@ impl SheprdWindow {
     /// Ends a terminal of `host`'s core on a worker thread, so herdr-core's
     /// answer is never awaited on the UI thread.
     pub(super) fn end_core_terminal(&self, host: &Host, terminal: TerminalId) {
+        let unended = std::sync::Arc::clone(&self.core_terminals.unended);
+        // Not connected: it ends once its core answers again.
         let Some(backend) = self.core_terminals.backend_of(host).cloned() else {
+            if let Ok(mut unended) = unended.lock() {
+                unended.push((host.clone(), terminal));
+            }
             return;
         };
-        let unended = std::sync::Arc::clone(&self.core_terminals.unended);
         let host = host.clone();
         let ended = std::thread::Builder::new()
             .name("herdr-core-kill".into())
@@ -421,12 +462,34 @@ impl SheprdWindow {
     /// Ends the terminals of closed tabs, joining the core to do it when
     /// the window is not connected yet.
     pub(super) fn end_closed_core_terminals(&mut self, cx: &mut Context<Self>) {
+        // Panes closed, or kills sent, while their core did not answer. They
+        // wait here rather than with closed tabs, whose queue passes over a
+        // terminal a saved layout still holds, as a pane just closed is
+        // until its tab saves.
         let unended = match self.core_terminals.unended.lock() {
             Ok(mut unended) => std::mem::take(&mut *unended),
             Err(_) => Vec::new(),
         };
-        if !unended.is_empty() {
-            Store::update(cx, |store| store.end_terminals(unended));
+        // A host this window cannot reach yet, as before its saved devices
+        // load, keeps its kills for a window that can.
+        let mut unreached = Vec::new();
+        for (host, terminal) in unended {
+            if self.core_terminals.backend_of(&host).is_none()
+                && let Some(hub) = self.core_hub(&host)
+            {
+                hub.connect(Start::Join);
+            }
+            // Ends it now, or puts it back to wait for the core.
+            if self.core_terminals.hub_of(&host).is_some() {
+                self.end_core_terminal(&host, terminal);
+            } else {
+                unreached.push((host, terminal));
+            }
+        }
+        if !unreached.is_empty()
+            && let Ok(mut unended) = self.core_terminals.unended.lock()
+        {
+            unended.extend(unreached);
         }
         if !cx
             .try_global::<Store>()
@@ -470,4 +533,10 @@ impl SheprdWindow {
             Store::update(cx, |store| store.visited(tab, Some(location), None));
         }
     }
+}
+
+/// The title `tab` shows now.
+fn store_title(tab: TabId, cx: &App) -> Option<String> {
+    let store = cx.try_global::<Store>()?;
+    Some(store.get(tab)?.title.clone())
 }

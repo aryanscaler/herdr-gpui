@@ -57,7 +57,7 @@ Herdr refuses to move a pane out of or into a zoomed tab, and the menu shows its
 
 ## Selection and copy
 
-Drag across the terminal to select. Releasing the button copies the selection and shows a `copied to clipboard` flash. Double-click selects a word and triple-click a line in Herdr 2 panes.
+Drag across the terminal to select. Releasing the button copies the selection and shows a `copied to clipboard` flash. Double-click selects a word and triple-click a line in Herdr 2 panes. In a Herdr 2 pane, hold the drag past the top or bottom edge to scroll and select into the scrollback; Cmd-C copies all of it.
 
 - The highlight stays until the next click or keystroke, and Cmd-C or **Edit > Copy** copies it again. Ctrl-C still goes to the pane. Set `keep_selection_after_copy = false` in `config-gpui.local.toml` to clear it on release.
 - With Herdr's `[ui] copy_on_select = false`, releasing copies nothing; press Cmd-C, Ctrl-C, or **Edit > Copy**.
@@ -80,7 +80,7 @@ Right-click opens the pane menu, unless the pane routes right-clicks to its prog
 - **Copy Mode** (Cmd-Shift-C, or Ctrl+Alt+Shift+C) moves a block cursor through the scrollback from the keyboard: `h` `j` `k` `l` and arrows step, `w` `b` `e` move by word, `/` and `?` search, `v` or Space marks by cell and `V` by line, `y` or Enter copies, and `q` or Escape leaves.
 - **Clear Pane** (Cmd-K, or Ctrl+Shift+K) clears the screen and scrollback without sending input to the program.
 - **Edit Scrollback** opens the pane's scrollback in `$VISUAL` or `$EDITOR` (`vi` by default, Notepad on Windows). The file is removed when the editor quits.
-- In a Herdr 2 pane, Sheprd keeps the scrollback itself, so Find, Clear Pane, and Edit Scrollback work whatever Herdr 1 is installed. Clear Pane clears only that view: a mirror of the pane, or the phone, keeps what it shows. Edit Scrollback opens the editor in a new pane beside it, which closes when the editor quits.
+- In a Herdr 2 pane, Sheprd keeps the scrollback itself, so Find, Copy Mode, Clear Pane, and Edit Scrollback work whatever Herdr 1 is installed. Clear Pane clears only that view: a mirror of the pane, or the phone, keeps what it shows. Edit Scrollback opens the editor in a new pane beside it, which closes when the editor quits.
 
 ### Annotating terminal text
 
@@ -91,6 +91,8 @@ Hold **Shift** while selecting text in a pane. When you release, an **Annotate**
 - **Escape** dismisses the field.
 
 For an existing selection, run **Annotate Selection for the Agent** (Cmd-Shift-A on macOS, Ctrl+Alt+Shift+A on Linux and Windows). The whole selection must be on screen. Notes go to the agent in that pane, else to the first agent in its workspace, and are delivered as page notes are (see [Browser tabs](browser.md#sending-notes)). With no agent, they are copied to the clipboard.
+
+In a Herdr 2 pane, select text (it may reach into the scrollback) and run **Annotate Selection for the Agent**. Herdr 2 agents do not take notes yet, so the note is copied to the clipboard.
 
 ## Terminal links
 

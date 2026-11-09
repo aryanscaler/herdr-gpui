@@ -1,8 +1,10 @@
-//! Text selected in a herdr-core pane's visible screen: a drag from one cell
-//! to another, a double-clicked word, or a triple-clicked line, read back as
-//! the text a terminal would copy. Pure: cells in, ranges and text out.
+//! Text selected in a herdr-core pane: a drag from one cell to another, a
+//! double-clicked word, or a triple-clicked line. Its ends are history
+//! points, rows counted from the top of the retained history, so a
+//! selection keeps its text as the view scrolls and may reach past the
+//! screen. Pure: cells in, ranges and text out.
 
-use sheprd_backend::FrameData;
+use sheprd_backend::{FrameData, TextPoint, TextRange};
 use std::ops::Range;
 
 /// A cell of the visible screen, column and row from the top left.
@@ -12,11 +14,21 @@ pub(crate) struct Cell {
     pub(crate) column: u16,
 }
 
+impl Cell {
+    /// This cell as a history point, for a screen whose top row is `top`.
+    pub(crate) fn point(self, top: u32) -> TextPoint {
+        TextPoint {
+            row: top.saturating_add(u32::from(self.row)),
+            col: self.column,
+        }
+    }
+}
+
 /// From where a press started to where the pointer is, either way round.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Selection {
-    anchor: Cell,
-    head: Cell,
+    anchor: TextPoint,
+    head: TextPoint,
     /// A double- or triple-clicked word or line, which selects its cells
     /// even when it is one cell wide.
     picked: bool,
@@ -24,7 +36,7 @@ pub(crate) struct Selection {
 
 impl Selection {
     /// A press at `at`, selecting nothing until the pointer moves.
-    pub(crate) fn at(at: Cell) -> Self {
+    pub(crate) fn at(at: TextPoint) -> Self {
         Self {
             anchor: at,
             head: at,
@@ -32,11 +44,12 @@ impl Selection {
         }
     }
 
-    /// The word under `at`: the run of non-blank cells around it.
-    pub(crate) fn word(frame: &FrameData, at: Cell) -> Self {
+    /// The word under `at`, on a screen whose top row is `top`: the run of
+    /// non-blank cells around it.
+    pub(crate) fn word(frame: &FrameData, top: u32, at: Cell) -> Self {
         let blank = |column: u16| symbol(frame, at.row, column).trim().is_empty();
         if blank(at.column) {
-            return Self::at(at);
+            return Self::at(at.point(top));
         }
         let start = (0..at.column)
             .rev()
@@ -49,33 +62,38 @@ impl Selection {
             .unwrap_or(at.column);
         Self {
             anchor: Cell {
-                row: at.row,
                 column: start,
-            },
-            head: Cell {
-                row: at.row,
-                column: end,
-            },
+                ..at
+            }
+            .point(top),
+            head: Cell { column: end, ..at }.point(top),
             picked: true,
         }
     }
 
-    /// The whole row under `at`.
-    pub(crate) fn line(frame: &FrameData, at: Cell) -> Self {
+    /// The whole row under `at`, on a screen whose top row is `top`.
+    pub(crate) fn line(frame: &FrameData, top: u32, at: Cell) -> Self {
         Self {
-            anchor: Cell {
-                row: at.row,
-                column: 0,
-            },
+            anchor: Cell { column: 0, ..at }.point(top),
             head: Cell {
-                row: at.row,
                 column: frame.width.saturating_sub(1),
-            },
+                ..at
+            }
+            .point(top),
             picked: true,
         }
     }
 
-    pub(crate) fn extend(&mut self, to: Cell) {
+    /// The cells of `range`, as copy mode marks them.
+    pub(crate) fn of(range: TextRange) -> Self {
+        Self {
+            anchor: range.start,
+            head: range.end,
+            picked: true,
+        }
+    }
+
+    pub(crate) fn extend(&mut self, to: TextPoint) {
         self.head = to;
     }
 
@@ -85,26 +103,30 @@ impl Selection {
         !self.picked && self.anchor == self.head
     }
 
-    fn ordered(&self) -> (Cell, Cell) {
-        if self.anchor <= self.head {
+    /// The selected cells, first to last, or `None` when nothing is.
+    pub(crate) fn range(&self) -> Option<TextRange> {
+        if self.is_empty() {
+            return None;
+        }
+        let (start, end) = if self.anchor <= self.head {
             (self.anchor, self.head)
         } else {
             (self.head, self.anchor)
-        }
+        };
+        Some(TextRange { start, end })
     }
 
     /// Each selected row's columns, as a terminal selects: to the end of
     /// the first row, whole rows between, and the last row up to the head.
-    pub(crate) fn rows(&self, width: u16) -> Vec<(u16, Range<u16>)> {
-        if self.is_empty() || width == 0 {
+    pub(crate) fn rows(&self, width: u16) -> Vec<(u32, Range<u16>)> {
+        let Some(TextRange { start, end }) = self.range().filter(|_| width > 0) else {
             return Vec::new();
-        }
-        let (start, end) = self.ordered();
+        };
         (start.row..=end.row)
             .map(|row| {
-                let from = if row == start.row { start.column } else { 0 };
+                let from = if row == start.row { start.col } else { 0 };
                 let to = if row == end.row {
-                    end.column.saturating_add(1).min(width)
+                    end.col.saturating_add(1).min(width)
                 } else {
                     width
                 };
@@ -113,25 +135,23 @@ impl Selection {
             .collect()
     }
 
-    /// The selected text: each row's cells with trailing blanks dropped,
-    /// rows joined by newlines.
-    pub(crate) fn text(&self, frame: &FrameData) -> String {
-        self.rows(frame.width)
+    /// The selected rows a screen `height` rows tall, whose top row is
+    /// `top`, shows, as rows of that screen.
+    pub(crate) fn visible_rows(&self, width: u16, top: u32, height: u16) -> Vec<(u16, Range<u16>)> {
+        self.rows(width)
             .into_iter()
-            .filter(|(row, _)| *row < frame.height)
-            .map(|(row, columns)| {
-                let text: String = columns.map(|column| symbol(frame, row, column)).collect();
-                text.trim_end().to_owned()
+            .filter_map(|(row, columns)| {
+                let row = u16::try_from(row.checked_sub(top)?).ok()?;
+                (row < height).then_some((row, columns))
             })
-            .collect::<Vec<_>>()
-            .join("\n")
+            .collect()
     }
 }
 
 /// What a cell shows. A wide character's second cell shows nothing, so
-/// the character is copied once, and a concealed cell reads as the blank
+/// the character is read once, and a concealed cell reads as the blank
 /// it is drawn as, never its hidden text.
-fn symbol(frame: &FrameData, row: u16, column: u16) -> &str {
+pub(super) fn symbol(frame: &FrameData, row: u16, column: u16) -> &str {
     let index = usize::from(row) * usize::from(frame.width) + usize::from(column);
     frame
         .cells

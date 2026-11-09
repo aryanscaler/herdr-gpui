@@ -530,6 +530,8 @@ pub(crate) struct Chats {
     pub(crate) agents: super::harnesses::Harnesses,
     /// The terminal agent moving into a chat, one at a time.
     pub(crate) converting: Option<super::convert::Job>,
+    /// The herdr-core agent moving into a chat, one at a time with the above.
+    pub(crate) converting_core: Option<super::convert::CoreJob>,
     /// Exact CLI sessions already running in this connected daemon's panes.
     pub(crate) existing: super::existing::Existing,
     /// The agent a chat was last started with, which the strips' one-button

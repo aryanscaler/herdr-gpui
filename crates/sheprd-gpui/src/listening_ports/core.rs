@@ -1,7 +1,9 @@
-//! Ports of this computer's herdr-core terminals, listed under the workspace
-//! whose tab shows each terminal. A scan names only the terminal a listener
-//! was started in; which workspace that is, only the window's tabs know, so
-//! the window tells it and the ports are gathered again when either changes.
+//! Ports of herdr-core terminals, listed under the workspace whose tab shows
+//! each terminal: this computer's, and a saved host's, read from that host's
+//! own scan. A scan names only the terminal a listener was started in; which
+//! workspace that is, only the window's tabs know, so the window tells it
+//! and the ports are gathered again when either changes. Terminal addresses
+//! are only unique within one host, so each host's are placed apart.
 
 use super::{Daemon, Listed, ListeningPorts, Port, scan};
 use crate::{browser::Scope, usage::Host};
@@ -11,35 +13,56 @@ use std::collections::HashMap;
 /// local daemons may each have a workspace of the same ID.
 pub(crate) type Place = (Scope, String);
 
+type Scanned = HashMap<scan::Terminal, Vec<Port>>;
+
 /// Each workspace's herdr-core ports, and what they were gathered from.
 #[derive(Default)]
 pub(super) struct Placed {
-    /// Each terminal's workspace, as the window last told it.
-    places: Vec<(String, Place)>,
-    /// The terminals' ports as the scan they were gathered from found them.
-    scanned: HashMap<scan::Terminal, Vec<Port>>,
-    workspaces: HashMap<Place, Vec<Port>>,
+    /// Each host's terminals' workspaces, as the window last told them,
+    /// sorted by terminal.
+    places: HashMap<Host, Vec<(String, Place)>>,
+    /// Each host's terminals' ports as the scan they were gathered from
+    /// found them.
+    scanned: HashMap<Host, Scanned>,
+    /// Each workspace's ports, with the host whose scan found them.
+    workspaces: HashMap<Place, (Host, Vec<Port>)>,
 }
 
 impl ListeningPorts {
-    /// Tells which workspace each herdr-core terminal of this computer is in,
-    /// by its address such as `t7`, the first given for each when several
+    /// Tells which workspace each herdr-core terminal is in, by its host and
+    /// its address there such as `t7`, the first given for each when several
     /// are; whether the ports listed changed.
-    pub fn place_terminals(&mut self, mut places: Vec<(String, Place)>) -> bool {
-        // Stable, so a terminal keeps the first workspace it was given.
-        places.sort_by(|a, b| a.0.cmp(&b.0));
-        places.dedup_by(|a, b| a.0 == b.0);
-        let empty = HashMap::new();
-        let scanned = self
-            .monitors
-            .get(&Host::Local)
-            .map_or(&empty, |monitor| &monitor.reading.scan.terminals);
-        if places == self.core.places && *scanned == self.core.scanned {
+    pub fn place_terminals(&mut self, places: Vec<(Host, String, Place)>) -> bool {
+        let mut by_host: HashMap<Host, Vec<(String, Place)>> = HashMap::new();
+        for (host, terminal, place) in places {
+            by_host.entry(host).or_default().push((terminal, place));
+        }
+        for places in by_host.values_mut() {
+            // Stable, so a terminal keeps the first workspace it was given.
+            places.sort_by(|a, b| a.0.cmp(&b.0));
+            places.dedup_by(|a, b| a.0 == b.0);
+        }
+        let scanned: HashMap<Host, Scanned> = by_host
+            .keys()
+            .filter_map(|host| {
+                let monitor = self.monitors.get(host)?;
+                Some((host.clone(), monitor.reading.scan.terminals.clone()))
+            })
+            .collect();
+        if by_host == self.core.places && scanned == self.core.scanned {
             return false;
         }
-        let workspaces = gather(&places, scanned);
-        self.core.scanned = scanned.clone();
-        self.core.places = places;
+        let mut workspaces = HashMap::new();
+        for (host, places) in &by_host {
+            let Some(scanned) = scanned.get(host) else {
+                continue;
+            };
+            for (place, ports) in gather(places, scanned) {
+                workspaces.insert(place, (host.clone(), ports));
+            }
+        }
+        self.core.scanned = scanned;
+        self.core.places = by_host;
         let changed = workspaces != self.core.workspaces;
         self.core.workspaces = workspaces;
         changed
@@ -55,7 +78,7 @@ impl ListeningPorts {
             .scan
             .terminal_pids
             .get(&pid)?;
-        let places = &self.core.places;
+        let places = self.core.places.get(&Host::Local)?;
         let at = places
             .binary_search_by(|(terminal, _)| terminal.as_str().cmp(&owner.terminal))
             .ok()?;
@@ -67,20 +90,17 @@ impl ListeningPorts {
     /// `scope` names listen on, lowest first, and where they open; None
     /// while they listen on none.
     pub fn core_ports(&self, scope: &Scope, workspace: &str) -> Option<Listed<'_>> {
-        let ports = self
+        let (host, ports) = self
             .core
             .workspaces
             .get(&(scope.clone(), workspace.to_owned()))?;
-        let origin = &self.monitors.get(&Host::Local)?.reading.origin;
+        let origin = &self.monitors.get(host)?.reading.origin;
         (!ports.is_empty()).then_some(Listed { ports, origin })
     }
 }
 
 /// The ports of each workspace's terminals in `places`, one entry per number.
-fn gather(
-    places: &[(String, Place)],
-    scanned: &HashMap<scan::Terminal, Vec<Port>>,
-) -> HashMap<Place, Vec<Port>> {
+fn gather(places: &[(String, Place)], scanned: &Scanned) -> HashMap<Place, Vec<Port>> {
     let mut workspaces: HashMap<Place, Vec<Port>> = HashMap::new();
     for (owner, ports) in scanned {
         let Ok(at) =

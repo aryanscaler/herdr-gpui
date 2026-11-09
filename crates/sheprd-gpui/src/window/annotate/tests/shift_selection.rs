@@ -58,7 +58,10 @@ fn shift_selection_offers_annotation_without_taking_focus_or_interrupting_copy(
         view.read_with(cx, |view, cx| {
             let composer = view.terminal_notes.composer.as_ref().unwrap();
             assert_eq!(composer.quote, "failed");
-            assert_eq!(composer.pane_id, "w0:p1");
+            assert!(matches!(
+                &composer.source,
+                super::super::Source::Pane { pane_id, .. } if pane_id == "w0:p1"
+            ));
             assert!(view.terminal_notes.offer.is_none());
             assert!(view.terminal_note_focused(window, cx));
         })

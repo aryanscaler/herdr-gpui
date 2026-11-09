@@ -52,9 +52,14 @@ fn scope() -> Scope {
     Scope::local(std::path::Path::new(SOCKET))
 }
 
-/// Terminal `terminal` in `workspace` of the fixtures' daemon.
-fn at(terminal: &str, workspace: &str) -> (String, (Scope, String)) {
-    (terminal.to_owned(), (scope(), workspace.to_owned()))
+/// Terminal `terminal` of this computer's core in `workspace` of the
+/// fixtures' daemon.
+fn at(terminal: &str, workspace: &str) -> (Host, String, (Scope, String)) {
+    (
+        Host::Local,
+        terminal.to_owned(),
+        (scope(), workspace.to_owned()),
+    )
 }
 
 #[test]
@@ -123,4 +128,32 @@ fn core_ports_stay_with_the_local_daemon_whose_tab_holds_them() {
     let own = local(SOCKET);
     assert!(ports.get(&own, "w1").is_some());
     assert_eq!(ports.workspace_of(&own, 10), Some("w1"));
+}
+
+#[test]
+fn a_saved_hosts_core_ports_come_from_that_hosts_scan() {
+    let mut ports = ListeningPorts::default();
+    let host = Host::Ssh("box".into());
+    ports.seed(Host::Local, parse("L 10 *:3000 rails\nC 10 t1\n").unwrap());
+    ports.seed(host.clone(), parse("L 20 *:5173 node\nC 20 t1\n").unwrap());
+    let kept = (Scope::endpoint("box"), "kept-1".to_owned());
+    // The same address on two cores: each workspace takes its own host's.
+    assert!(ports.place_terminals(vec![
+        at("t1", "w1"),
+        (host.clone(), "t1".to_owned(), kept.clone()),
+    ]));
+    let listed = ports.core_ports(&kept.0, &kept.1).unwrap();
+    assert_eq!(listed.ports, [port(5173, Bind::Any, "node")]);
+    assert_eq!(*listed.origin, Origin::new(&host));
+    assert_eq!(
+        ports.core_ports(&scope(), "w1").unwrap().ports,
+        [port(3000, Bind::Any, "rails")]
+    );
+    // A terminal placed on a host never scanned lists nothing.
+    ports.place_terminals(vec![(
+        Host::Ssh("gone".into()),
+        "t1".to_owned(),
+        kept.clone(),
+    )]);
+    assert!(ports.core_ports(&kept.0, &kept.1).is_none());
 }

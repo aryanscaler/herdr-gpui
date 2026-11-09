@@ -47,8 +47,12 @@ error-chat-convert-host-program = sheprd-acp was not found on this host
 error-chat-convert-line = the session's folder or flags cannot be typed safely
 error-chat-convert-moved = the pane changed before its agent could stop
 error-chat-convert-no-agent = the pane runs no agent
+error-chat-convert-no-core-session = herdr-core reports no session for { $agent }; only Claude Code's own session record can be read
+error-chat-convert-no-home = no home folder to find the agent's session in
+error-chat-convert-core = herdr-core: { $error }
 # $command is the agent's name as the `herdr` command takes it, such as claude.
 error-chat-convert-no-session = Herdr reports no session for { $agent } in this pane; run `herdr integration install { $command }`, then restart the agent
+error-chat-convert-no-shell = { $agent } is the terminal's own program, with no shell to start its chat in
 error-chat-convert-not-reachable = agents move into chats on this machine's Herdr or an SSH host's, on macOS and Linux
 error-chat-convert-not-running = { $agent } is not the program running in this pane
 error-chat-convert-stale = the window moved to another connection before the chat could start

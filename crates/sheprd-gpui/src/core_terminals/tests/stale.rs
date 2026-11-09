@@ -51,7 +51,7 @@ fn typing_while_stale_is_dropped_and_told_then_sent_once_attached_again(cx: &mut
         CoreTerminalView::new(terminal.clone(), link, look(), painter, false, cx)
     });
     until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)))
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)))
             .then_some(())
     });
 
@@ -91,7 +91,7 @@ fn the_last_frame_stays_until_the_terminal_draws_again(cx: &mut TestAppContext) 
         CoreTerminalView::new(terminal.clone(), link, look(), painter, false, cx)
     });
     until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)))
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)))
             .then_some(())
     });
     // Attached again, the terminal reports its title before a frame.
@@ -100,7 +100,7 @@ fn the_last_frame_stays_until_the_terminal_draws_again(cx: &mut TestAppContext) 
     let link = worker::spawn(second, terminal, size(80, 24), Role::Active).unwrap();
     cx.update(|_, cx| view.update(cx, |view, cx| view.relink(link, cx)));
     until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)))
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)))
             .then_some(())
     });
     cx.update(|_, cx| {

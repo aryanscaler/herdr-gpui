@@ -15,7 +15,9 @@ use gpui::{
     Entity, Modifiers, MouseButton, ScrollDelta, ScrollEvent, TestAppContext, VisualTestContext,
     point,
 };
-use sheprd_backend::{ClientMouseButton, ClientMouseKind, ClientPaneInputEvent, SurfaceUpdate};
+use sheprd_backend::{
+    ClientMouseButton, ClientMouseKind, ClientPaneInputEvent, HistoryAnswer, SurfaceUpdate,
+};
 use std::num::NonZeroU16;
 
 fn set_look(view: &Entity<CoreTerminalView>, cx: &mut VisualTestContext, look: Look) {
@@ -31,6 +33,28 @@ fn drag(view: &Entity<CoreTerminalView>, cx: &mut VisualTestContext, from: u16, 
 
 fn clipboard(cx: &mut VisualTestContext) -> Option<String> {
     cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text()))
+}
+
+/// Has the terminal answer the next history read with `text`, as a copy
+/// reads the selection from the history.
+fn answers(backend: &Scripted, text: &str) {
+    backend
+        .answers
+        .lock()
+        .unwrap()
+        .push(HistoryAnswer::Text(text.into()));
+}
+
+/// The clipboard once the copy's read is answered and taken.
+fn landed(view: &Entity<CoreTerminalView>, cx: &mut VisualTestContext) -> Option<String> {
+    until(|| {
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| view.poll(window, cx));
+            (!view.read(cx).copy_pending()).then_some(())
+        })
+    });
+    cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)));
+    clipboard(cx)
 }
 
 fn copied(asked: &Asked) -> usize {
@@ -57,7 +81,7 @@ fn reports(backend: &Scripted) -> Vec<ClientPaneInputEvent> {
 
 #[gpui::test]
 fn releasing_a_selection_copies_it_and_says_so(cx: &mut TestAppContext) {
-    let (view, cx, _, asked) = shown(cx, &["hello world"], false);
+    let (view, cx, backend, asked) = shown(cx, &["hello world"], false);
     set_look(
         &view,
         cx,
@@ -66,8 +90,9 @@ fn releasing_a_selection_copies_it_and_says_so(cx: &mut TestAppContext) {
             ..look()
         },
     );
+    answers(&backend, "hello");
     drag(&view, cx, 0, 4);
-    assert_eq!(clipboard(cx).as_deref(), Some("hello"));
+    assert_eq!(landed(&view, cx).as_deref(), Some("hello"));
     assert_eq!(copied(&asked), 1);
     // Without `keep_selection_after_copy` the highlight goes.
     cx.update(|_, cx| assert!(view.read(cx).highlights().is_empty()));
@@ -75,16 +100,17 @@ fn releasing_a_selection_copies_it_and_says_so(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn a_kept_selection_stays_highlighted_after_the_copy(cx: &mut TestAppContext) {
-    let (view, cx, _, asked) = shown(cx, &["hello world"], false);
+    let (view, cx, backend, asked) = shown(cx, &["hello world"], false);
+    answers(&backend, "world");
     drag(&view, cx, 6, 10);
-    assert_eq!(clipboard(cx).as_deref(), Some("world"));
+    assert_eq!(landed(&view, cx).as_deref(), Some("world"));
     assert_eq!(copied(&asked), 1);
     cx.update(|_, cx| assert!(!view.read(cx).highlights().is_empty()));
 }
 
 #[gpui::test]
 fn without_copy_on_select_the_selection_waits_for_a_copy_key(cx: &mut TestAppContext) {
-    let (view, cx, _, asked) = shown(cx, &["hello world"], false);
+    let (view, cx, backend, asked) = shown(cx, &["hello world"], false);
     set_look(
         &view,
         cx,
@@ -106,9 +132,28 @@ fn without_copy_on_select_the_selection_waits_for_a_copy_key(cx: &mut TestAppCon
     } else {
         "ctrl-c"
     };
+    answers(&backend, "hello");
     cx.simulate_keystrokes(key);
-    assert_eq!(clipboard(cx).as_deref(), Some("hello"));
+    assert_eq!(landed(&view, cx).as_deref(), Some("hello"));
     assert_eq!(copied(&asked), 1);
+}
+
+#[gpui::test]
+fn a_copy_that_reads_no_text_says_nothing_and_keeps_the_selection(cx: &mut TestAppContext) {
+    let (view, cx, _, asked) = shown(cx, &["hello world"], false);
+    set_look(
+        &view,
+        cx,
+        Look {
+            keep_selection: false,
+            ..look()
+        },
+    );
+    // The history answers the read with no text, so nothing is copied.
+    drag(&view, cx, 0, 4);
+    assert_eq!(landed(&view, cx), None);
+    assert_eq!(copied(&asked), 0, "a copy is said only once it lands");
+    cx.update(|_, cx| assert!(!view.read(cx).highlights().is_empty()));
 }
 
 #[gpui::test]
@@ -146,7 +191,7 @@ fn the_passthrough_modifier_reaches_the_program_without_it(cx: &mut TestAppConte
     let (view, cx, backend, _) = shown(cx, &["$"], false);
     backend.push(vec![SurfaceUpdate::MouseReporting(true)]);
     until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)))
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)))
             .then_some(())
     });
     set_look(
@@ -188,4 +233,27 @@ fn the_passthrough_modifier_reaches_the_program_without_it(cx: &mut TestAppConte
             (ClientMouseKind::Down(ClientMouseButton::Right), 0b10),
         ]
     );
+}
+
+#[gpui::test]
+fn a_copy_landing_late_leaves_a_selection_begun_since(cx: &mut TestAppContext) {
+    let (view, cx, backend, asked) = shown(cx, &["hello world"], false);
+    set_look(
+        &view,
+        cx,
+        Look {
+            keep_selection: false,
+            ..look()
+        },
+    );
+    answers(&backend, "hello");
+    drag(&view, cx, 0, 4);
+    // Another drag begins before the first copy's text lands.
+    let (start, end) = (at(&view, cx, 6, 0), at(&view, cx, 10, 0));
+    cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(end, Some(MouseButton::Left), Modifiers::none());
+    assert_eq!(landed(&view, cx).as_deref(), Some("hello"));
+    assert_eq!(copied(&asked), 1);
+    // The copy drops only its own selection: the new one stays.
+    cx.update(|_, cx| assert!(!view.read(cx).highlights().is_empty()));
 }

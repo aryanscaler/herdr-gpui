@@ -42,3 +42,34 @@ fn history_answers_come_back_by_id_and_a_failure_keeps_the_terminal() {
             .then_some(())
     });
 }
+
+#[test]
+fn a_resizes_screen_is_shown_before_a_later_request_is_answered() {
+    let backend = Scripted::default();
+    let link = worker::spawn(
+        backend.clone(),
+        TerminalId::new("t1").unwrap(),
+        size(80, 24),
+        Role::Active,
+    )
+    .unwrap();
+    until(|| (!backend.received.lock().unwrap().is_empty()).then_some(()));
+    *backend.on_resize.lock().unwrap() = Some(vec![SurfaceUpdate::Title("rewrapped".into())]);
+    // Held in `next`, the worker takes both commands in one go.
+    let gate = backend.gate.lock().unwrap();
+    link.send(Command::Resize(size(100, 30)));
+    link.send(Command::History {
+        id: 1,
+        request: History::Text,
+    });
+    drop(gate);
+    until(|| (!link.mailbox.take_answers().is_empty()).then_some(()));
+    let received = backend.received.lock().unwrap().clone();
+    let resized = received
+        .iter()
+        .position(|command| *command == Command::Resize(size(100, 30)))
+        .unwrap();
+    assert!(matches!(received[resized + 1], Command::History { .. }));
+    // The resized screen went out after the resize and before the read.
+    assert_eq!(*backend.handed.lock().unwrap(), [resized + 1]);
+}

@@ -174,8 +174,8 @@ mirrored. Bearer auth as today (`Authorization: Bearer TOKEN`).
   with the chats, by status, and opens the agent's pane.
 - A terminal's `convert` is what its menu may move into a chat, as
   Sheprd's Move Agent into Chat does: the agent's pane, and which agent it
-  is. It is absent when nothing can move (`sheprd_client::herdr::convert`),
-  from Herdr 2 tabs, and from older daemons. A busy agent is still offered,
+  is. It is absent when nothing can move (`sheprd_client::herdr::convert`,
+  or `sheprd_core_client::convert` in a Herdr 2 tab), and from older daemons. A busy agent is still offered,
   and the move says to wait.
 - `load` is the computer's CPU and memory in whole percentages, read
   every five seconds; it is absent until the first reading and from older

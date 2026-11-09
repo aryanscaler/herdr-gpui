@@ -78,6 +78,11 @@ impl CoreTerminals {
         self.hub_of(host)?.backend()
     }
 
+    /// Whether `host`'s core is connected now.
+    pub(crate) fn answers(&self, host: &Host) -> bool {
+        self.backend_of(host).is_some()
+    }
+
     pub(super) fn infos_of(&self, host: &Host) -> Option<&Infos> {
         match host {
             Host::Local => Some(&self.infos),
@@ -321,6 +326,20 @@ impl SheprdWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A workspace the app keeps has no Herdr to make the tab instead:
+        // one left empty goes, and the host keeps new workspaces in its
+        // Herdr from now on, as it lacks a core.
+        if error.core_missing()
+            && let Purpose::Tab { scope, workspace } = &purpose
+            && crate::browser::is_kept_id(workspace)
+        {
+            self.forget_empty_kept_workspace(scope, workspace, window, cx);
+            self.show_flash(
+                Flash::warning(fl!("core-terminals-workspaces-need-core")),
+                cx,
+            );
+            return;
+        }
         // Only while the workspace the tab was asked for is still the one
         // shown, since the Herdr tab opens in the focused workspace.
         if error.core_missing()

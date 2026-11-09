@@ -92,6 +92,9 @@ pub(crate) struct Hub {
     chat_dir: Option<PathBuf>,
     chats: Mutex<HashMap<String, (EndpointId, Arc<Chat>)>>,
     core: Option<Arc<core::Source>>,
+    /// Where agents keep their own records, such as Claude Code's sessions;
+    /// `None` is this user's home. Tests point it at a fixture.
+    home: Option<PathBuf>,
     layout: watch::Receiver<Arc<Layout>>,
     /// Terminal agents moving into chats now.
     moving: convert::Moving,
@@ -156,6 +159,7 @@ impl Hub {
             chat_dir,
             chats: Mutex::new(HashMap::new()),
             core: Some(core),
+            home: None,
             layout,
             moving: convert::Moving::default(),
             primary: daemon_layout,
@@ -244,6 +248,7 @@ impl Hub {
             chat_dir,
             chats: Mutex::new(HashMap::new()),
             core: None,
+            home: None,
             moving: convert::Moving::default(),
             primary: receiver.clone(),
             layout: receiver,

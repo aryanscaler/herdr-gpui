@@ -211,7 +211,6 @@ impl SheprdWindow {
                 host: (multi && endpoint_id != crate::endpoint::LOCAL)
                     .then_some(endpoint.label.as_str()),
             };
-            let daemon = crate::listening_ports::Daemon::of(&endpoint.connection.target);
             let live = if selected { &self.live } else { &endpoint.live };
             // Herdr 1's workspaces, then those the app keeps for Herdr 2.
             let sessions = self.sessions(endpoint_index);
@@ -419,9 +418,8 @@ impl SheprdWindow {
                     // sibling, as it runs through the row itself.
                     let trunk = rows.trunk_below(&format!("{endpoint_id}-{id}"), tree, &row_cx);
                     let ports = (self.config.show_listening_ports && !removing_row)
-                        .then_some(daemon.as_ref())
+                        .then(|| self.listed_ports(endpoint_index, &workspace.id))
                         .flatten()
-                        .and_then(|daemon| self.listening_ports.get(daemon, &workspace.id))
                         .map(|listed| {
                             div()
                                 .debug_selector(|| format!("ports-{endpoint_id}-{id}"))

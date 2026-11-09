@@ -22,7 +22,8 @@ fn a_view_searches_scrolls_and_clears_its_own_history() {
         Some(ScrollMetrics {
             offset: 0,
             history: 7,
-            rows: 4
+            rows: 4,
+            full: false,
         })
     );
 

@@ -46,7 +46,7 @@ pub(super) fn targets<'a>(terminals: impl IntoIterator<Item = &'a TerminalInfo>)
         .into_iter()
         .filter(|info| !info.id.as_str().contains('/'))
         .filter_map(|info| {
-            let endpoint: EndpointId = info.labels.get(TOKEN)?.parse().ok()?;
+            let endpoint = sheprd_core_client::convert::chat_endpoint(info)?;
             Some(Target {
                 endpoint,
                 existing: None,
@@ -145,9 +145,6 @@ impl SheprdWindow {
         Ok(())
     }
 
-    /// `terminal`'s pane in `tab`: its view, with its chat drawn over it when
-    /// one is attached, or the button that brings the chat back over a pane
-    /// turned to its terminal. A mirror only watches, so it keeps the view.
     /// `view`, opening its pane's menu on a right-click the program does not
     /// take, as a Herdr pane does.
     fn core_pane_menu_area(
@@ -182,6 +179,9 @@ impl SheprdWindow {
             .into_any_element()
     }
 
+    /// `terminal`'s pane in `tab`: its view, with its chat drawn over it when
+    /// one is attached, or the button that brings the chat back over a pane
+    /// turned to its terminal. A mirror only watches, so it keeps the view.
     pub(crate) fn core_pane_body(
         &self,
         tab: TabId,
@@ -218,7 +218,8 @@ impl SheprdWindow {
             .min_w_0()
             .min_h_0()
             .size_full()
-            .child(view.clone())
+            // Turned to its terminal, the pane still opens its menu there.
+            .child(self.core_pane_menu_area(tab, terminal, view.clone(), cx))
             .child(overlay)
             .into_any_element()
     }

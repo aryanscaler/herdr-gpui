@@ -25,6 +25,12 @@ pub(super) struct Scripted {
     /// with none left, a request is done.
     pub(super) answers: Arc<Mutex<Vec<HistoryAnswer>>>,
     fail_attach: bool,
+    /// Held by a test to keep the worker waiting in `next`.
+    pub(super) gate: Arc<Mutex<()>>,
+    /// How many commands had arrived each time `next` handed out updates.
+    pub(super) handed: Arc<Mutex<Vec<usize>>>,
+    /// Updates a resize hands out, as a resized emulator's screen.
+    pub(super) on_resize: Arc<Mutex<Option<Vec<SurfaceUpdate>>>>,
 }
 
 impl Scripted {
@@ -102,6 +108,9 @@ impl Terminal for ScriptedTerminal {
 
     fn resize(&mut self, size: Size) -> Result<(), Failure> {
         self.0.received.lock().unwrap().push(Command::Resize(size));
+        if let Some(batch) = self.0.on_resize.lock().unwrap().take() {
+            self.0.push(batch);
+        }
         Ok(())
     }
 
@@ -124,9 +133,14 @@ impl Terminal for ScriptedTerminal {
     }
 
     fn next(&mut self, timeout: Duration) -> Result<Vec<SurfaceUpdate>, Failure> {
+        drop(self.0.gate.lock().unwrap());
         let batch = self.0.updates.lock().unwrap().pop();
-        if batch.is_none() {
-            std::thread::sleep(timeout);
+        match batch {
+            Some(_) => {
+                let received = self.0.received.lock().unwrap().len();
+                self.0.handed.lock().unwrap().push(received);
+            }
+            None => std::thread::sleep(timeout),
         }
         Ok(batch.unwrap_or_default())
     }
@@ -272,3 +286,4 @@ fn an_ended_terminal_keeps_its_screen_and_history_until_its_view_goes() {
 }
 
 mod history;
+mod mailbox;

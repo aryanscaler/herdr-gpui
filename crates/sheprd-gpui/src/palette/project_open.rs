@@ -73,7 +73,11 @@ impl SheprdWindow {
                 palette.project_task = None;
                 palette.loading_projects = false;
                 palette.projects = collection;
-                this.prepare_palette_entries(&mut palette, crate::worktree_notes::Notes::of(cx));
+                this.prepare_palette_entries(
+                    &mut palette,
+                    crate::worktree_notes::Notes::of(cx),
+                    cx,
+                );
                 this.menu.palette = Some(palette);
                 this.rank_palette(super::Selection::Keep, cx);
                 cx.notify();

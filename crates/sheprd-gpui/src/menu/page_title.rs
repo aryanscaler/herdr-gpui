@@ -45,6 +45,7 @@ impl Page {
             Self::CodeSearch => fl!("menu-page-go-to-symbol-or-file"),
             Self::ConfirmClose => fl!("menu-page-close"),
             Self::CoreMenu => fl!("menu-page-tab"),
+            Self::CoreMove => fl!("menu-page-move-pane"),
             #[cfg(feature = "cloud")]
             Self::CreateCloud => fl!("menu-page-create-cloud-machines"),
             #[cfg(feature = "cloud")]

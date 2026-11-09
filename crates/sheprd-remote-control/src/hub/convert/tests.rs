@@ -197,16 +197,6 @@ async fn an_agent_replaced_since_the_phone_saw_it_is_refused_before_herdr_is_ask
 }
 
 #[tokio::test]
-async fn a_herdr_2_terminal_is_refused() {
-    let hub = hub(layout(Agent::Claude), None);
-    let pane = "core:00000000-1";
-    assert!(matches!(
-        hub.convert_to_chat(pane, Agent::Claude).await,
-        Err(Error::Core | Error::Platform)
-    ));
-}
-
-#[tokio::test]
 async fn without_the_chat_program_nothing_is_touched() {
     let hub = Arc::new(Hub::offline_in(layout(Agent::Claude), None, None));
     let refused = hub.convert_to_chat("t2-p1", Agent::Claude).await;

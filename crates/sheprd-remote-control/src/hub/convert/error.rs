@@ -10,8 +10,8 @@ pub enum Error {
     AlreadyConverting,
     #[error("Herdr's answer about the pane did not have the expected shape")]
     Answer(#[source] serde_json::Error),
-    #[error("agents in Herdr 2 terminals cannot move into a chat yet")]
-    Core,
+    #[error("this computer's home folder is unknown, where the agent keeps its session")]
+    Home,
     #[error(transparent)]
     Hub(Box<crate::hub::Error>),
     #[error("agents move into chats on macOS and Linux")]

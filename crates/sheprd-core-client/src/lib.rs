@@ -5,6 +5,7 @@
 pub mod agent;
 mod backend;
 mod connection;
+pub mod convert;
 mod endpoint;
 mod error;
 pub mod event;
@@ -12,6 +13,7 @@ pub mod frame;
 pub mod hello;
 mod identity;
 mod method;
+pub mod reply;
 mod start;
 mod stream;
 pub mod wire;
@@ -20,7 +22,7 @@ pub mod wire;
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
 
-pub use backend::{CoreBackend, CoreChanges, CoreTerminal};
+pub use backend::{CoreBackend, CoreChanges, CoreTerminal, info as terminal_info};
 pub use connection::Core;
 pub use endpoint::Endpoint;
 pub use error::{Error, Result, Violation};

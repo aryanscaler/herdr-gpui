@@ -12,6 +12,9 @@
 //! an `agent.wait` open per reply: they already arrive, for every host, and
 //! the final say stays with the daemon. Replies live in this window's memory:
 //! one queued when the app quits is not sent.
+//!
+//! A Herdr 2 agent's reply goes through herdr-core's `terminal.send`
+//! instead (`core`), which refuses a blocked program in the same way.
 
 use super::{Error, Row};
 use crate::{SheprdWindow, i18n::fl, state::LiveState, teleport::Host, window::Flash};
@@ -30,7 +33,7 @@ pub(super) const MAX_QUEUED: usize = 64;
 /// Bytes of a reply: it travels as one shell argument.
 pub(crate) const MAX_TEXT: usize = 4096;
 /// The daemon's refusal of a prompt to an agent that is asking for input.
-const BLOCKED: &str = "agent_blocked";
+pub(super) const BLOCKED: &str = "agent_blocked";
 
 /// Where a reply stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,7 +53,7 @@ pub(crate) struct Reply {
     /// The boot the pane ID belongs to.
     boot: String,
     /// The agent the reply was written to, as a pane can change hands.
-    agent: String,
+    pub(super) agent: String,
     pub text: String,
     pub phase: Phase,
 }
@@ -60,10 +63,10 @@ pub(crate) struct Reply {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Target {
     pub title: String,
-    endpoint: String,
-    pane: String,
-    boot: String,
-    agent: String,
+    pub(super) endpoint: String,
+    pub(super) pane: String,
+    pub(super) boot: String,
+    pub(super) agent: String,
 }
 
 /// What a reply's pane holds now.
@@ -239,7 +242,15 @@ impl SheprdWindow {
 
     /// What `pane` holds, from the prepared snapshots, for a reply written to
     /// `agent` on daemon boot `boot`.
-    fn reply_presence(&self, (id, pane): (&str, &str), boot: &str, agent: &str) -> Presence {
+    pub(super) fn reply_presence(
+        &self,
+        (id, pane): (&str, &str),
+        boot: &str,
+        agent: &str,
+    ) -> Presence {
+        if id == super::core::ENDPOINT {
+            return self.core_reply_presence(pane, agent);
+        }
         let Some((endpoint, live)) = self.overview_host(id) else {
             return Presence::Gone;
         };
@@ -290,6 +301,10 @@ impl SheprdWindow {
     }
 
     fn send_overview_reply(&mut self, reply: Reply, cx: &mut Context<Self>) {
+        if reply.endpoint == super::core::ENDPOINT {
+            self.send_core_reply(reply, cx);
+            return;
+        }
         let host = self
             .endpoints
             .iter()
@@ -342,7 +357,10 @@ impl SheprdWindow {
 
     /// The agent `row` shows, as it is now, if it is on a host whose `herdr`
     /// CLI this client can run.
-    fn overview_reply_target(&self, row: &Row) -> Option<Target> {
+    pub(super) fn overview_reply_target(&self, row: &Row) -> Option<Target> {
+        if let super::Open::Core { terminal, .. } = &row.open {
+            return self.core_reply_target(row, terminal);
+        }
         let (id, pane) = row.pane()?;
         let (endpoint, live) = self.overview_host(id)?;
         if crate::pane_move::refusal(&endpoint.connection.target).is_some() {

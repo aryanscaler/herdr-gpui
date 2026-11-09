@@ -4,7 +4,8 @@
 //! `sheprd-acp --resume` continues its session in the same pane, which the
 //! hub then follows as any chat.
 //!
-//! Herdr 1 only: a Herdr 2 core has no process info or agent sessions here.
+//! A Herdr 2 terminal moves the same way through
+//! `sheprd_core_client::convert`, on the daemon's own core connection.
 
 mod error;
 
@@ -96,9 +97,6 @@ impl Hub {
             return Err(Error::Platform);
         }
         let params = json!({"pane_id": pane});
-        if core::owns(&params) {
-            return Err(Error::Core);
-        }
         let agent = self
             .layout()
             .terminal(pane)
@@ -111,6 +109,25 @@ impl Hub {
         }
         let program = self.program().ok_or(super::Error::ProgramMissing)?;
         let claim = self.moving.claim(pane)?;
+        if core::owns(&params) {
+            let core = self
+                .core
+                .clone()
+                .ok_or(super::Error::from(core::Error::Disconnected))?;
+            let home = self
+                .home
+                .clone()
+                .or_else(sheprd_client::local_path::home_dir)
+                .ok_or(Error::Home)?;
+            let (owned, cancelled) = (pane.to_owned(), claim.cancelled.clone());
+            tokio::task::spawn_blocking(move || {
+                core.convert(&owned, agent, &program, &home, &cancelled)
+            })
+            .await
+            .map_err(|_| Error::Worker)??;
+            drop(claim);
+            return Ok(());
+        }
         let found: PaneAnswer = parse(self.call(ApiMethod::PaneGet, params.clone()).await?)?;
         convert::settled(&found.pane, agent)?;
         let info: ProcessAnswer = parse(

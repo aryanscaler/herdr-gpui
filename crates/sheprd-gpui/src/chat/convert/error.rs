@@ -12,12 +12,16 @@ pub enum Error {
     Answer(#[source] serde_json::Error),
     #[error(transparent)]
     Convert(#[from] sheprd_client::herdr::convert::Error),
+    #[error("{0}")]
+    Core(#[source] std::sync::Arc<sheprd_core_client::Error>),
     #[error("ACP chats are off in Settings")]
     Disabled,
     #[error(transparent)]
     Existing(#[from] super::existing::Error),
     #[error("sheprd-acp was not found on this host")]
     HostProgram(#[source] super::existing::Error),
+    #[error("no home folder to find the agent's session in")]
+    NoHome,
     #[error("Sheprd is not connected")]
     NotConnected,
     #[error("agents move into chats on this machine's Herdr or an SSH host's, on macOS and Linux")]

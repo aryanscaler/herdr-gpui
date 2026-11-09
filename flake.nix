@@ -64,6 +64,8 @@
               # The agent skill is compiled into the executable.
               ./skills
               ./scripts/release/org.sheprd.Sheprd.desktop
+              # The herdr-core release a remote install pins is compiled in.
+              ./scripts/release/herdr-core.json
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;

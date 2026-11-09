@@ -109,7 +109,7 @@ pub(super) fn shown<'a>(
         .with_window(Rc::new(move |ask, _, _| record.borrow_mut().push(ask)))
     });
     until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)))
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)))
             .then_some(())
     });
     cx.run_until_parked();
@@ -330,7 +330,7 @@ fn a_file_made_after_its_path_was_printed_becomes_a_link(cx: &mut TestAppContext
         &["see notes.txt", "$"],
     ))]);
     until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)))
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)))
             .then_some(())
     });
     cx.run_until_parked();
@@ -419,7 +419,7 @@ fn a_wrapped_address_opens_once_the_terminal_says_it_wrapped(cx: &mut TestAppCon
         SurfaceUpdate::Wraps(vec![true, false]),
     ]);
     until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)))
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)))
             .then_some(())
     });
     cx.run_until_parked();

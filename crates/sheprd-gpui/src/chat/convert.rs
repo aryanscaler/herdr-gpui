@@ -9,7 +9,10 @@
 //! host through `herdr_cli`, on this machine or over SSH, and types the line
 //! once the window still shows that host.
 
+mod core;
 mod error;
+
+pub(crate) use core::Job as CoreJob;
 
 pub use error::Error;
 
@@ -20,7 +23,7 @@ use crate::{
     teleport::{self, Envelope, Host, ProcessInfo, ProcessInfoResult},
     window::Flash,
 };
-use gpui::Context;
+use gpui::{Context, Window};
 use sheprd_chat_protocol::Agent;
 use sheprd_client::{
     herdr::convert::{self, Resume},
@@ -173,6 +176,22 @@ fn spawn(request: Request) -> Result<Job, Error> {
     })
 }
 
+/// The chat key of the herdr-core pane with the keyboard, to move into a
+/// chat in place of Herdr's focused pane; none when no herdr-core pane has
+/// it. A pane on another host's core, or a mirror, is refused rather than
+/// passed over: its terminal ID names another terminal on this computer's
+/// core, and Herdr's focused pane is not the one the user is in.
+pub(crate) fn focused_core_key(
+    focused: Option<(crate::browser::TabId, sheprd_backend::TerminalId)>,
+    drives: impl Fn(crate::browser::TabId) -> bool,
+) -> Result<Option<String>, Error> {
+    match focused {
+        None => Ok(None),
+        Some((tab, _)) if !drives(tab) => Err(Error::NotReachable),
+        Some((_, terminal)) => Ok(Some(super::core_pane::key(&terminal))),
+    }
+}
+
 impl SheprdWindow {
     /// Starts moving the agent in `pane`, else the focused pane, into a
     /// chat, and says which pane and agent. It finishes in the background.
@@ -180,8 +199,11 @@ impl SheprdWindow {
         if !self.config.features.acp_chats {
             return Err(Error::Disabled);
         }
-        if self.chats.converting.is_some() {
+        if self.chats.converting.is_some() || self.chats.converting_core.is_some() {
             return Err(Error::AlreadyConverting);
+        }
+        if let Some(terminal) = pane.and_then(core::terminal) {
+            return self.convert_core_to_chat(terminal);
         }
         let program = match self.chat_route().ok_or(Error::NotReachable)? {
             // `herdr pane process-info` and the typed `sh` line are Unix.
@@ -233,9 +255,12 @@ impl SheprdWindow {
         convert::tab_pane(snapshot, workspace, tab).map(|(pane, _)| pane.to_owned())
     }
 
-    /// [`Self::convert_to_chat`], reporting a failure as a flash.
-    pub(crate) fn convert_to_chat_or_flash(&mut self, cx: &mut Context<Self>) {
-        if let Err(error) = self.convert_to_chat(None) {
+    /// [`Self::convert_to_chat`] for the pane with the keyboard, a herdr-core
+    /// pane before Herdr's focused one, reporting a failure as a flash.
+    pub(crate) fn convert_to_chat_or_flash(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let focused = self.core_terminals.focused_pane(window, cx);
+        let core = focused_core_key(focused, |tab| self.core_terminals.drives(tab));
+        if let Err(error) = core.and_then(|core| self.convert_to_chat(core.as_deref())) {
             self.flash_convert_error(&error, cx);
         }
         cx.notify();
@@ -278,6 +303,10 @@ impl SheprdWindow {
     /// that left the host could never type the line, so the worker must
     /// stop pressing keys there rather than finish stopping the agent.
     pub(super) fn poll_chat_convert(&mut self, cx: &mut Context<Self>) {
+        if let Some(Err(error)) = self.poll_core_convert() {
+            self.flash_convert_error(&error, cx);
+            cx.notify();
+        }
         let Some(job) = &self.chats.converting else {
             return;
         };

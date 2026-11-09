@@ -25,6 +25,8 @@ use std::{
 };
 
 pub(crate) const MAX_PENDING: usize = 32;
+/// The boot herdr-core agents' sounds are told apart by: it has none.
+const CORE_BOOT: &str = "herdr-core";
 
 /// Whether this process plays no sound at all, as `HERDR_DISABLE_SOUND` asks.
 pub(crate) fn muted() -> bool {
@@ -346,6 +348,47 @@ impl Service {
     /// worker is not running or already has sounds queued.
     pub(crate) fn play(&self, sound: sheprd_client::protocol::SemanticNotificationSound) -> bool {
         self.request(PlaybackRequest::Play(sound))
+    }
+
+    /// Plays `sound` for a herdr-core agent of `agent`, unless the sound
+    /// settings turn sounds or that agent off. herdr-core sends no
+    /// notifications, so the app decides when one is due
+    /// (`core_terminals::attention`); windows sharing the core are kept from
+    /// playing it twice there, and here as for a daemon's.
+    pub(crate) fn play_agent(
+        &self,
+        sound: sheprd_client::protocol::SemanticNotificationSound,
+        agent: Option<&str>,
+        terminal: &str,
+    ) -> bool {
+        self.request(PlaybackRequest::Notification {
+            boot: Some(CORE_BOOT.to_owned()),
+            event: SemanticNotification {
+                kind: match sound {
+                    sheprd_client::protocol::SemanticNotificationSound::Done => Kind::Finished,
+                    sheprd_client::protocol::SemanticNotificationSound::Request => {
+                        Kind::NeedsAttention
+                    }
+                },
+                title: String::new(),
+                body: None,
+                sound: Some(sound),
+                agent: agent.map(str::to_owned),
+                workspace_id: None,
+                tab_id: None,
+                pane_id: Some(terminal.to_owned()),
+                position: None,
+            },
+        })
+    }
+
+    /// How many seconds a notification waits before it plays, as the sound
+    /// settings say; none until they have loaded.
+    pub(crate) fn delay(&self) -> Option<u64> {
+        self.settings
+            .try_lock()
+            .ok()
+            .and_then(|value| value.as_ref().map(|settings| settings.ui_delay()))
     }
 
     fn request(&self, request: PlaybackRequest) -> bool {

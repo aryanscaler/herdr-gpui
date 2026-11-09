@@ -38,6 +38,8 @@ pub(crate) enum Page {
     ConfirmClose,
     /// A herdr-core tab's or pane's right-click menu.
     CoreMenu,
+    /// Where a herdr-core pane can move: a new tab, or another tab.
+    CoreMove,
     /// Confirming new cloud machines a command asked for should be made.
     #[cfg(feature = "cloud")]
     CreateCloud,
@@ -129,7 +131,7 @@ impl Page {
     pub(crate) fn is_tab_menu(self) -> bool {
         matches!(
             self,
-            Self::Tab | Self::RenameTab | Self::CoreMenu | Self::RenameCore
+            Self::Tab | Self::RenameTab | Self::CoreMenu | Self::CoreMove | Self::RenameCore
         )
     }
 }
@@ -208,6 +210,33 @@ impl Page {
                 | Self::PrReview
                 | Self::PrComment
                 | Self::PrMerge
+                | Self::CoreMenu
+                | Self::CoreMove
+                | Self::RenameCore
+        )
+    }
+
+    /// Context menus and their dialogs, sized to their rows rather than
+    /// the window.
+    pub(crate) fn context_sized(self) -> bool {
+        matches!(
+            self,
+            Self::Tab
+                | Self::RenameTab
+                | Self::MoveTab
+                | Self::Group
+                | Self::Pane
+                | Self::RenamePane
+                | Self::MovePane
+                | Self::CarryPane
+                | Self::PaneProcesses
+                | Self::KillProcesses
+                | Self::Host
+                | Self::RemoveDevice
+                | Self::RemoveWsl
+                | Self::CoreMenu
+                | Self::CoreMove
+                | Self::RenameCore
         )
     }
 

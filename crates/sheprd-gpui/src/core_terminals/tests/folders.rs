@@ -74,20 +74,28 @@ fn a_core_workspace_stays_where_it_started_when_its_pane_moves() {
 }
 
 #[test]
-fn only_this_computers_terminals_are_placed_for_its_port_scan() {
+fn a_saved_hosts_terminals_are_placed_with_their_host() {
     let mut terminals = CoreTerminals::default();
     tab(&mut terminals, 0, "t0", "w", false);
-    let mut remote = TabPanes::new(
-        Host::Remote(Scope::endpoint("box")),
-        Panes::single(id("t1")),
-        false,
-    );
+    let remote_host = Host::Remote(Scope::endpoint("box"));
+    let mut remote = TabPanes::new(remote_host.clone(), Panes::single(id("t1")), false);
     remote.workspace = Some((Scope::endpoint("box"), "w".to_owned()));
     terminals.tabs.insert(TabId::test(1), remote);
-    // t1 on the saved host would name an unrelated local terminal t1.
+    // t1 on the saved host is not this computer's t1: its host says which.
     assert_eq!(
         terminals.terminal_workspaces(None),
-        [("t0".to_owned(), (Scope::endpoint("local"), "w".to_owned()))]
+        [
+            (
+                Host::Local,
+                "t0".to_owned(),
+                (Scope::endpoint("local"), "w".to_owned())
+            ),
+            (
+                remote_host,
+                "t1".to_owned(),
+                (Scope::endpoint("box"), "w".to_owned())
+            ),
+        ]
     );
 }
 
@@ -98,8 +106,12 @@ fn a_watched_terminal_keeps_its_ports_in_the_workspace_driving_it() {
     // driving one.
     tab(&mut terminals, 0, "t1", "watching", true);
     tab(&mut terminals, 1, "t1", "driving", false);
-    let places = terminals.terminal_workspaces(None);
-    assert_eq!(places[0].1.1, "driving");
+    let places: Vec<_> = terminals
+        .terminal_workspaces(None)
+        .into_iter()
+        .map(|(_, terminal, place)| (crate::usage::Host::Local, terminal, place))
+        .collect();
+    assert_eq!(places[0].2.1, "driving");
     let mut ports = crate::listening_ports::ListeningPorts::default();
     ports.seed(
         crate::usage::Host::Local,

@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 crossbeam-channel.workspace = true
 sheprd-backend.workspace     = true
+sheprd-chat-protocol.workspace = true
 sheprd-client.workspace      = true
 sheprd-terminal.workspace    = true
 serde.workspace             = true

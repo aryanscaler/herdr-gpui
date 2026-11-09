@@ -697,7 +697,10 @@ impl SheprdWindow {
 
     pub(super) fn render_tab_menu(&self, cx: &mut Context<Self>) -> Div {
         // A Herdr 2 tab's or pane's menu draws as its own.
-        if matches!(self.menu.page, Some(Page::CoreMenu | Page::RenameCore)) {
+        if matches!(
+            self.menu.page,
+            Some(Page::CoreMenu | Page::CoreMove | Page::RenameCore)
+        ) {
             return self.render_core_menu(cx);
         }
         let Some(tab) = &self.menu.tab else {

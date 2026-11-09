@@ -51,7 +51,7 @@ pub(crate) struct Closed {
 fn pane(row: &Row) -> Option<&str> {
     match &row.open {
         Open::Pane { pane, .. } => Some(pane),
-        Open::Run(_) => None,
+        Open::Run(_) | Open::Core { .. } => None,
     }
 }
 

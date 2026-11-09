@@ -648,7 +648,7 @@ impl SheprdWindow {
             );
         }
         if shelf == Shelf::Active {
-            if row.pane().is_some() {
+            if row.reply_pane().is_some() {
                 actions = actions.child(
                     action("reply", "icons/pencil.svg", fl!("overview-reply")).on_click(
                         cx.listener(move |this, _, window, cx| {

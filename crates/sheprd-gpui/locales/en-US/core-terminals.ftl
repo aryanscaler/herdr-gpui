@@ -2,7 +2,7 @@
 
 core-terminals-open-workspace = Open a workspace first
 # The app keeps Herdr 2 workspaces for this computer only.
-core-terminals-workspaces-local-only = Herdr 2 workspaces are only on this computer
+core-terminals-workspaces-need-core = herdr-core is not installed on this host, so it keeps no Herdr 2 workspaces. Choose Install Herdr 2 in the host's menu to add it
 # A new tab on an SSH host, cloud machine, or WSL distribution without
 # herdr-core runs in the host's Herdr instead.
 core-terminals-host-without-core = herdr-core is not installed on this host, so the tab runs in its Herdr. Choose Install Herdr 2 in the host's menu to add it
@@ -29,6 +29,8 @@ core-terminals-mirror-needs-pane = Click a Herdr 2 pane to mirror first
 core-terminals-menu-mirror = Mirror in New Tab
 # A pane or tab command a Herdr 2 pane cannot run.
 core-terminals-unsupported = Herdr 2 panes cannot do this yet
+# Move Pane on a Herdr 2 pane that is its tab's only one, with no other tab.
+core-terminals-nowhere-to-move = No other tab to move this pane to
 # Shown on a watch-only view of a terminal another view types into.
 core-terminals-watching = Watching
 # The sidebar's list of herdr-core panes, under the agents.

@@ -28,12 +28,14 @@ impl CoreTerminalView {
     }
 
     /// Whether inserted text would reach the program now: the view has the
-    /// keyboard, types rather than watches, holds no IME composition, its
-    /// program still runs, and its worker has not stopped on an error.
+    /// keyboard, types rather than watches, holds no IME composition, is
+    /// not in copy mode, which takes keys without typing them, its program
+    /// still runs, and its worker has not stopped on an error.
     fn takes_accessible_text(&self, window: &Window) -> bool {
         self.focus.is_focused(window)
             && !self.observe
             && self.marked.is_empty()
+            && self.copy_mode.is_none()
             && !self.ended()
             && self.screen.failure.is_none()
     }

@@ -169,6 +169,14 @@ impl SheprdWindow {
         }
     }
 
+    /// The shell shown in place of Herdr 1's terminal, marked as drawn in
+    /// this frame.
+    pub(crate) fn draw_core_fallback(&mut self) -> Option<AnyElement> {
+        let view = self.core_fallback_view()?;
+        self.core_terminals.draw(&view);
+        Some(view.into_any_element())
+    }
+
     /// Whether the window should still ask the user to install Herdr: only
     /// once herdr-core is known to be unavailable as well.
     pub(crate) fn needs_herdr_install(&self) -> bool {

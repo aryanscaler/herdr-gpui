@@ -10,6 +10,14 @@ use gpui::{Entity, TestAppContext, VisualTestContext, prelude::*};
 use sheprd_backend::{AgentStatus, RunState, TerminalId, TerminalInfo};
 use std::sync::Arc;
 
+/// The folder a phone asks a new workspace for: absolute on this platform,
+/// as adoption requires.
+const FOLDER: &str = if cfg!(windows) {
+    r"C:\code\api"
+} else {
+    "/code/api"
+};
+
 fn id(name: &str) -> TerminalId {
     TerminalId::new(name).unwrap()
 }
@@ -114,7 +122,7 @@ fn a_phones_new_workspace_is_kept_in_its_folder_with_the_terminal_in_it(cx: &mut
         let mut info = listed(name, None);
         info.labels.insert(
             sheprd_session::NEW_WORKSPACE_LABEL.to_owned(),
-            "/code/api".to_owned(),
+            FOLDER.to_owned(),
         );
         info
     };
@@ -128,7 +136,7 @@ fn a_phones_new_workspace_is_kept_in_its_folder_with_the_terminal_in_it(cx: &mut
         })
     });
     let kept = view.read_with(cx, |view, _| {
-        view.kept_workspace_at(std::path::Path::new("/code/api"))
+        view.kept_workspace_at(std::path::Path::new(FOLDER))
     });
     let kept = kept.expect("a workspace kept in the folder");
     assert_eq!(tabs_of(cx, "t5"), std::slice::from_ref(&kept));
@@ -142,7 +150,7 @@ fn a_phones_new_terminal_finds_its_workspace_while_another_host_is_shown(cx: &mu
         let mut info = listed(name, None);
         info.labels.insert(
             sheprd_session::NEW_WORKSPACE_LABEL.to_owned(),
-            "/code/api".to_owned(),
+            FOLDER.to_owned(),
         );
         info
     };
@@ -211,7 +219,7 @@ fn an_adopted_terminal_loses_what_adopts_it_and_keeps_its_chat() {
     let mut labels: std::collections::BTreeMap<String, String> = [
         (WORKSPACE_LABEL, "w1"),
         (SESSION_LABEL, "dev"),
-        (NEW_WORKSPACE_LABEL, "/code/api"),
+        (NEW_WORKSPACE_LABEL, FOLDER),
         (sheprd_chat_protocol::TOKEN, "endpoint"),
     ]
     .into_iter()

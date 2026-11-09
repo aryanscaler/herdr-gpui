@@ -14,7 +14,7 @@ fn large_lists_rank_in_the_background_and_keep_shown_rows_until_done(cx: &mut Te
                 })
                 .collect();
             let shown = palette.entries.clone();
-            view.prepare_palette_entries(&mut palette, None);
+            view.prepare_palette_entries(&mut palette, None, cx);
             view.menu.palette = Some(palette);
             view.rank_palette(Selection::Keep, cx);
             view.filter_palette("missing", cx);
@@ -55,7 +55,7 @@ fn closing_the_palette_drops_an_unfinished_ranking(cx: &mut TestAppContext) {
                     label: format!("p{index}"),
                 })
                 .collect();
-            view.prepare_palette_entries(&mut palette, None);
+            view.prepare_palette_entries(&mut palette, None, cx);
             view.menu.palette = Some(palette);
             view.rank_palette(Selection::Keep, cx);
             view.dismiss_menu(window, cx);

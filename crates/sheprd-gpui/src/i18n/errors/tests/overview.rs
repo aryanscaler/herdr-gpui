@@ -9,6 +9,7 @@ fn every_overview_variant_has_a_message() {
         Error::Json(serde_json::from_str::<u8>("x").unwrap_err()),
         Error::ReopenRequest(Arc::new(crate::Error::NotConnected)),
         Error::ReopenResponse,
+        Error::ReplyCore(sheprd_core_client::Error::Lost),
         Error::ReplyHost(crate::pane_move::Error::UnsupportedHost),
         Error::ReplyScript(sheprd_client::Error::ScriptCancelled),
     ]);

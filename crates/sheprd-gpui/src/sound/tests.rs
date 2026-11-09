@@ -474,6 +474,7 @@ fn worker_drops_cancelled_and_expired_jobs_without_playing_them() {
     ));
 }
 
+mod core_agents;
 mod mutes;
 mod play;
 mod repeats;

@@ -211,7 +211,7 @@ jobs:
       - run: '"target/$TARGET/release/sheprd-automate" --version'
       - run: '"target/$TARGET/release/herdr-core" --version'
       - name: Install the notice generator
-        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
         with:
           tool: cargo-about@0.9.2
           fallback: none
@@ -280,7 +280,7 @@ jobs:
       - run: '"target/$TARGET/release/sheprd-nearby" --version'
       - run: '"target/$TARGET/release/herdr-core" --version'
       - name: Install the notice generator
-        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
         with:
           tool: cargo-about@0.9.2
           fallback: none
@@ -380,7 +380,7 @@ jobs:
       - run: '"target/$TARGET/release/sheprd-nearby.exe" --version'
       - run: '"target/$TARGET/release/herdr-core.exe" --version'
       - name: Install the notice generator
-        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
         with:
           tool: cargo-about@0.9.2
           fallback: none

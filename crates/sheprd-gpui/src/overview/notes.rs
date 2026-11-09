@@ -21,7 +21,7 @@ impl SheprdWindow {
         active: bool,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
-        let (endpoint, pane) = row.pane()?;
+        let (endpoint, pane) = row.reply_pane()?;
         let excerpt = self
             .overview
             .excerpts

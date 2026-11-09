@@ -120,12 +120,15 @@ fn convert_code(error: &crate::chat::ConvertError) -> ErrorCode {
         ConvertError::Program(error) => start_code(error),
         ConvertError::Convert(
             convert::Error::Line
+            | convert::Error::NoCoreSession(_)
             | convert::Error::NoSession(_)
+            | convert::Error::NoShell(_)
             | convert::Error::Unknown(_)
             | convert::Error::Unsupported(_),
         )
         | ConvertError::Disabled
         | ConvertError::HostProgram(_)
+        | ConvertError::NoHome
         | ConvertError::NotReachable => ErrorCode::Unsupported,
         ConvertError::Convert(
             convert::Error::AlreadyChat | convert::Error::NoAgent | convert::Error::NotRunning(_),
@@ -137,6 +140,7 @@ fn convert_code(error: &crate::chat::ConvertError) -> ErrorCode {
             convert::Error::Moved | convert::Error::StillRunning(_) | convert::Error::Stopped,
         )
         | ConvertError::Answer(_)
+        | ConvertError::Core(_)
         | ConvertError::Existing(_)
         | ConvertError::NotConnected
         | ConvertError::Stale

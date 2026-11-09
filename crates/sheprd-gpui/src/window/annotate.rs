@@ -11,6 +11,7 @@ use crate::i18n::{Localize, fl};
 use crate::{
     Error,
     agent_notes::Origin,
+    core_terminals::CoreTerminalView,
     search_input::SearchInput,
     terminal::Selection,
     terminal_notes::{self, MAX_NOTES, Note},
@@ -18,30 +19,44 @@ use crate::{
 use gpui::{prelude::*, *};
 use sheprd_client::protocol::ClientShellSnapshot;
 
+mod core;
 mod offer;
 mod render;
 
-/// A queued note and the daemon whose agent it goes to.
+/// A queued note and the daemon whose agent it goes to; a note on a
+/// herdr-core pane has none and is copied.
 struct Queued {
-    origin: Origin,
+    origin: Option<Origin>,
     note: Note,
 }
 
-/// The note being written, about text selected in `pane_id`.
+/// Where the text a note quotes was selected.
+enum Source {
+    /// A Herdr 1 pane of the selected daemon.
+    Pane {
+        origin: Origin,
+        pane_id: String,
+        selection: Selection,
+    },
+    /// A herdr-core view, which keeps its own selection.
+    Core(Entity<CoreTerminalView>),
+}
+
+/// The note being written, about the text selected in `source`.
 struct Composer {
     input: Entity<SearchInput>,
-    origin: Origin,
-    pane_id: String,
+    source: Source,
     target: Option<String>,
     place: String,
     quote: String,
-    selection: Selection,
 }
 
 /// The window's terminal notes: the one being written and those queued.
 #[derive(Default)]
 pub(crate) struct TerminalNotes {
     composer: Option<Composer>,
+    /// A herdr-core pane whose selection is being read for a note.
+    core_quote: Option<Entity<CoreTerminalView>>,
     offer: Option<offer::Offer>,
     queued: Vec<Queued>,
 }
@@ -90,6 +105,12 @@ fn destination(snapshot: &ClientShellSnapshot, pane_id: &str) -> (Option<String>
 impl SheprdWindow {
     /// Opens the note field over the pane holding the selection.
     pub(crate) fn annotate_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A newer note replaces one whose quote is still being read.
+        self.terminal_notes.core_quote = None;
+        if let Some(view) = self.core_terminals.focused_view(window, cx) {
+            self.annotate_core_selection(view, cx);
+            return;
+        }
         let Some(selection) = self.selection.clone() else {
             if self.terminal_notes.offer.is_some() {
                 self.open_terminal_annotation_offer(window, cx);
@@ -138,6 +159,29 @@ impl SheprdWindow {
                 }
             };
         let (target, place) = destination(&snapshot, &pane_id);
+        let Some(origin) = Origin::of(self) else {
+            return;
+        };
+        let source = Source::Pane {
+            origin,
+            pane_id,
+            selection,
+        };
+        self.open_terminal_note(source, target, place, quote, window, cx);
+    }
+
+    /// Opens the note field about `quote`, focused.
+    fn open_terminal_note(
+        &mut self,
+        source: Source,
+        target: Option<String>,
+        place: String,
+        quote: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // A quote still being read would replace this note when it arrives.
+        self.terminal_notes.core_quote = None;
         let input = cx.new(SearchInput::new);
         input.update(cx, |input, cx| {
             input.set_placeholder_with(|| fl!("window-annotate-placeholder"), cx);
@@ -147,18 +191,13 @@ impl SheprdWindow {
             input.set_appearance(font, self.theme.clone(), cx);
         });
         let focus = input.read(cx).focus.clone();
-        let Some(origin) = Origin::of(self) else {
-            return;
-        };
         self.terminal_notes.offer = None;
         self.terminal_notes.composer = Some(Composer {
             input,
-            origin,
-            pane_id,
+            source,
             target,
             place,
             quote,
-            selection,
         });
         window.focus(&focus, cx);
         cx.notify();
@@ -170,7 +209,13 @@ impl SheprdWindow {
             return;
         };
         if composer.input.read(cx).focus.is_focused(window) {
-            window.focus(&self.focus, cx);
+            // A herdr-core pane takes back the keyboard it gave the note.
+            match &composer.source {
+                Source::Core(view) if self.core_terminals.shows(view) => {
+                    window.focus(&view.read(cx).focus_handle().clone(), cx);
+                }
+                _ => window.focus(&self.focus, cx),
+            }
         }
         cx.notify();
     }
@@ -188,24 +233,31 @@ impl SheprdWindow {
     /// or its pane left the screen.
     pub(crate) fn follow_terminal_note(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.follow_terminal_annotation_offer(cx);
+        self.poll_core_quote(window, cx);
         let Some(composer) = &self.terminal_notes.composer else {
             return;
         };
-        let current = composer.origin.current(self)
-            && self.live.snapshot.as_ref().is_some_and(|snapshot| {
-                snapshot
-                    .panes
-                    .iter()
-                    .any(|pane| pane.pane_id == composer.pane_id)
-            })
-            && (!self.live.surface_ready()
-                || self.live.surface.as_deref().is_some_and(|surface| {
-                    surface.popup.is_none()
-                        && surface
-                            .panes
-                            .iter()
-                            .any(|pane| pane.pane_id == composer.pane_id)
-                }));
+        let (origin, pane_id) = match &composer.source {
+            Source::Pane {
+                origin, pane_id, ..
+            } => (origin, pane_id),
+            Source::Core(view) => {
+                if !self.core_terminals.shows(view) {
+                    self.close_terminal_note(window, cx);
+                }
+                return;
+            }
+        };
+        let current =
+            origin.current(self)
+                && self.live.snapshot.as_ref().is_some_and(|snapshot| {
+                    snapshot.panes.iter().any(|pane| pane.pane_id == *pane_id)
+                })
+                && (!self.live.surface_ready()
+                    || self.live.surface.as_deref().is_some_and(|surface| {
+                        surface.popup.is_none()
+                            && surface.panes.iter().any(|pane| pane.pane_id == *pane_id)
+                    }));
         if !current {
             self.close_terminal_note(window, cx);
         }
@@ -238,7 +290,10 @@ impl SheprdWindow {
                     );
                     return;
                 }
-                let origin = composer.origin.clone();
+                let origin = match &composer.source {
+                    Source::Pane { origin, .. } => Some(origin.clone()),
+                    Source::Core(_) => None,
+                };
                 self.terminal_notes.queued.push(Queued { origin, note });
             }
             None if send && !self.terminal_notes.queued.is_empty() => {}
@@ -247,8 +302,15 @@ impl SheprdWindow {
                 return;
             }
         }
+        let core = match &composer.source {
+            Source::Core(view) => Some(view.clone()),
+            Source::Pane { .. } => None,
+        };
         self.close_terminal_note(window, cx);
-        self.clear_retained_selection(cx);
+        match core {
+            Some(view) => view.update(cx, |view, cx| view.clear_selection(cx)),
+            None => self.clear_retained_selection(cx),
+        }
         if send {
             self.send_terminal_notes(cx);
         } else {
@@ -267,7 +329,13 @@ impl SheprdWindow {
         let (mut queued, copied): (Vec<_>, Vec<_>) =
             std::mem::take(&mut self.terminal_notes.queued)
                 .into_iter()
-                .partition(|queued| queued.origin.current(self) && queued.note.target.is_some());
+                .partition(|queued| {
+                    queued
+                        .origin
+                        .as_ref()
+                        .is_some_and(|origin| origin.current(self))
+                        && queued.note.target.is_some()
+                });
         while let Some(first) = queued.first() {
             let (origin, target) = (first.origin.clone(), first.note.target.clone());
             let (batch, rest): (Vec<_>, Vec<_>) = queued
@@ -288,7 +356,12 @@ impl SheprdWindow {
             // Feedback is keyed by daemon, not session: once the session a
             // note was written in is gone, its pane ID may name another
             // pane, so even the fallback could reach the wrong agent.
-            let stale = copied.iter().any(|queued| !queued.origin.current(self));
+            let stale = copied.iter().any(|queued| {
+                queued
+                    .origin
+                    .as_ref()
+                    .is_some_and(|origin| !origin.current(self))
+            });
             let text = terminal_notes::prompt(copied.iter().map(|queued| &queued.note));
             clipboard.extend(
                 self.deliver_notes(None, text, None, Some(clipboard.clone()), cx)

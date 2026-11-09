@@ -238,8 +238,16 @@ pub(super) fn terminal(
     Some(Terminal {
         agent,
         agents,
-        // A core reports no agent sessions or process info to move with.
-        convert: None,
+        // Only this computer's terminals: an agent another machine runs
+        // keeps its session records there, out of the daemon's reach.
+        convert: records
+            .iter()
+            .filter(|record| !record.address.contains('/'))
+            .find_map(|record| {
+                let info = sheprd_core_client::terminal_info(record).ok()?;
+                let agent = sheprd_core_client::convert::movable(&info).ok()?;
+                Some((pane_id(boot, &record.address), agent))
+            }),
         cwd: cwd(first),
         label: if title.is_empty() {
             first

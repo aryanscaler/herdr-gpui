@@ -13,9 +13,20 @@ use std::path::Path;
 type Pane = (crate::browser::TabId, TerminalId);
 
 impl super::CoreTerminals {
-    /// Whether `view` is on screen: a tab's pane or the stand-in shell.
+    /// Whether the window drew `view` in its last frame: a pane of a tab
+    /// a group shows, or the stand-in shell.
     pub(crate) fn shows(&self, view: &Entity<CoreTerminalView>) -> bool {
-        self.shown().any(|shown| shown == view)
+        self.drawn.contains(&view.entity_id())
+    }
+
+    /// Starts a frame: the views it draws are marked as it draws them.
+    pub(crate) fn start_frame(&mut self) {
+        self.drawn.clear();
+    }
+
+    /// Marks `view` as drawn in this frame.
+    pub(crate) fn draw(&mut self, view: &Entity<CoreTerminalView>) {
+        self.drawn.push(view.entity_id());
     }
 
     /// The view holding the keyboard, a tab's pane or the stand-in shell,
@@ -50,6 +61,7 @@ impl SheprdWindow {
                 view.find_again(command == Command::FindPrevious, window, cx)
             }),
             Command::ClearPane => view.update(cx, |view, cx| view.clear_history(cx)),
+            Command::CopyMode => view.update(cx, |view, cx| view.enter_copy_mode(window, cx)),
             Command::EditScrollback => view.update(cx, |view, _| view.request_edit()),
             _ => return false,
         }

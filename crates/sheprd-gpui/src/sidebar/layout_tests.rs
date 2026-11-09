@@ -630,7 +630,7 @@ pub(crate) fn fixture_window(window: &mut Window, cx: &mut Context<SheprdWindow>
         selection_follow: Default::default(),
         find: None,
         copy_mode: None,
-        core_terminals: Default::default(),
+        core_terminals: crate::core_terminals::CoreTerminals::shared(cx),
         find_memory: Default::default(),
         flash: None,
         flash_motion: Default::default(),

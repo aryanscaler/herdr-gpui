@@ -50,6 +50,11 @@ pub(crate) struct Screen {
 }
 
 impl Screen {
+    /// The frame's columns and rows, once one is shown.
+    pub(crate) fn grid(&self) -> Option<(u16, u16)> {
+        self.frame.as_ref().map(|frame| (frame.width, frame.height))
+    }
+
     /// A copy for the window, moving out what happens once (bells and the
     /// clipboard write) so the next take does not repeat them.
     pub(crate) fn take(&mut self) -> Self {

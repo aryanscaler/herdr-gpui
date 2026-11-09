@@ -54,8 +54,11 @@ fn kept_chips(view: &Entity<SheprdWindow>, cx: &mut VisualTestContext) -> (Strin
         let scope = crate::browser::scope(&view.endpoints[0]);
         view.listening_ports
             .seed(Host::Local, parse("L 10 *:5173 node\nC 10 t1\n").unwrap());
-        view.listening_ports
-            .place_terminals(vec![("t1".to_owned(), (scope, id.clone()))]);
+        view.listening_ports.place_terminals(vec![(
+            Host::Local,
+            "t1".to_owned(),
+            (scope, id.clone()),
+        )]);
     });
     view.read_with(cx, |view, _| {
         let (_, workspace, listed) = view.focused_listening_ports().unwrap();

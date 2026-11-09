@@ -36,7 +36,7 @@ fn one_palette_combines_navigation_actions_commands_and_projects(cx: &mut TestAp
                 },
                 "release blocker",
             );
-            view.prepare_palette_entries(&mut palette, Some(&notes));
+            view.prepare_palette_entries(&mut palette, Some(&notes), cx);
             view.menu.palette = Some(palette);
             view.rank_palette(Selection::Keep, cx);
             for filter in Filter::ALL {

@@ -33,6 +33,7 @@ pub(super) fn look() -> Look {
         padding: Default::default(),
         right_click_passthrough: Default::default(),
         scroll_lines: crate::herdr_settings::DEFAULT_MOUSE_SCROLL_LINES,
+        smooth_scroll: true,
     }
 }
 
@@ -164,7 +165,7 @@ fn a_failed_terminal_stops_offering_insertion(cx: &mut TestAppContext) {
         })
     });
     until(|| {
-        cx.update(|_, cx| view.update(cx, |view, cx| view.poll(cx)))
+        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx)))
             .then_some(())
     });
     cx.update(|window, cx| {
@@ -196,4 +197,22 @@ fn insertion_pastes_only_text_set_while_the_view_takes_typing(cx: &mut TestAppCo
         })
     });
     assert_eq!(pastes(&backend, 2), ["hello 世界\nsecond line", "last"]);
+}
+
+#[gpui::test]
+fn copy_mode_stops_offering_insertion(cx: &mut TestAppContext) {
+    let (view, cx, backend) = super::history::shown(cx);
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            window.focus(view.focus_handle(), cx);
+            view.enter_copy_mode(window, cx);
+            assert!(view.copy_mode_active());
+            assert!(!node(view, window, cx).supports_action(Action::SetValue));
+            view.insert_accessible_text(Some(&value("dictated")), window);
+            view.leave_copy_mode(window, cx);
+            assert!(node(view, window, cx).supports_action(Action::SetValue));
+            view.insert_accessible_text(Some(&value("after")), window);
+        })
+    });
+    assert_eq!(pastes(&backend, 1), ["after"]);
 }

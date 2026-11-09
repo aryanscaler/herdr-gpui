@@ -4,7 +4,6 @@
 
 use super::{pane_id, projection};
 use crate::hub::{Layout, TerminalPane, layout::Chat};
-use sheprd_chat_protocol::{EndpointId, TOKEN};
 use sheprd_core_client::wire::Terminal;
 
 /// Moves every chat pane out of its terminal tab into its workspace's
@@ -41,7 +40,10 @@ fn chat(pane: &TerminalPane, tab: &str, boot: &str, records: &[Terminal]) -> Opt
         .iter()
         .find(|record| pane_id(boot, &record.address) == pane.pane)
         .filter(|record| !record.address.contains('/'))?;
-    let endpoint: EndpointId = record.labels.get(TOKEN)?.parse().ok()?;
+    // A moved agent's terminal keeps its label after the chat ends, so the
+    // shared rule also asks that the chat program be in front.
+    let info = sheprd_core_client::terminal_info(record).ok()?;
+    let endpoint = sheprd_core_client::convert::chat_endpoint(&info)?;
     let status = record.status.as_ref();
     Some(Chat {
         agent: status

@@ -11,7 +11,7 @@ on Herdr 1's snapshot and a new backend costs an adapter rather than a rewrite.
 | --- | --- | --- |
 | Terminals (`sheprd-backend`) | Not implemented; `sheprd-client` talks to the daemon | `CoreBackend` |
 | Tab and pane layout | The daemon's snapshot | `sheprd_session::panes`, saved with the tab |
-| Workspaces | The daemon's snapshot | Kept by the app beside its tabs (`browser-tabs.json`'s `workspaces`, read by `SavedTabs::workspaces`), listed after Herdr 1's; with no Herdr 1 installed, the first is `core_terminals::WORKSPACE`. A terminal started outside the app for a workspace, as by a phone, carries `sheprd_session::WORKSPACE_LABEL` and gets a tab there (`core_terminals::adopt`) |
+| Workspaces | The daemon's snapshot | Kept by the app beside its tabs (`browser-tabs.json`'s `workspaces`, read by `SavedTabs::workspaces`), under the scope of the host whose core runs them (this computer, or a saved SSH, cloud, or WSL host), listed after Herdr 1's; with no Herdr 1 installed, the first is `core_terminals::WORKSPACE`. A terminal started outside the app for a workspace, as by a phone, carries `sheprd_session::WORKSPACE_LABEL` and gets a tab there (`core_terminals::adopt`) |
 | Agents | The daemon's snapshot | `TerminalInfo::agent`, per terminal; which agent by `sheprd_core_client::agent_kind` |
 | Commands | 43 `sheprd_client::Method` variants | Handled per feature in `core_terminals` |
 | `Session` | `session_model::of_snapshot`, cached per snapshot in `LiveState::session` | `Session::core`, rebuilt on the window tick from the app's tabs and the core's terminals |
@@ -22,8 +22,9 @@ and `Session`: workspaces, their tabs, and agents, each workspace marked with th
 `Keeper` that carries out what is asked of it. A test in the app reads what the
 app saves through the saved tabs reader, so the two cannot drift apart.
 
-`SheprdWindow::sessions` gives a host's sessions together: Herdr 1's, and on
-this computer the one over herdr-core. Readers walk both, so a reader moved onto
+`SheprdWindow::sessions` gives a host's sessions together: Herdr 1's, and the
+one over herdr-core, on this computer and on each saved host whose workspaces
+the app keeps. Readers walk both, so a reader moved onto
 it lists Herdr 2 work beside Herdr 1's.
 
 | Reader | On `Session` |

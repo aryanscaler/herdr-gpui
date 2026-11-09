@@ -5,6 +5,8 @@ mod alert_shelf;
 mod boot_fence;
 mod closed;
 mod closed_page;
+mod core;
+mod core_open;
 mod en_xa;
 mod excerpt;
 mod hosts;

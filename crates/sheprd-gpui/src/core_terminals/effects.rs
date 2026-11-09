@@ -46,7 +46,7 @@ impl SheprdWindow {
         let mut dropped = false;
         for (view, shown) in views {
             let mut taken = view.update(cx, |view, cx| {
-                view.poll(cx);
+                view.poll(window, cx);
                 view.take_effects()
             });
             dropped |= view.read(cx).take_dropped();

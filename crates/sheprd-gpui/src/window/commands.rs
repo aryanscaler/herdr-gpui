@@ -652,7 +652,7 @@ impl SheprdWindow {
                 return;
             }
             Command::ConvertToChat => {
-                self.convert_to_chat_or_flash(cx);
+                self.convert_to_chat_or_flash(window, cx);
                 return;
             }
             // A focused page zooms instead of the terminal font, and keeps

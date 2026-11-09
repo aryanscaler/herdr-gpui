@@ -92,6 +92,21 @@ impl SheprdWindow {
         tab: &Tab,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let now = crate::motion::now();
+        // Only panes whose bodies render count as drawn, so a note does not
+        // stay over a pane a landed zoom hides.
+        let drawn: Vec<_> = self
+            .core_terminals
+            .tabs
+            .get(&tab.id)
+            .into_iter()
+            .flat_map(|shown| shown.drawn_at(now))
+            .filter_map(|terminal| self.core_terminals.views.get(&(tab.id, terminal.clone())))
+            .cloned()
+            .collect();
+        for view in &drawn {
+            self.core_terminals.draw(view);
+        }
         let Some(shown) = self.core_terminals.tabs.get(&tab.id) else {
             return self.core_placeholder(&super::Host::of(&tab.scope));
         };
@@ -104,7 +119,7 @@ impl SheprdWindow {
             return self.core_pane_body(key.0, &key.1, &view, cx);
         }
         let zoom = shown
-            .zoom_at(crate::motion::now())
+            .zoom_at(now)
             .map(|(zoomed, shown)| (zoomed.clone(), shown));
         let rects = shown.panes.rects();
         let root = shown.panes.root().clone();

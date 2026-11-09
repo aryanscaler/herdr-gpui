@@ -10,6 +10,8 @@
 //! the socket.
 // i18n: migrated
 
+pub(crate) mod badge;
+
 use crate::{
     scrollback::{match_count, push_matches, push_range, refresh_from, viewport_top},
     terminal_painter::{Highlight, Tint},
@@ -306,6 +308,13 @@ impl CopyMode {
 
     pub(crate) fn entry_offset(&self) -> Option<u64> {
         self.entry_offset
+    }
+
+    /// Forgets the mark once the rows it names hold other text, as when a
+    /// herdr-core pane's full history drops its oldest line or a resize
+    /// rewraps it, so `y` cannot copy text that was never marked.
+    pub(crate) fn forget_mark(&mut self) {
+        self.mark = None;
     }
 
     pub(crate) fn in_flight(&self) -> Option<&str> {

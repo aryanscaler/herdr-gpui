@@ -208,7 +208,8 @@ fn update(record: &mut Terminal, change: TerminalChange) -> bool {
     true
 }
 
-pub(crate) fn info(terminal: &Terminal) -> Result<TerminalInfo> {
+/// What a client is told of `terminal`, as [`CoreBackend`] lists it.
+pub fn info(terminal: &Terminal) -> Result<TerminalInfo> {
     let cwd = terminal
         .foreground
         .as_ref()

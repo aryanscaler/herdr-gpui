@@ -34,6 +34,7 @@ methods! {
     EventsSubscribe => "events.subscribe", true;
     Hello => "hello", false;
     TerminalAttach => "terminal.attach", true;
+    TerminalKeys => "terminal.keys", false;
     TerminalKill => "terminal.kill", true;
     TerminalLabel => "terminal.label", false;
     TerminalList => "terminal.list", true;
