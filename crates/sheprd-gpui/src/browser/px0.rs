@@ -162,8 +162,8 @@ impl SheprdWindow {
         self.unbind_px0_pages(|binding| binding.host == *host);
     }
 
-    /// The tabs bound to a workbench, for tests.
-    #[cfg(test)]
+    /// The tabs bound to a workbench, for the SSH test, which runs on Unix.
+    #[cfg(all(test, unix))]
     pub(super) fn px0_bound_tabs(&self) -> Vec<TabId> {
         self.browser.px0.bound.keys().copied().collect()
     }

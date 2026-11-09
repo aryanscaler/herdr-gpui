@@ -152,7 +152,9 @@ impl SheprdWindow {
 
     /// Closes `editor`'s pages of the tabs whose scope is `in_scope`, keeping
     /// the tabs and their groups. Other editors keep their page state, even
-    /// when they share a workspace.
+    /// when they share a workspace. Only VS Code's host servers use it
+    /// outside tests, in the builds that show pages.
+    #[cfg(any(target_os = "macos", windows, test))]
     pub(super) fn close_editor_pages_in(
         &mut self,
         editor: Editor,
