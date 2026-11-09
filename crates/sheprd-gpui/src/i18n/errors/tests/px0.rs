@@ -21,3 +21,26 @@ fn every_px0_variant_has_a_message() {
         Error::Shutdown(std::sync::mpsc::RecvTimeoutError::Timeout),
     ]);
 }
+
+#[test]
+fn every_px0_host_variant_has_a_message() {
+    use crate::px0::host::Error as Host;
+    let mut errors = vec![
+        Host::Address,
+        Host::Command(sheprd_client::Error::Disconnected),
+        Host::Exited,
+        Host::Forward(sheprd_client::Error::Disconnected),
+        Host::Missing,
+        Host::Output,
+        Host::Setup,
+        Host::Spawn(std::io::Error::other("disk on fire")),
+        Host::Ssh,
+        Host::Timeout,
+    ];
+    #[cfg(unix)]
+    errors.push(Host::Stopped(
+        std::os::unix::process::ExitStatusExt::from_raw(256),
+    ));
+    assert_localized(&errors);
+    assert_localized(&[Error::Host(Host::Missing)]);
+}

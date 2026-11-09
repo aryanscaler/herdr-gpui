@@ -1,26 +1,85 @@
 //! Workspace-scoped px0 pages; the workbench owns its checkout processes.
+//! A local workspace uses the workbench on this computer, and one on an SSH
+//! host that host's own (see [`crate::px0::host`]), which opens the
+//! workspace's folder there.
 use super::{Editor, GroupId, Location, Store, TabId, WebUrl, view::store};
 use crate::i18n::{Localize, fl};
 use crate::{
     SheprdWindow,
-    px0::{Launcher, State},
+    px0::{Hosts, Launcher, State},
     window::Flash,
 };
 use gpui::{prelude::*, *};
+use sheprd_client::ConnectTarget;
 use std::collections::HashMap;
+
+/// Which workbench serves a workspace's px0 tab.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Px0Host {
+    /// The workbench on this computer, or the configured address.
+    Local,
+    /// The workbench the app runs on this SSH target.
+    Ssh(String),
+}
+
+impl Px0Host {
+    fn state(&self, cx: &App) -> State {
+        match self {
+            Self::Local => Launcher::state(cx),
+            Self::Ssh(target) => Hosts::state(cx, target),
+        }
+    }
+
+    fn want(&self, cx: &mut App) {
+        match self {
+            Self::Local => Launcher::want(cx),
+            Self::Ssh(target) => Hosts::want(cx, target),
+        }
+    }
+
+    fn reset(&self, cx: &mut App) {
+        match self {
+            Self::Local => Launcher::reset(cx),
+            Self::Ssh(target) => Hosts::reset(cx, target),
+        }
+    }
+}
+
+/// The workbench, its address, and the checkout a page was created with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Binding {
+    host: Px0Host,
+    base: WebUrl,
+    root: String,
+}
 
 #[derive(Default)]
 pub(super) struct Pages {
     phase: Option<std::mem::Discriminant<State>>,
-    /// The server and checkout used to create each page. Reopening a tab or
-    /// changing its server rebinds it; stale persisted ports are never loaded.
-    bound: HashMap<TabId, (WebUrl, String)>,
+    /// What each page was created with. Reopening a tab or changing its
+    /// server rebinds it; stale persisted ports are never loaded.
+    bound: HashMap<TabId, Binding>,
 }
 
 impl SheprdWindow {
+    /// The focused workspace's workbench and starting folder on its own
+    /// host: this computer's for a local workspace, an SSH host's for one
+    /// there. Other remote workspaces have none, nor SSH ones on Windows.
+    pub(crate) fn px0_target(&self) -> Option<(Px0Host, String)> {
+        let endpoint = self.endpoints.get(self.selected_endpoint)?;
+        let (host, root) = match &endpoint.connection.target {
+            // Forwarding the host's port needs `ssh -L`, which runs only on Unix.
+            ConnectTarget::Ssh { target, .. } if cfg!(unix) => {
+                (Px0Host::Ssh(target.clone()), self.host_editor_root()?)
+            }
+            _ => (Px0Host::Local, self.local_editor_root()?),
+        };
+        (root.len() <= 4096 && !root.chars().any(char::is_control))
+            .then(|| (host, root.into_owned()))
+    }
+
     pub(crate) fn px0_root(&self) -> Option<String> {
-        let root = self.local_editor_root()?;
-        (root.len() <= 4096 && !root.chars().any(char::is_control)).then(|| root.into_owned())
+        self.px0_target().map(|(_, root)| root)
     }
 
     pub(crate) fn open_px0(
@@ -44,15 +103,30 @@ impl SheprdWindow {
         if !super::EMBEDDED {
             return;
         }
-        let state = Launcher::state(cx);
+        let focused = self.px0_target();
+        let state = focused
+            .as_ref()
+            .map_or_else(|| Launcher::state(cx), |(host, _)| host.state(cx));
         let phase = Some(std::mem::discriminant(&state));
         if self.browser.px0.phase != phase {
             self.browser.px0.phase = phase;
             cx.notify();
         }
-        if matches!(state, State::Idle | State::Starting) && !self.browser.px0.bound.is_empty() {
-            self.close_editor_pages(Editor::Px0, cx);
-            self.browser.px0.bound.clear();
+        // A workbench starting again has a new address, so its pages close;
+        // one that failed keeps them, and the edits in them.
+        let restarting: Vec<TabId> = self
+            .browser
+            .px0
+            .bound
+            .iter()
+            .filter(|(_, binding)| matches!(binding.host.state(cx), State::Idle | State::Starting))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in restarting {
+            #[cfg(any(target_os = "macos", windows))]
+            self.browser.pages.close(id);
+            self.browser.failed.remove(&id);
+            self.browser.px0.bound.remove(&id);
         }
         self.browser
             .px0
@@ -64,16 +138,16 @@ impl SheprdWindow {
         let Some(mut tab) = tab.filter(|tab| self.group_shows_page(tab.id, cx)) else {
             return;
         };
-        let Some(root) = self.px0_root() else {
+        let Some((host, root)) = focused else {
             return;
         };
-        Launcher::want(cx);
-        let State::Ready(base) = Launcher::state(cx) else {
+        host.want(cx);
+        let State::Ready(base) = host.state(cx) else {
             return;
         };
-        let binding = (base.clone(), root.clone());
+        let binding = Binding { host, base, root };
         if self.browser.px0.bound.get(&tab.id) != Some(&binding) {
-            let url = match crate::px0::workspace_url(&base, &root) {
+            let url = match crate::px0::workspace_url(&binding.base, &binding.root) {
                 Ok(url) => url,
                 Err(error) => {
                     self.browser.failed.insert(tab.id, error.localize().into());
@@ -101,14 +175,14 @@ impl SheprdWindow {
             failure.to_string()
         } else if !super::EMBEDDED {
             fl!("browser-px0-unsupported")
-        } else if self.px0_root().is_none() {
-            fl!("browser-px0-no-workspace")
-        } else {
-            match Launcher::state(cx) {
+        } else if let Some((host, _)) = self.px0_target() {
+            match host.state(cx) {
                 State::Idle | State::Starting => fl!("browser-px0-starting"),
                 State::Ready(_) => fl!("browser-px0-loading"),
                 State::Failed(error) => error.localize(),
             }
+        } else {
+            fl!("browser-px0-no-workspace")
         };
         super::code_view::centered(
             div()
@@ -124,8 +198,13 @@ impl SheprdWindow {
                         .cursor_pointer()
                         .child(fl!("browser-px0-retry"))
                         .on_click(cx.listener(|this, _, window, cx| {
-                            Launcher::reset(cx);
-                            this.browser.px0.bound.clear();
+                            if let Some((host, _)) = this.px0_target() {
+                                host.reset(cx);
+                                this.browser
+                                    .px0
+                                    .bound
+                                    .retain(|_, binding| binding.host != host);
+                            }
                             this.ensure_px0_page(window, cx);
                             cx.notify();
                         })),

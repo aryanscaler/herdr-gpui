@@ -116,14 +116,16 @@ Sheprd** entry, which both Windows installers add, runs this command through
 | `orchestrator [--repo PATH]` | Show the Issues section narrowed to your checkout's project, or PATH's |
 | `orchestrator items\|issues\|prs\|tasks` | What it last synced, from its local database (no app needed); `tasks` is the repository's Beads tasks, with each one's assignee, priority, and blockers in `--json` |
 | `review` | The review of your workspace's uncommitted changes |
-| `px0 [open]` | Open or focus px0 on your local workspace's checkout (macOS and Windows) |
+| `px0 [open]` | Open or focus px0 on your workspace's checkout: local on macOS and Windows, on its SSH host on macOS |
 
 `px0 open` reuses one editor tab per workspace. It discovers a local px0
 workbench or starts an installed px0; `config set px0.url http://127.0.0.1:7777/`
 selects an existing workbench, and `config unset px0.url` restores automatic
-discovery. `--json` returns the opened tab ID and workspace. Exit 0 means the
-tab opened; startup errors appear in that tab with Retry. Remote workspaces
-and builds without embedded pages return exit 8. See [px0](../crates/sheprd-gpui/README.md#px0).
+discovery. A workspace on an SSH host uses px0 installed on that host, which
+the app starts there and forwards here. `--json` returns the opened tab ID and
+workspace. Exit 0 means the tab opened; startup errors appear in that tab with
+Retry. Other remote workspaces (WSL, cloud machines, SSH on Windows) and builds
+without embedded pages return exit 8. See [px0](../crates/sheprd-gpui/README.md#px0).
 
 ### Worktrees and agents
 

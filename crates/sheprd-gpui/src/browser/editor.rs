@@ -150,13 +150,9 @@ impl SheprdWindow {
         cx.notify();
     }
 
-    /// Retain tabs and their groups while replacing a provider's pages. Other
-    /// editors keep their page state, even when they share a workspace.
-    pub(super) fn close_editor_pages(&mut self, editor: Editor, cx: &App) {
-        self.close_editor_pages_in(editor, |_| true, cx);
-    }
-
-    /// Closes `editor`'s pages of the tabs whose scope is `in_scope`.
+    /// Closes `editor`'s pages of the tabs whose scope is `in_scope`, keeping
+    /// the tabs and their groups. Other editors keep their page state, even
+    /// when they share a workspace.
     pub(super) fn close_editor_pages_in(
         &mut self,
         editor: Editor,

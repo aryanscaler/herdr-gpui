@@ -20,7 +20,7 @@ fn editors_share_group_placement_and_keep_failures_provider_scoped(cx: &mut gpui
         view.browser.failed.insert(px0, "px0 failed".into());
         assert!(view.editor_page_settled(code));
         assert!(view.editor_page_settled(px0));
-        view.close_editor_pages(Editor::Px0, cx);
+        view.close_editor_pages_in(Editor::Px0, |_| true, cx);
         assert!(!view.editor_page_settled(px0));
         assert!(view.editor_page_settled(code));
         assert_eq!(view.editor_tab_id(Editor::VsCode, cx), Some(code));

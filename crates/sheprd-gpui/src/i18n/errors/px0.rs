@@ -2,7 +2,10 @@
 //! client's, and the JSON parser's text stays as it is.
 
 use super::Localize;
-use crate::{i18n::fl, px0::Error};
+use crate::{
+    i18n::fl,
+    px0::{Error, host},
+};
 
 impl Localize for Error {
     fn localize(&self) -> String {
@@ -21,6 +24,25 @@ impl Localize for Error {
             Self::Exited => fl!("error-px0-exited"),
             Self::Process(error) => fl!("error-px0-process", error = error.to_string()),
             Self::Shutdown(error) => fl!("error-px0-shutdown", error = error.to_string()),
+            Self::Host(error) => error.localize(),
+        }
+    }
+}
+
+impl Localize for host::Error {
+    fn localize(&self) -> String {
+        match self {
+            Self::Address => fl!("error-px0-host-address"),
+            Self::Command(error) => fl!("error-px0-host-command", error = error.localize()),
+            Self::Exited => fl!("error-px0-host-exited"),
+            Self::Forward(error) => fl!("error-px0-host-forward", error = error.localize()),
+            Self::Missing => fl!("error-px0-host-missing"),
+            Self::Output => fl!("error-px0-host-output"),
+            Self::Setup => fl!("error-px0-host-setup"),
+            Self::Spawn(error) => fl!("error-px0-host-spawn", error = error.to_string()),
+            Self::Ssh => fl!("error-px0-host-ssh"),
+            Self::Stopped(status) => fl!("error-px0-host-stopped", status = status.to_string()),
+            Self::Timeout => fl!("error-px0-host-timeout"),
         }
     }
 }

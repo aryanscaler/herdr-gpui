@@ -1,6 +1,8 @@
 //! A local px0 workbench, discovered or started on demand. HTTP and process
 //! ownership stay on a worker; windows consume only its latest state.
+//! [`host`] starts one on each SSH host, for its workspaces.
 mod error;
+pub(crate) mod host;
 mod server;
 mod settings;
 mod worker;
@@ -8,6 +10,7 @@ mod worker;
 use crate::browser::WebUrl;
 pub use error::Error;
 use gpui::{App, Global};
+pub(crate) use host::Hosts;
 pub(crate) use worker::State;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]

@@ -3711,8 +3711,8 @@ the page's storage, which belongs to one address.
 ## px0
 
 **Open px0** in the Terminal menu or command palette, or **px0** in an editor
-group's **…** menu, opens [px0](https://px0.ai/) on the local workspace's
-starting directory. Each workspace has one px0 tab; opening it again moves it
+group's **…** menu, opens [px0](https://px0.ai/) on the workspace's starting
+directory. Each workspace has one px0 tab; opening it again moves it
 to the group in use. Split it beside terminals to browse, edit, and review code.
 The tab shows px0's own web UI without the browser toolbar, and keeps its page
 alive when another tab is selected. `open_px0` is available in keybindings with
@@ -3743,11 +3743,23 @@ the app started and its children; attaching to an existing workbench never gives
 Sheprd ownership of it. Closing a tab leaves the workbench available for other
 tabs. px0 manages its own per-checkout children and idle cleanup.
 
+A workspace on an SSH host opens px0 on that host, in the workspace's folder
+there. The app runs one `ssh` per host, which starts px0 with the same flags
+and a registry of the app's own (`~/.herdr-gpui/px0-state`), or reuses the
+workbench an earlier start left there, and forwards its loopback port here
+(`crates/sheprd-gpui/src/px0/host/serve.sh`). It never installs px0 on a host:
+install it there on `PATH`, in `~/.local/bin` or `~/bin`, or on the login
+shell's `PATH`. The workbench stops when the app quits; a failure shows in
+the tab with **Retry**, which starts it again. The `px0.url` setting applies
+to this computer only. px0 serves its workbench without a token, so on a
+shared host anyone who can reach its loopback port can use it.
+
 Agents can use `sheprd px0 open --json` to open or focus their workspace's
 tab. Success reports the tab ID and workspace; it means the tab opened, while
 server startup continues in the tab. The existing `--window` targeting applies.
-This integration currently supports local workspaces on macOS and Windows;
-remote workspaces and Linux embedded pages report unsupported. px0's own agent
+This integration supports local workspaces on macOS and Windows and SSH
+workspaces on macOS; other remote workspaces (WSL, cloud machines, SSH on
+Windows) and Linux embedded pages report unsupported. px0's own agent
 harnesses are separate from Herdr's running terminal agents.
 
 ## System Notifications

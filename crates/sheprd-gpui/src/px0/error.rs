@@ -28,4 +28,6 @@ pub enum Error {
     Process(#[source] std::io::Error),
     #[error("The previous px0 worker did not finish stopping: {0}")]
     Shutdown(#[source] std::sync::mpsc::RecvTimeoutError),
+    #[error(transparent)]
+    Host(#[from] super::host::Error),
 }
