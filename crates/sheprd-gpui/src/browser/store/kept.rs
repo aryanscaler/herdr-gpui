@@ -27,10 +27,22 @@ impl Store {
             .filter(move |workspace| workspace.scope == scope.as_str())
     }
 
+    /// Every kept workspace, by its scope and ID.
+    pub(crate) fn kept_ids(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.workspaces
+            .iter()
+            .map(|workspace| (workspace.scope.as_str(), workspace.id.as_str()))
+    }
+
     pub(crate) fn kept_workspace(&self, scope: &Scope, id: &str) -> Option<&SavedWorkspace> {
         self.workspaces
             .iter()
             .find(|workspace| workspace.scope == scope.as_str() && workspace.id == id)
+    }
+
+    /// How many more workspaces the app can keep, across every host.
+    pub(crate) fn kept_room(&self) -> usize {
+        MAX_WORKSPACES.saturating_sub(self.workspaces.len())
     }
 
     /// Keeps a new workspace at the end of `scope`'s, and answers its ID, or

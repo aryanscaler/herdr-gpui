@@ -36,9 +36,12 @@ fn the_core_step_runs_while_its_ssh_config_exists() {
 }
 
 #[test]
-fn a_gateway_that_could_not_be_made_skips_the_core_unless_cancelled() {
+fn a_gateway_that_could_not_be_made_fails_the_core_step() {
     let add = |_| -> cloud::Result<()> { panic!("no command to run") };
-    over_gateway(Err(Error::Gateway), &|| false, add).unwrap();
+    assert!(matches!(
+        over_gateway(Err(Error::Gateway), &|| false, add),
+        Err(cloud::Error::Install(install::Failure::Core(None)))
+    ));
     assert!(matches!(
         over_gateway(Err(Error::Gateway), &|| true, add),
         Err(cloud::Error::Cancelled)

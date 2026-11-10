@@ -12,7 +12,7 @@ use gpui::{Entity, TestAppContext, VisualTestContext, prelude::*};
 use sheprd_backend::TerminalId;
 use std::{path::Path, sync::Arc};
 
-fn window(
+pub(super) fn window(
     cx: &mut TestAppContext,
     herdr_1: bool,
 ) -> (Entity<SheprdWindow>, &mut VisualTestContext) {
@@ -50,7 +50,7 @@ fn listed(view: &Entity<SheprdWindow>, cx: &mut VisualTestContext) -> Vec<String
     })
 }
 
-fn core_tab(id: &str) -> Location {
+pub(super) fn core_tab(id: &str) -> Location {
     Location::core_terminal(Panes::single(TerminalId::new(id).unwrap()), false)
 }
 

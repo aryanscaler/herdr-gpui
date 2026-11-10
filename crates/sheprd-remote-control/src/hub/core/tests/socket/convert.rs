@@ -100,6 +100,7 @@ fn stand(status: &'static str) -> Stand {
         connected: AtomicBool::new(true),
         endpoint: Default::default(),
         holds: AtomicU64::new(0),
+        own: Mutex::default(),
         poller: Mutex::default(),
         scope: None,
         state: Mutex::new(State {

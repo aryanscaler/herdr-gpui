@@ -67,6 +67,7 @@ pub(crate) use {
     page::{Page, WorkspaceAction},
     state::{MenuState, Removal},
     version_mismatch::Notice as VersionNotice,
+    workspace::KeptDone,
     worktree_shortcut::WorktreeShortcut,
     worktree_source::WorktreeSource,
 };

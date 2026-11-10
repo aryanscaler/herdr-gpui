@@ -217,6 +217,7 @@ impl SheprdWindow {
             input_probe: smoke::InputProbe::default(),
             install_warning_shown: false,
             integrations: Default::default(),
+            kept_worktree_done: Vec::new(),
             key_layout: prefix::current_layout,
             key_press: function_keys::current_press,
             landing_launch: None,

@@ -183,13 +183,19 @@ struct TerminalScreen: View {
                 // A menu grows out of the button it opens from; a
                 // confirmation dialog would float in the middle instead.
                 Menu {
+                    // A Herdr desktop space's tab keeps its layout and
+                    // names there; the computer says what it would refuse.
                     Section {
-                        Button("Split Right", systemImage: "rectangle.split.2x1") { run(.splitRight) }
-                        Button("Split Down", systemImage: "rectangle.split.1x2") { run(.splitDown) }
-                        if item?.terminal.zoomed == true {
-                            Button("Unzoom", systemImage: "arrow.down.right.and.arrow.up.left") { run(.zoom) }
-                        } else {
-                            Button("Zoom", systemImage: "arrow.up.left.and.arrow.down.right") { run(.zoom) }
+                        if offers(.split) {
+                            Button("Split Right", systemImage: "rectangle.split.2x1") { run(.splitRight) }
+                            Button("Split Down", systemImage: "rectangle.split.1x2") { run(.splitDown) }
+                        }
+                        if offers(.zoom) {
+                            if item?.terminal.zoomed == true {
+                                Button("Unzoom", systemImage: "arrow.down.right.and.arrow.up.left") { run(.zoom) }
+                            } else {
+                                Button("Zoom", systemImage: "arrow.up.left.and.arrow.down.right") { run(.zoom) }
+                            }
                         }
                     }
                     if let offer = item?.terminal.convert {
@@ -201,10 +207,12 @@ struct TerminalScreen: View {
                             .disabled(converting)
                         }
                     }
-                    Section {
-                        Button("Rename Tab…", systemImage: "pencil") {
-                            newName = item?.terminal.label ?? title
-                            renaming = true
+                    if offers(.rename) {
+                        Section {
+                            Button("Rename Tab…", systemImage: "pencil") {
+                                newName = item?.terminal.label ?? title
+                                renaming = true
+                            }
                         }
                     }
                     Section {
@@ -414,6 +422,12 @@ struct TerminalScreen: View {
                 problem = error.localizedDescription
             }
         }
+    }
+
+    /// Whether the computer would do `action` with this tab; one that has
+    /// not listed it yet allows them all.
+    private func offers(_ action: Home.TerminalRow.Action) -> Bool {
+        item?.terminal.offers(action) ?? true
     }
 
     private func run(_ action: TermAction) {

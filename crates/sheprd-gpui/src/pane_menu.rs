@@ -13,7 +13,7 @@ pub(crate) mod carry;
 mod moves;
 mod processes;
 // The Ports section shows its processes' usage the same way.
-pub(crate) use processes::{cpu_text, memory_text};
+pub(crate) use processes::{PaneProcesses, cpu_text, memory_text};
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -222,7 +222,7 @@ pub(super) struct PaneMenu {
     error: Option<String>,
     /// The daemon to ask for the pane's processes, when they run here.
     daemon: Option<crate::processes::Daemon>,
-    processes: Option<processes::PaneProcesses>,
+    processes: Option<PaneProcesses>,
     carry_availability: Option<carry::Availability>,
     /// Whether this endpoint's host can run `herdr pane move`.
     movable: bool,
@@ -601,10 +601,8 @@ impl SheprdWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(pane) = &mut self.menu.pane else {
-            return;
-        };
         let key = event.keystroke.key.as_str();
+        // A Herdr 2 pane's process list shares these pages.
         if matches!(
             self.menu.page,
             Some(Page::PaneProcesses | Page::KillProcesses)
@@ -618,6 +616,9 @@ impl SheprdWindow {
             window.prevent_default();
             return;
         }
+        let Some(pane) = &mut self.menu.pane else {
+            return;
+        };
         if self.menu.page == Some(Page::RenamePane)
             && pane.pending.is_none()
             && (pane
@@ -670,14 +671,22 @@ impl SheprdWindow {
     }
 
     pub(super) fn render_pane_menu(&self, cx: &mut Context<Self>) -> Div {
+        if matches!(
+            self.menu.page,
+            Some(Page::PaneProcesses | Page::KillProcesses)
+        ) {
+            let Some((processes, label)) = self.shown_processes(cx) else {
+                return div();
+            };
+            return if self.menu.page == Some(Page::PaneProcesses) {
+                self.render_pane_processes(processes, &label, cx)
+            } else {
+                self.render_kill_processes(processes, cx)
+            };
+        }
         let Some(pane) = &self.menu.pane else {
             return div();
         };
-        match self.menu.page {
-            Some(Page::PaneProcesses) => return self.render_pane_processes(pane, cx),
-            Some(Page::KillProcesses) => return self.render_kill_processes(pane, cx),
-            _ => {}
-        }
         let mut body = div().flex().flex_col();
         if pane.moving.is_some() {
             body = self.render_pane_move_pending();

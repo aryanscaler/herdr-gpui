@@ -80,6 +80,11 @@
             "label": "zsh",
             "cwd": "/work",
             "zoomed": false,
+            "actions": [
+              "rename",
+              "split",
+              "zoom"
+            ],
             "panes": [
               {
                 "pane": "p2",

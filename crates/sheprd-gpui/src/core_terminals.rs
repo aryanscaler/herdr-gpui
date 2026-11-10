@@ -26,9 +26,13 @@ mod hosts;
 mod hub;
 mod infos;
 pub(crate) mod install;
+mod layout;
+mod marks;
 pub(crate) mod menu;
 pub(crate) mod moves;
+pub(crate) mod mutes;
 mod phone;
+mod processes;
 mod requests;
 mod screen;
 mod selection;
@@ -44,12 +48,14 @@ mod workspaces;
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
 
+pub(crate) use commands::acts_on_panes;
 pub(crate) use error::Error;
 pub(crate) use fallback::Holder;
 pub(crate) use hosts::Host;
 pub(crate) use hub::{Hub, Start, State};
 pub(crate) use sheprd_session::panes;
 pub(crate) use view::{CoreTerminalView, LinkClick, Look};
+pub(crate) use workspaces::kept_label;
 
 use crate::{
     SheprdWindow,
@@ -58,6 +64,7 @@ use crate::{
     window::Flash,
 };
 use gpui::{prelude::*, *};
+use layout::merged;
 use panes::{Axis, Panes};
 use sheprd_backend::{Backend as _, Spawn, TerminalId, TerminalInfo};
 use sheprd_client::protocol::AgentStatus;
@@ -384,6 +391,9 @@ pub(crate) struct CoreTerminals {
     look: Option<Look>,
     /// The kept workspace the user brought to the front, by its host.
     in_front: Option<(Scope, String)>,
+    /// When each agent of `sessions` last changed state, to order it among
+    /// Herdr 1's agents, per core: terminal IDs are unique only within one.
+    pub(crate) recency: HashMap<Scope, crate::state::StatusRecency>,
     /// A kept workspace just came to the front: show one of its tabs.
     reveal: bool,
     /// The sessions over herdr-core, by the scope of their workspaces: this
@@ -446,7 +456,7 @@ impl CoreTerminals {
     /// What `host`'s core last reported of `terminal`, while it answers. A
     /// lost core's last list may name agents that have since stopped, so
     /// none is reported until it answers again.
-    pub(super) fn reported(&self, host: &Host, terminal: &TerminalId) -> Option<&TerminalInfo> {
+    pub(crate) fn reported(&self, host: &Host, terminal: &TerminalId) -> Option<&TerminalInfo> {
         self.backend_of(host)?;
         self.infos_of(host)?.get(terminal)
     }
@@ -488,6 +498,16 @@ impl CoreTerminals {
         }
         shown.keep_root(&self.infos);
         self.tabs.insert(tab, shown);
+    }
+
+    /// Takes `identity` as what Git answered for the folder `cwd`.
+    #[cfg(test)]
+    pub(crate) fn seed_checkout_for_test(
+        &mut self,
+        cwd: &str,
+        identity: Option<sheprd_vcs::git::Identity>,
+    ) {
+        self.checkouts.seed(cwd, identity);
     }
 
     /// Places `tab` in `workspace` of `scope`, as showing the workspace does.
@@ -605,9 +625,9 @@ impl SheprdWindow {
         if self.core_terminals.lacks_core(&host) {
             return false;
         }
-        let herdr_1_missing =
-            self.live.snapshot.is_none() && self.core_terminals.backend_of(&host).is_some();
-        self.config.herdr_2_terminals || herdr_1_missing
+        let herdr_1_unavailable = self.live.herdr_1_unavailable()
+            || (self.live.snapshot.is_none() && self.core_terminals.backend_of(&host).is_some());
+        self.config.herdr_2_terminals || herdr_1_unavailable
     }
 
     /// The `new_core_terminal` command: starts a shell in herdr-core and
@@ -757,7 +777,7 @@ impl SheprdWindow {
         self.refresh_core_looks(cx);
         // The stand-in shell rings only while its workspace is shown, as a
         // tab does; its clipboard writes land either way.
-        let fallback_shown = self.default_workspace_shown();
+        let fallback_shown = self.default_workspace_shown() && !self.core_fallback_silenced(cx);
         self.poll_core_views(
             self.core_fallback_view()
                 .map(|view| (view, fallback_shown.then_some(Host::Local))),
@@ -939,48 +959,6 @@ impl SheprdWindow {
         }
         self.core_terminals.look = Some(look);
     }
-}
-
-/// `here`, a layout changed since `base`, with the changes `there` made to
-/// `base` too: its closed panes go, and its new ones split off `active`
-/// while there is room. The new ones a full layout cannot take come back
-/// beside it, for the caller to give a tab of their own. `None` when every
-/// pane went, each window having closed the other's last.
-fn merged(
-    here: &Panes,
-    base: &Panes,
-    there: &Panes,
-    active: &TerminalId,
-) -> (Option<Panes>, Vec<TerminalId>) {
-    let mut panes = here.clone();
-    let mut overflow = Vec::new();
-    let gone: Vec<&TerminalId> = (base.terminals().into_iter())
-        .filter(|terminal| !there.contains(terminal))
-        .collect();
-    for terminal in &gone {
-        panes.remove(terminal);
-    }
-    for new in there.terminals() {
-        if !base.contains(new) && !panes.contains(new) {
-            let at = if panes.contains(active) {
-                active.clone()
-            } else {
-                panes.first().clone()
-            };
-            if panes.split(&at, Axis::Row, new.clone()).is_err() {
-                overflow.push(new.clone());
-            }
-        }
-    }
-    // The last pane cannot go while it is alone; with the other side's new
-    // panes in, it can, and if it still cannot, nothing is left.
-    for terminal in &gone {
-        panes.remove(terminal);
-    }
-    if gone.iter().any(|terminal| panes.contains(terminal)) {
-        return (None, overflow);
-    }
-    (Some(panes), overflow)
 }
 
 /// Whether a pane waiting for the keyboard may take it: nothing holds it, or

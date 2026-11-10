@@ -8,21 +8,38 @@ use super::{Error, Event, Outcome};
 use crate::{
     SheprdWindow,
     browser::{Location, Scope, Store, TabId},
+    core_terminals::{Host, Purpose},
     i18n::fl,
+    teleport::{Keeping, Landed, Source},
     window::Flash,
 };
 use gpui::{Context, Global, Window};
+use sheprd_backend::Spawn;
 use sheprd_session::panes::Panes;
-use std::sync::{Arc, Mutex, PoisonError, mpsc};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, PoisonError, mpsc},
+};
+
+/// What the app still has to do once a move finishes, as the window that
+/// started it names it: another window may name a different session
+/// `local`, so its scopes are read once, there.
+#[derive(Clone)]
+pub(super) struct Handover {
+    /// Where the destination's tabs belong.
+    pub(super) scope: Scope,
+    /// The source's Herdr 2 tabs and the panes that moved from each.
+    pub(super) closing: Vec<(TabId, Panes)>,
+    /// The workspace moved, which keeps one idle shell when the app keeps it.
+    pub(super) source: Source,
+    /// Where the source's workspace and that shell belong.
+    pub(super) source_scope: Scope,
+}
 
 /// A move that finished after its window closed.
 pub(super) struct Leftover {
     pub(super) outcome: Outcome,
-    /// Where the destination's tabs belong, read by the window that started
-    /// the move: another window may name a different session `local`.
-    pub(super) scope: Scope,
-    /// The source's Herdr 2 tabs and the panes that moved from each.
-    pub(super) closing: Vec<(TabId, Panes)>,
+    pub(super) handover: Handover,
 }
 
 /// Moves that finished with no window to take them, shared with the
@@ -58,15 +75,11 @@ impl Unclaimed {
 pub(super) fn deliver(
     sender: &mpsc::Sender<Event>,
     result: Result<Outcome, Error>,
-    (scope, closing): (Scope, Vec<(TabId, Panes)>),
+    handover: Handover,
     unclaimed: &Unclaimed,
 ) {
     if let Err(mpsc::SendError(Event::Moved(Ok(outcome)))) = sender.send(Event::Moved(result)) {
-        unclaimed.push(Leftover {
-            outcome,
-            scope,
-            closing,
-        });
+        unclaimed.push(Leftover { outcome, handover });
     }
 }
 
@@ -98,16 +111,18 @@ impl SheprdWindow {
         let Some(unclaimed) = cx.try_global::<Unclaimed>().cloned() else {
             return;
         };
-        for leftover in unclaimed.take() {
+        for Leftover { outcome, handover } in unclaimed.take() {
             let store = cx.try_global::<Store>();
             let panes = |tab| match store?.get(tab)?.location.as_ref()? {
                 Location::CoreTerminal { panes, .. } => Some(panes.clone()),
                 _ => None,
             };
-            for tab in moved_tabs(leftover.closing, panes) {
+            for tab in moved_tabs(handover.closing, panes) {
                 self.close_browser_tab(tab, window, cx);
             }
-            self.open_teleported_core_tabs(&leftover.outcome, &leftover.scope, cx);
+            self.settle_teleport(&outcome, &handover.scope, window, cx);
+            // Only a finished move is left here: its programs stopped.
+            self.retire_kept_source(&handover.source, handover.source_scope, cx);
         }
     }
 
@@ -120,35 +135,94 @@ impl SheprdWindow {
             .map_or_else(|| Scope::endpoint(endpoint_id), crate::browser::scope)
     }
 
-    /// Opens the tabs a move rebuilt in the destination's Herdr 2 in its
-    /// new workspace. Their terminals already run there; the window joins
-    /// them as it shows the workspace.
-    pub(super) fn open_teleported_core_tabs(
+    /// Settles where a move landed: keeps the new workspace the app keeps
+    /// there, closes the tabs of a kept checkout the work came back to, and
+    /// opens the tabs rebuilt in the destination's Herdr 2. Their terminals
+    /// already run there; the window joins them as it shows the workspace.
+    /// Answers the workspace, or `None` when it could not be kept, which a
+    /// flash says; then the terminals end, since no tab would show them.
+    pub(super) fn settle_teleport(
         &mut self,
         outcome: &Outcome,
         scope: &Scope,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
+        let workspace = match &outcome.workspace {
+            Landed::Workspace(id) => {
+                // A kept checkout's own tabs, like its idle teleported shell,
+                // give way to the work's, as Herdr 1's do in the move.
+                let stale: Vec<TabId> = cx
+                    .try_global::<Store>()
+                    .filter(|store| store.kept_workspace(scope, id).is_some())
+                    .map(|store| store.in_workspace(scope, id).map(|tab| tab.id).collect())
+                    .unwrap_or_default();
+                for tab in stale {
+                    self.close_browser_tab(tab, window, cx);
+                }
+                id.clone()
+            }
+            Landed::New { checkout, label } => {
+                let (label, custom) =
+                    crate::core_terminals::kept_label(label.as_deref(), Some(Path::new(checkout)));
+                let kept = Store::update(cx, |store| {
+                    store.keep_workspace(scope, &label, checkout, custom)
+                });
+                let Some(id) = kept else {
+                    let host = Host::of(scope);
+                    let ending = outcome
+                        .core_tabs
+                        .iter()
+                        .flat_map(Panes::terminals)
+                        .map(|terminal| (host.clone(), terminal.clone()))
+                        .collect::<Vec<_>>();
+                    Store::update(cx, |store| store.end_terminals(ending));
+                    self.show_flash(Flash::warning(fl!("core-workspaces-too-many")), cx);
+                    return None;
+                };
+                id
+            }
+        };
+        if !outcome.core_tabs.is_empty() {
+            // Checked before the move, so only tabs opened meanwhile can
+            // leave one out; the rest still open.
+            let missed = Store::update(cx, |store| {
+                outcome
+                    .core_tabs
+                    .iter()
+                    .filter(|panes| {
+                        let location = Location::core_terminal((*panes).clone(), false);
+                        store
+                            .open(scope.clone(), &workspace, Some(location), None)
+                            .is_none()
+                    })
+                    .count()
+            });
+            if missed > 0 {
+                self.show_flash(Flash::warning(fl!("core-terminals-too-many-tabs")), cx);
+            }
+        }
+        self.refresh_core_session(cx);
+        cx.notify();
+        Some(workspace)
+    }
+
+    /// Leaves one idle shell in a kept source workspace whose programs the
+    /// move stopped, as the move does in a Herdr 1 one.
+    pub(super) fn retire_kept_source(
+        &mut self,
+        source: &Source,
+        scope: Scope,
         cx: &mut Context<Self>,
     ) {
-        if outcome.core_tabs.is_empty() {
+        let Keeping::App { checkout } = &source.keeping else {
             return;
-        }
-        // Checked before the move, so only tabs opened meanwhile can leave
-        // one out; the rest still open.
-        let missed = Store::update(cx, |store| {
-            outcome
-                .core_tabs
-                .iter()
-                .filter(|panes| {
-                    let location = Location::core_terminal((*panes).clone(), false);
-                    store
-                        .open(scope.clone(), &outcome.workspace_id, Some(location), None)
-                        .is_none()
-                })
-                .count()
-        });
-        if missed > 0 {
-            self.show_flash(Flash::warning(fl!("core-terminals-too-many-tabs")), cx);
-        }
-        cx.notify();
+        };
+        let spawn = Spawn {
+            cwd: Some(PathBuf::from(checkout)),
+            ..Spawn::default()
+        };
+        let workspace = source.workspace_id.clone();
+        self.start_core_program(Purpose::Tab { scope, workspace }, spawn, cx);
     }
 }

@@ -354,7 +354,7 @@ pub(super) async fn action(
             })
             .ok_or(ApiError::NotFound)?
     };
-    // Sheprd keeps a Herdr 2 tab's layout: it makes the change.
+    // herdr-core keeps no layout: Sheprd or this daemon makes the change.
     let op = match request.action {
         Action::SplitRight => Some(crate::control::layout::Op::SplitRight),
         Action::SplitDown => Some(crate::control::layout::Op::SplitDown),
@@ -362,9 +362,9 @@ pub(super) async fn action(
         Action::ClosePane | Action::CloseTab | Action::NewTab => None,
     };
     if let Some(op) = op
-        && let Some((saved, terminal)) = state.hub.core_saved_pane(&tab, &pane)?
+        && let Some(keeper) = state.hub.core_keeper(&tab, &pane)?
     {
-        let created = crate::native::changes::change_layout(&state, saved, terminal, op).await?;
+        let created = crate::native::changes::arrange(&state, keeper, op).await?;
         // A split shows its new shell next, as Herdr 1's does.
         let next = match created {
             Some(address) => state.hub.core_pane_listed(&address).await,
@@ -374,11 +374,11 @@ pub(super) async fn action(
         let location = format!("/term/{}", render::urlencode(&next));
         return Ok(Json(json!({ "location": location, "pane": next })));
     }
-    // A Herdr 2 tab Sheprd keeps is named before its terminals end (they
-    // leave the listing as they do), and Sheprd drops it after, or its last
-    // pane would stay there, ended. Without Sheprd its terminals still end.
+    // A Herdr 2 tab is named before its terminals end (they leave the
+    // listing as they do), and its keeper drops it after, or its last pane
+    // would stay in Sheprd's saved tab, ended.
     let saved_tab = (request.action == Action::CloseTab)
-        .then(|| state.hub.core_saved_pane(&tab, &pane).ok().flatten())
+        .then(|| state.hub.core_keeper(&tab, &pane).ok().flatten())
         .flatten();
     let core_tab = if request.action == Action::NewTab {
         state.hub.new_core_tab(&workspace).await?
@@ -392,10 +392,9 @@ pub(super) async fn action(
             state.hub.call(method, params).await?
         }
     };
-    if let Some((saved, terminal)) = saved_tab {
+    if let Some(keeper) = saved_tab {
         let op = crate::control::layout::Op::Close;
-        if let Err(error) = crate::native::changes::change_layout(&state, saved, terminal, op).await
-        {
+        if let Err(error) = crate::native::changes::arrange(&state, keeper, op).await {
             tracing::debug!(%error, "Sheprd did not drop a Herdr 2 tab a phone closed");
         }
     }
@@ -501,16 +500,16 @@ pub(super) async fn rename(
     if label.chars().count() > MAX_LABEL {
         return Err(ApiError::Invalid("that name is too long"));
     }
-    // Sheprd keeps a Herdr 2 tab's names: it renames it. A blank name gives
-    // a tab its program's title back, as Sheprd's menu does.
-    if let Some((saved, terminal)) = state.hub.core_saved_pane(&tab, &pane)? {
+    // herdr-core keeps no names: Sheprd or this daemon keeps them. A blank
+    // name gives a tab its program's title back, as Sheprd's menu does.
+    if let Some(keeper) = state.hub.core_keeper(&tab, &pane)? {
         let name = Some(label.to_owned()).filter(|name| !name.is_empty());
         let op = if chat {
             crate::control::layout::Op::RenamePane(name)
         } else {
             crate::control::layout::Op::RenameTab(name)
         };
-        crate::native::changes::change_layout(&state, saved, terminal, op).await?;
+        crate::native::changes::arrange(&state, keeper, op).await?;
         return Ok(Json(json!({})));
     }
     let target = if chat {
@@ -537,13 +536,23 @@ pub(super) async fn rename_workspace(
         workspace: &workspace,
     };
     let (method, params) = rename_call(target, &request.label)?;
-    // A workspace Sheprd keeps for Herdr 2 is Sheprd's to rename.
+    let name = request.label.trim();
+    // A workspace Sheprd keeps for Herdr 2 is Sheprd's to rename; while it
+    // is closed, its saved tabs are renamed for it.
     if state.hub.kept_workspace(&workspace) {
+        if !state.changes.open() {
+            state.hub.rename_kept(workspace, name.to_owned()).await?;
+            return Ok(Json(json!({})));
+        }
         let op = crate::control::layout::Op::RenameWorkspace {
             workspace,
-            name: request.label.trim().to_owned(),
+            name: name.to_owned(),
         };
         crate::native::changes::change_layout(&state, 0, String::new(), op).await?;
+        return Ok(Json(json!({})));
+    }
+    // The groups this daemon lists for Herdr 2 it names itself.
+    if state.hub.rename_core_group(&workspace, name).await? {
         return Ok(Json(json!({})));
     }
     state.hub.call(method, params).await?;

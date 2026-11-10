@@ -3,7 +3,9 @@
 //! endpoint API has no method that starts a command, so this follows the
 //! worktree scripts: `tab.create` through the connection's script slot, then
 //! one line typed into the pane it made. The line comes from the agent kinds
-//! this client knows, never from the daemon's text.
+//! this client knows, never from the daemon's text. A Herdr 2 agent starts
+//! again as the program of a new herdr-core tab in its workspace, which the
+//! core keeps with its output once the agent exits, as an automation's is.
 
 use super::closed;
 use crate::{NavigationTarget, SheprdWindow, i18n::fl, teleport::AgentKind, window::Flash};
@@ -18,6 +20,11 @@ const DEADLINE: Duration = Duration::from_secs(15);
 /// The line that starts `kind` again, picking up the conversation it last
 /// had in that folder where the agent offers that; the rest start afresh.
 pub(crate) fn command_line(kind: AgentKind) -> String {
+    argv(kind).join(" ")
+}
+
+/// The program and arguments of [`command_line`].
+pub(crate) fn argv(kind: AgentKind) -> Vec<String> {
     let resume: &[&str] = match kind {
         AgentKind::Claude | AgentKind::Opencode => &["--continue"],
         AgentKind::Codex => &["resume", "--last"],
@@ -25,8 +32,8 @@ pub(crate) fn command_line(kind: AgentKind) -> String {
     };
     std::iter::once(kind.binary())
         .chain(resume.iter().copied())
-        .collect::<Vec<_>>()
-        .join(" ")
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The kind a closed agent can be started again as, if this client knows it.
@@ -88,6 +95,9 @@ impl SheprdWindow {
         let Some(agent) = self.overview.closed.get(id) else {
             return;
         };
+        if let super::Open::Core { .. } = agent.row.open {
+            return self.reopen_core_agent(id, cx);
+        }
         let Some(job) = kind(agent).and_then(|kind| Job::new(agent, kind, Instant::now())) else {
             return;
         };
@@ -184,6 +194,56 @@ impl SheprdWindow {
             }
             Err(error) => self.fail_overview_reopen(error, cx),
         }
+    }
+
+    /// Starts the closed Herdr 2 agent `id` again in a new herdr-core tab of
+    /// the workspace its tab was in, in the folder it ran in, switching to
+    /// this computer first.
+    fn reopen_core_agent(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(agent) = self.overview.closed.get(id) else {
+            return;
+        };
+        if self.overview.closed.is_reopening(id, Instant::now()) {
+            self.show_flash(Flash::warning(fl!("overview-tab-opening")), cx);
+            return;
+        }
+        let (Some(kind), Some(workspace)) = (kind(agent), agent.workspace.clone()) else {
+            return;
+        };
+        let cwd = agent.cwd.clone().map(std::path::PathBuf::from);
+        let Some(index) = self
+            .endpoints
+            .iter()
+            .position(|endpoint| !endpoint.connection.target.is_remote())
+        else {
+            return self.fail_overview_reopen(fl!("overview-session-gone"), cx);
+        };
+        let endpoint = self.endpoints[index].id.clone();
+        if self.selected_endpoint != index
+            && (self.menu.page.is_some() || !self.select_endpoint(&endpoint, cx))
+        {
+            self.show_flash(Flash::warning(fl!("overview-host-switch")), cx);
+            return;
+        }
+        if self.sessions(index).workspace(&workspace).is_none() {
+            return self.fail_overview_reopen(fl!("overview-workspace-closed"), cx);
+        }
+        self.navigate_endpoint(&endpoint, NavigationTarget::Workspace(&workspace), cx);
+        let scope = crate::browser::scope(&self.endpoints[index]);
+        let spawn = sheprd_backend::Spawn {
+            argv: argv(kind),
+            cwd,
+            ..sheprd_backend::Spawn::default()
+        };
+        self.start_core_program(
+            crate::core_terminals::Purpose::Tab { scope, workspace },
+            spawn,
+            cx,
+        );
+        // The start is only queued and may fail, as in a folder since
+        // removed: the entry stays for another try until the agent is back.
+        self.overview.closed.reopening(id, Instant::now());
+        cx.notify();
     }
 
     fn fail_overview_reopen(&mut self, why: impl std::fmt::Display, cx: &mut Context<Self>) {

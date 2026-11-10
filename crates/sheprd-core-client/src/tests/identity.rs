@@ -99,3 +99,42 @@ fn a_program_that_is_gone_is_no_agent() {
         assert_eq!(crate::agent_name(&gone), None, "{state:?}");
     }
 }
+
+#[test]
+fn an_agent_that_quit_to_its_shell_is_no_agent() {
+    let mut value = terminal("t1");
+    value["argv"] = json!(["zsh"]);
+    value["pid"] = json!(100);
+    value["status"] = json!({"state": "idle", "app": "claude-code"});
+    value["foreground"] = json!({"pid": 200, "name": "claude", "argv": ["claude"], "cwd": ""});
+    let running = info(&record(value.clone())).unwrap();
+    assert_eq!(crate::agent_kind(&running), Some(AgentKind::Claude));
+    // Claude quit: the shell is back in front, holding its last report.
+    value["foreground"] = json!({"pid": 100, "name": "zsh", "argv": ["zsh"], "cwd": ""});
+    let quit = info(&record(value.clone())).unwrap();
+    assert_eq!(crate::agent_name(&quit), None);
+    assert_eq!(quit.agent, sheprd_backend::AgentStatus::Unknown);
+    // A terminal started as the agent itself keeps it.
+    value["argv"] = json!(["claude"]);
+    value["foreground"] = json!({"pid": 100, "name": "claude", "argv": ["claude"], "cwd": ""});
+    let own = info(&record(value.clone())).unwrap();
+    assert_eq!(crate::agent_kind(&own), Some(AgentKind::Claude));
+    // The shell became the agent (`exec claude`): same pid, the agent in front.
+    value["argv"] = json!(["zsh"]);
+    value["foreground"] = json!({"pid": 100, "name": "claude", "argv": ["claude"], "cwd": ""});
+    let exec = info(&record(value.clone())).unwrap();
+    assert_eq!(crate::agent_kind(&exec), Some(AgentKind::Claude));
+    assert_eq!(exec.agent, sheprd_backend::AgentStatus::Idle);
+    // Claude quit and the shell became Codex, which has not reported yet:
+    // Claude's report is stale, so Codex is named by its process.
+    value["foreground"] = json!({"pid": 100, "name": "codex", "argv": ["codex"], "cwd": ""});
+    let codex = info(&record(value.clone())).unwrap();
+    assert_eq!(crate::agent_kind(&codex), Some(AgentKind::Codex));
+    assert_eq!(codex.agent, sheprd_backend::AgentStatus::Unknown);
+    // A report from a program Sheprd does not know stands.
+    value["argv"] = json!(["zsh"]);
+    value["foreground"] = json!({"pid": 100, "name": "zsh", "argv": ["zsh"], "cwd": ""});
+    value["status"] = json!({"state": "done", "app": "zsh-integration"});
+    let shell = info(&record(value)).unwrap();
+    assert_eq!(shell.agent, sheprd_backend::AgentStatus::Done);
+}

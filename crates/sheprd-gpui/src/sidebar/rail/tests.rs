@@ -853,17 +853,19 @@ fn tooltips_name_host_place_and_status() {
         "herdr"
     );
     let mut snapshot = snapshot(1);
-    let agent = &mut snapshot.agents[0];
-    assert_eq!(agent_status_word(agent).as_deref(), Some("working"));
-    agent.state_labels = vec![("working".into(), "deep in the mines".into())];
-    assert_eq!(
-        agent_status_word(agent).as_deref(),
-        Some("deep in the mines")
-    );
-    agent.agent_status = AgentStatus::Unknown;
-    assert_eq!(agent_status_word(agent), None);
-    agent.state_labels = vec![("unknown".into(), "resting".into())];
-    assert_eq!(agent_status_word(agent).as_deref(), Some("resting"));
+    let word = |snapshot: &sheprd_client::protocol::ClientShellSnapshot| {
+        agent_status_word(&crate::sidebar::Listed::Herdr1 {
+            agent: &snapshot.agents[0],
+            snapshot,
+        })
+    };
+    assert_eq!(word(&snapshot).as_deref(), Some("working"));
+    snapshot.agents[0].state_labels = vec![("working".into(), "deep in the mines".into())];
+    assert_eq!(word(&snapshot).as_deref(), Some("deep in the mines"));
+    snapshot.agents[0].agent_status = AgentStatus::Unknown;
+    assert_eq!(word(&snapshot), None);
+    snapshot.agents[0].state_labels = vec![("unknown".into(), "resting".into())];
+    assert_eq!(word(&snapshot).as_deref(), Some("resting"));
     assert_eq!(host_initial("  ssh box"), "S");
     assert_eq!(host_initial(""), "?");
     assert_eq!(host_initial("éclair"), "É");

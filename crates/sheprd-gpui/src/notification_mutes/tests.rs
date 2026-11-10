@@ -4,6 +4,7 @@ use sheprd_client::protocol::ClientShellWorkspace;
 use std::time::Duration;
 
 mod hosts;
+mod kept;
 
 /// Two workspaces: `w1` with tabs `w1:t1` and `w1:t2`, `w2` with `w2:t1`,
 /// one pane in each tab.
@@ -454,6 +455,7 @@ fn the_largest_collection_the_store_accepts_reads_back() {
     let bytes = serde_json::to_vec(&Saved {
         mutes: mutes.mutes.clone(),
         hosts: Vec::new(),
+        kept: Vec::new(),
     })
     .unwrap();
     assert!(

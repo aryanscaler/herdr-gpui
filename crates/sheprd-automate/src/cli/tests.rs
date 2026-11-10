@@ -272,25 +272,37 @@ fn a_script_is_approved_by_hash_then_can_be_run_by_hand() {
     assert_eq!(output(&repo_add, paths).0, ExitCode::SUCCESS);
     let store = fixture.store();
     let source = sheprd_automation::Source::read(&script).unwrap();
-    let approve = |hash: &str, pane: Option<&str>| {
+    let approve = |hash: &str, panes: approve::Panes<'_>| {
         approve::approve(
             paths,
             &store,
             &fixture.herdr,
             &script,
             Mode::Hash(hash),
-            pane,
+            panes,
+            |_| Ok(None),
         )
     };
     assert!(matches!(
-        approve(&"0".repeat(64), None),
+        approve(&"0".repeat(64), approve::Panes::default()),
         Err(crate::Error::Approve(approve::Error::Changed { .. }))
     ));
-    assert!(matches!(
-        approve(&source.hash, Some("w1p1")),
-        Err(crate::Error::Approve(approve::Error::HashInPane))
-    ));
-    assert_eq!(approve(&source.hash, None).unwrap().hash, source.hash);
+    // Inside a Herdr pane or a Herdr 2 terminal alike.
+    for panes in [
+        approve::Panes::of(Some("w1p1"), None),
+        approve::Panes::of(Some(""), Some("t3")),
+    ] {
+        assert!(matches!(
+            approve(&source.hash, panes),
+            Err(crate::Error::Approve(approve::Error::HashInPane))
+        ));
+    }
+    assert_eq!(
+        approve(&source.hash, approve::Panes::default())
+            .unwrap()
+            .hash,
+        source.hash
+    );
     let (code, text) = output(&Command::Status { json: true }, paths);
     assert_eq!(code, ExitCode::SUCCESS);
     let status = serde_json::from_str::<sheprd_automation::report::Status>(&text).unwrap();

@@ -2,6 +2,8 @@
 pub enum Error {
     // keep-sorted start
     #[error(transparent)]
+    Arrange(#[from] super::arrange::Error),
+    #[error(transparent)]
     Client(#[from] sheprd_core_client::Error),
     #[error("The Herdr 2 terminal connection was lost")]
     Disconnected,

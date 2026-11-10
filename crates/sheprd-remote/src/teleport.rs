@@ -31,7 +31,7 @@ pub use {
         dispatch_workspace, dispatch_worktree, prepare,
     },
     host::{Host, installed_programs_script},
-    job::{HostRepositories, Place, Retired, Source, open_repositories},
+    job::{HostRepositories, Keeping, Landed, Place, Retired, Source, open_repositories},
     launch::AgentKind,
     marks::{Mark, Marks},
     snapshot::{

@@ -1,6 +1,6 @@
 //! The review phase: read the source workspace and the destination, and
 //! decide what each pane becomes.
-use super::{Candidate, Destination, Source};
+use super::{Candidate, Destination, Keeping, Source};
 use crate::teleport::{
     core, credentials,
     error::{Error, Result, Step},
@@ -14,7 +14,7 @@ use crate::teleport::{
 };
 use sheprd_backend::Generation;
 use sheprd_client::shell_quote;
-use sheprd_session::panes::MAX_PANES;
+use sheprd_session::{Keeper, panes::MAX_PANES};
 use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 /// What the destination pane will do.
@@ -158,14 +158,27 @@ pub(in crate::teleport) fn plan_action(
 /// Read the source workspace and the destination, and decide what moves.
 pub fn review(source: &Source, destination: &Candidate, cancelled: &AtomicBool) -> Result<Review> {
     let host = &source.place.host;
-    let snapshot: SnapshotResult = host.herdr(Step::Review, &["api", "snapshot"], cancelled)?;
-    let snapshot = snapshot.snapshot;
-    let worktree = snapshot
-        .workspace(&source.workspace_id)
-        .and_then(|workspace| workspace.worktree.clone())
-        .filter(|worktree| worktree.is_linked_worktree)
-        .ok_or(Error::WorkspaceGone)?;
-    let state = git::source_state(host, &worktree.checkout_path, cancelled)?;
+    // A workspace the app keeps has no Herdr 1 tabs, and Herdr 1 may not
+    // even be installed; its folder, perhaps a subfolder, names the checkout.
+    let (snapshot, checkout) = match &source.keeping {
+        Keeping::App { checkout } => (
+            HostSnapshot::default(),
+            git::toplevel(host, checkout, Step::Review, cancelled)?,
+        ),
+        Keeping::Herdr1 => {
+            let snapshot: SnapshotResult =
+                host.herdr(Step::Review, &["api", "snapshot"], cancelled)?;
+            let snapshot = snapshot.snapshot;
+            let checkout = snapshot
+                .workspace(&source.workspace_id)
+                .and_then(|workspace| workspace.worktree.as_ref())
+                .filter(|worktree| worktree.is_linked_worktree)
+                .map(|worktree| worktree.checkout_path.clone())
+                .ok_or(Error::WorkspaceGone)?;
+            (snapshot, checkout)
+        }
+    };
+    let state = git::source_state(host, &checkout, cancelled)?;
     let branch = state.branch.clone().ok_or(Error::DetachedHead)?;
     // A fresh clone has no branch to collide with; anything already there does.
     let key = match &destination.destination {
@@ -177,7 +190,7 @@ pub fn review(source: &Source, destination: &Candidate, cancelled: &AtomicBool) 
     };
     if let Some(key) = key {
         let dest = git::destination_branch(&destination.place.host, key, &branch, cancelled)?;
-        git::check_destination(host, &worktree.checkout_path, &branch, &dest, cancelled)?;
+        git::check_destination(host, &checkout, &branch, &dest, cancelled)?;
     }
 
     let tabs = snapshot.tabs_of(&source.workspace_id);
@@ -203,9 +216,18 @@ pub fn review(source: &Source, destination: &Candidate, cancelled: &AtomicBool) 
         .collect();
     // The app's Herdr 2 tabs in the workspace, read from the host's core.
     let core_terminals = core::terminals(host, &core::ids(&source.core_tabs), cancelled)?;
+    // Sessions that cannot be read leave their agents to hand off.
+    let sessions = match core::sessions(host, &core_terminals, cancelled) {
+        Ok(sessions) => sessions,
+        Err(Error::Cancelled) => return Err(Error::Cancelled),
+        Err(error) => {
+            tracing::warn!(%error, "Could not read the sessions of Herdr 2 agents");
+            HashMap::new()
+        }
+    };
     works.extend(core::ids(&source.core_tabs).into_iter().map(|id| {
         let terminal = core_terminals.get(&id).cloned().unwrap_or_default();
-        let (work, cwd) = (terminal.work(), terminal.cwd());
+        let (work, cwd) = (core::work(&terminal, sessions.get(&id)), terminal.cwd());
         (id, work, cwd)
     }));
     let mut programs: Vec<&str> = AgentKind::FALLBACKS.iter().map(|k| k.binary()).collect();
@@ -232,9 +254,17 @@ pub fn review(source: &Source, destination: &Candidate, cancelled: &AtomicBool) 
         _ => GitHubAccess::Direct,
     };
 
-    let wants_core = source.core_preferred || !source.core_tabs.is_empty();
+    // Where the app keeps the workspaces, every tab moves into Herdr 2.
+    let kept = destination.lands_in == Keeper::App;
+    let wants_core = kept || source.core_preferred || !source.core_tabs.is_empty();
     let core_there = wants_core && core::available(&destination.place.host, cancelled)?;
-    let into = |generation| destination_generation(generation, core_there, source.core_preferred);
+    if kept && !core_there {
+        return Err(Error::CoreMissing {
+            host: destination.place.label.clone(),
+        });
+    }
+    let preferred = kept || source.core_preferred;
+    let into = |generation| destination_generation(generation, core_there, preferred);
     let mut notes = 0;
     let mut planned: Vec<TabPlan> = tabs
         .iter()
@@ -242,22 +272,18 @@ pub fn review(source: &Source, destination: &Candidate, cancelled: &AtomicBool) 
             let node = tab_tree(&snapshot, tab);
             let label = source.tab_labels.get(&tab.tab_id).cloned();
             let moves = (Generation::Herdr1, into(Generation::Herdr1));
-            plan_tree(moves, label, node, &works, &installed, &mut notes)
+            plan_tree(moves, kept, label, node, &works, &installed, &mut notes)
         })
-        .collect();
-    planned.extend(source.core_tabs.iter().map(|panes| {
+        .collect::<Result<_>>()?;
+    for panes in &source.core_tabs {
         let moves = (Generation::Herdr2, into(Generation::Herdr2));
-        plan_tree(
-            moves,
-            None,
-            core::tree(panes),
-            &works,
-            &installed,
-            &mut notes,
-        )
-    }));
+        let tree = core::tree(panes);
+        planned.push(plan_tree(
+            moves, kept, None, tree, &works, &installed, &mut notes,
+        )?);
+    }
     Ok(Review {
-        checkout: worktree.checkout_path,
+        checkout,
         branch,
         state,
         tabs: planned,
@@ -299,16 +325,25 @@ fn tab_tree(snapshot: &HostSnapshot, tab: &crate::teleport::snapshot::Tab) -> No
 
 /// What each pane of one source tab, laid out as `node`, becomes, as it
 /// moves `from` one Herdr `into` one on the destination. A tab with more
-/// panes than a Herdr 2 tab holds stays in Herdr 1.
+/// panes than a Herdr 2 tab holds stays in Herdr 1, unless it lands in a
+/// workspace the app `kept`, which holds only Herdr 2 tabs: there the move
+/// is refused before anything changes.
 fn plan_tree(
     (generation, into): (Generation, Generation),
+    kept: bool,
     label: Option<String>,
     node: Node,
     works: &[(String, Work, Option<String>)],
     installed: &[String],
     notes: &mut usize,
-) -> TabPlan {
+) -> Result<TabPlan> {
     let slots = node.plan().slots;
+    if kept && slots.len() > MAX_PANES {
+        return Err(Error::TabTooLarge {
+            panes: slots.len(),
+            most: MAX_PANES,
+        });
+    }
     let into = if slots.len() > MAX_PANES {
         Generation::Herdr1
     } else {
@@ -331,13 +366,13 @@ fn plan_tree(
             })
         })
         .collect();
-    TabPlan {
+    Ok(TabPlan {
         generation,
         into,
         label,
         tree: node,
         panes,
-    }
+    })
 }
 
 #[cfg(test)]

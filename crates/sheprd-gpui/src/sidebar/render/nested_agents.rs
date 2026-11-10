@@ -5,10 +5,9 @@
 
 use crate::{
     SheprdWindow,
-    sidebar::{agents::sorted_agents, cell::RowContext},
+    sidebar::{agents::listed::listed_agents, cell::RowContext},
 };
 use gpui::{prelude::*, *};
-use sheprd_client::protocol::ClientShellSnapshot;
 use std::{cell::RefCell, rc::Rc};
 
 /// A row's key and the bounds it was painted at.
@@ -52,13 +51,13 @@ fn reveal_shift(row: Bounds<Pixels>, top: Pixels, bottom: Pixels) -> Pixels {
 }
 
 impl SheprdWindow {
-    /// Rows for endpoint `index`'s agents in `workspace_id`, in the panel's
-    /// order, indented `indent` past the workspace row drawn in `row_cx`,
-    /// and the key of the focused one among them.
+    /// Rows for endpoint `index`'s agents in `workspace_id`, Herdr 1's and
+    /// this computer's Herdr 2 ones, in the panel's order, indented
+    /// `indent` past the workspace row drawn in `row_cx`, and the key of the
+    /// focused one among them.
     pub(in crate::sidebar) fn nested_agent_rows(
         &self,
         index: usize,
-        snapshot: &ClientShellSnapshot,
         workspace_id: &str,
         (row_cx, indent): (&RowContext, f32),
         cx: &mut Context<Self>,
@@ -69,22 +68,34 @@ impl SheprdWindow {
             ..*row_cx
         };
         let selected = index == self.selected_endpoint;
+        let live = if selected {
+            &self.live
+        } else {
+            &self.endpoints[index].live
+        };
+        let agents = listed_agents(
+            vec![(index, live)],
+            self.listed_core_agents(index),
+            self.agent_sort,
+        );
         let mut focused = None;
         let mut rows = Vec::new();
-        for agent in sorted_agents(snapshot, self.agent_sort)
+        for (_, agent) in agents
             .into_iter()
-            .filter(|agent| agent.workspace_id == workspace_id)
+            .filter(|(_, agent)| agent.workspace() == workspace_id)
         {
-            let Some(lines) = self.configured_agent_lines(agent, snapshot, None) else {
+            let Some(lines) = self.configured_agent_lines(&agent, None) else {
                 continue;
             };
             let gap = self.agent_row_gap(rows.len());
-            let row = self.agent_cell(index, agent, snapshot, &row_cx, lines, gap, true, cx);
-            if !(selected && agent.focused) {
+            let pane = agent.id();
+            let agent_focused = agent.focused();
+            let row = self.agent_cell(index, agent, &row_cx, lines, gap, true, cx);
+            if !(selected && agent_focused) {
                 rows.push(row.into_any_element());
                 continue;
             }
-            let key = SharedString::from(format!("{index}-{}", agent.pane_id));
+            let key = SharedString::from(format!("{index}-{pane}"));
             let painted = self.sidebar_nested_reveal.painted.clone();
             let painted_key = key.clone();
             focused = Some(key);

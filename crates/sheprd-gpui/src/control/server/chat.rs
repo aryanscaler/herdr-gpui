@@ -49,7 +49,7 @@ pub(super) fn serve(call: Call<ChatOp>, cx: &mut App) -> Response {
             })
         }
         ChatOp::Convert { pane } => {
-            let pane = pane.or_else(|| caller.pane_id.clone());
+            let pane = pane.or_else(|| callers_pane(&caller));
             in_window(&caller, cx, move |view, _, cx| {
                 match view.convert_to_chat(pane.as_deref()) {
                     Ok((pane_id, agent)) => {
@@ -69,7 +69,7 @@ pub(super) fn serve(call: Call<ChatOp>, cx: &mut App) -> Response {
             // A herdr-core pane is nobody's Herdr pane: the one holding the
             // keyboard comes before Herdr's focused pane.
             let pane = pane
-                .or_else(|| caller.pane_id.clone())
+                .or_else(|| callers_pane(&caller))
                 .or_else(|| view.focused_core_chat_key(window, cx))
                 .or_else(|| {
                     view.live
@@ -93,6 +93,14 @@ pub(super) fn serve(call: Call<ChatOp>, cx: &mut App) -> Response {
             }
         }),
     }
+}
+
+/// The caller's own pane, as chats key it: its Herdr pane, or its
+/// herdr-core terminal as `core:t7`, so a caller in one moves its own
+/// terminal's agent rather than Herdr 1's focused pane.
+fn callers_pane(caller: &crate::control::protocol::Caller) -> Option<String> {
+    crate::control::origin(caller.pane_id.as_deref(), caller.terminal_id.as_deref())
+        .map(std::borrow::Cow::into_owned)
 }
 
 /// How a chat that did not start is reported to the caller.

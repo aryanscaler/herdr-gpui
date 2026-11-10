@@ -35,5 +35,7 @@ pub enum Error {
     SandboxImage(#[from] crate::cloud::image::Error),
     #[error(transparent)]
     Teleport(#[from] crate::teleport::Error),
+    #[error(transparent)]
+    Work(#[from] crate::work::Error),
     // keep-sorted end
 }

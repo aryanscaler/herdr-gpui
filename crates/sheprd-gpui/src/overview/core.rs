@@ -5,12 +5,12 @@
 //! tab and pane that hold it.
 
 use super::{
-    Error, Key, Open, Row, State,
+    Error, Key, Open, Row, State, closed,
     model::Since,
     replies::{BLOCKED, Presence, Reply, Target},
 };
 use crate::SheprdWindow;
-use gpui::{Context, Window};
+use gpui::{App, Context, Window};
 use sheprd_backend::TerminalId;
 use sheprd_core_client::reply;
 use std::time::{Instant, SystemTime};
@@ -34,7 +34,7 @@ impl SheprdWindow {
 
     /// Shows the pane of a core agent's row: its host and workspace first,
     /// which may be another than the window's, then its tab and pane.
-    pub(super) fn open_core_overview_row(
+    pub(crate) fn open_core_overview_row(
         &mut self,
         tab: crate::browser::TabId,
         terminal: &TerminalId,
@@ -54,6 +54,38 @@ impl SheprdWindow {
             );
         }
         self.show_core_pane(tab, terminal, window, cx);
+    }
+
+    /// Shows the workspace a closed Herdr 2 agent's tab was in, as a click
+    /// on a closed Herdr 1 agent shows its workspace.
+    pub(super) fn open_closed_core_agent(
+        &mut self,
+        agent: &closed::Agent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (endpoint, _) = self.core_overview_host();
+        let open = self.core_terminals.hub.backend().is_some()
+            && self
+                .endpoints
+                .iter()
+                .position(|host| host.id == endpoint)
+                .is_some_and(|index| {
+                    agent.workspace.as_deref().is_some_and(|workspace| {
+                        self.sessions(index).workspace(workspace).is_some()
+                    })
+                });
+        let Some(workspace) = agent.workspace.as_deref().filter(|_| open) else {
+            self.show_flash(
+                crate::window::Flash::warning(crate::i18n::fl!("overview-session-gone")),
+                cx,
+            );
+            return;
+        };
+        self.show_activity_panel(crate::sidebar::ActivityPanel::Workspaces, window, cx);
+        self.activity.return_to = Some(crate::sidebar::ActivityPanel::Overview);
+        self.navigate_endpoint(&endpoint, crate::NavigationTarget::Workspace(workspace), cx);
+        cx.notify();
     }
 
     /// Whether `id` is the endpoint the core's rows are listed with.
@@ -124,6 +156,61 @@ impl SheprdWindow {
 }
 
 impl SheprdWindow {
+    /// Notes which of the window's Herdr 2 agents closed, while the core
+    /// answers: a lost connection is not a close.
+    pub(super) fn observe_closed_core_agents(&mut self, rows: &[Row], now: SystemTime, cx: &App) {
+        if self.core_terminals.hub.backend().is_none() {
+            return;
+        }
+        let store = cx.try_global::<crate::browser::Store>();
+        let listed = rows
+            .iter()
+            .filter_map(|row| {
+                let Open::Core { tab, terminal } = &row.open else {
+                    return None;
+                };
+                let info = self
+                    .core_terminals
+                    .reported(&crate::core_terminals::Host::Local, terminal);
+                Some(closed::Listed {
+                    row: row.clone(),
+                    cwd: info
+                        .and_then(|info| info.cwd.as_deref())
+                        .map(|cwd| cwd.display().to_string()),
+                    workspace: store
+                        .and_then(|store| store.get(*tab))
+                        .map(|shown| shown.workspace_id.clone()),
+                })
+            })
+            .collect();
+        // Every window's tabs are in the store: an agent still running in a
+        // terminal a tab drives, such as one torn off into another window,
+        // did not close.
+        let terminals = &self.core_terminals;
+        self.overview.closed.observe_core(listed, now, |row| {
+            let Open::Core { terminal, .. } = &row.open else {
+                return false;
+            };
+            let runs = terminals
+                .reported(&crate::core_terminals::Host::Local, terminal)
+                .is_some_and(|info| {
+                    sheprd_core_client::agent_name(info).as_deref() == row.identity.as_deref()
+                });
+            runs && store.is_some_and(|store| {
+                store.tabs().filter(|tab| tab.scope.is_local()).any(|tab| {
+                    matches!(
+                        &tab.location,
+                        Some(crate::browser::Location::CoreTerminal {
+                            panes,
+                            observe: false,
+                            ..
+                        }) if panes.contains(terminal)
+                    )
+                })
+            })
+        });
+    }
+
     /// What a reply written to `agent` in herdr-core terminal `terminal`
     /// finds there now. The core has no boot to fence on: a terminal's
     /// address is never reused while it is listed, and the agent's name

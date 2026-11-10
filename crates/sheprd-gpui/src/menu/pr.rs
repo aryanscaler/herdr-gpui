@@ -175,6 +175,17 @@ impl SheprdWindow {
             .target
             .as_ref()
             .ok_or(crate::Error::StaleWorkspace)?;
+        // A kept workspace has no daemon metadata: Git named its repository
+        // and branch, and its folder is on this computer.
+        if target.keeper == sheprd_session::Keeper::App {
+            let branch = target.base.clone().or_else(|| target.branch.clone());
+            let branch = branch.ok_or(sheprd_github::pull_request::Error::Branch)?;
+            return Ok(Input {
+                checkout: self.kept_checkout(),
+                repo_key: target.worktree.as_ref().map(|tree| tree.key.clone()),
+                branch,
+            });
+        }
         let workspace = self
             .menu_target_workspace()
             .ok_or(crate::Error::StaleWorkspace)?;

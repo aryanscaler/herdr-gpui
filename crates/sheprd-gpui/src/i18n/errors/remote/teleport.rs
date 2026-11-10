@@ -54,6 +54,9 @@ impl Localize for Error {
                     path = path.as_str()
                 )
             }
+            Self::CoreMissing { host } => {
+                fl!("error-remote-teleport-core-missing", host = host.as_str())
+            }
             Self::DestinationDirectoryMissing { path } => fl!(
                 "error-remote-teleport-destination-directory-missing",
                 path = path.as_str()
@@ -83,6 +86,11 @@ impl Localize for Error {
                 workspace = workspace_id.as_str()
             ),
             Self::SourceSessionChanged => fl!("error-remote-teleport-source-session-changed"),
+            Self::TabTooLarge { panes, most } => fl!(
+                "error-remote-teleport-tab-too-large",
+                panes = *panes,
+                most = *most
+            ),
             Self::WorkerStopped => fl!("error-remote-teleport-worker-stopped"),
             Self::SpaceGone { host } => {
                 fl!("error-remote-teleport-space-gone", host = host.as_str())
@@ -122,6 +130,7 @@ impl Localize for Error {
             }
             Self::LocalFile(_) => fl!("error-remote-teleport-local-file"),
             Self::InvalidToken => fl!("error-remote-teleport-invalid-token"),
+            Self::Work(error) => error.localize(),
             Self::Cancelled => fl!("error-remote-teleport-cancelled"),
         }
     }

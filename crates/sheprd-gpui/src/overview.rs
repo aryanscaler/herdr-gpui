@@ -322,10 +322,11 @@ impl SheprdWindow {
                     .observe(&endpoint.id, snapshot, &rows, now);
             }
         }
+        self.observe_closed_core_agents(&rows, now, cx);
         let endpoints = &self.endpoints;
-        self.overview
-            .closed
-            .retain_hosts(|id| endpoints.iter().any(|endpoint| endpoint.id == id));
+        self.overview.closed.retain_hosts(|id| {
+            id == core::ENDPOINT || endpoints.iter().any(|endpoint| endpoint.id == id)
+        });
         self.poll_overview_reopen(cx);
         self.poll_overview_replies(cx);
         self.refresh_overview_excerpts(&rows, cx);
@@ -494,13 +495,14 @@ impl SheprdWindow {
         let Some(agent) = self.overview.closed.get(id).cloned() else {
             return;
         };
-        let Open::Pane {
-            endpoint,
-            workspace,
-            ..
-        } = &agent.row.open
-        else {
-            return;
+        let (endpoint, workspace) = match &agent.row.open {
+            Open::Pane {
+                endpoint,
+                workspace,
+                ..
+            } => (endpoint, workspace),
+            Open::Core { .. } => return self.open_closed_core_agent(&agent, window, cx),
+            Open::Run(_) => return,
         };
         let current = self.endpoints.iter().enumerate().any(|(index, host)| {
             let live = if index == self.selected_endpoint {

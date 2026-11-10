@@ -430,8 +430,14 @@ pub(super) struct TerminalSetup {
 /// compatible Herdr: the CLI starts a stopped server itself. Blocks on SSH, so
 /// call it from the background executor. Stdin is closed, so any approval the
 /// CLI would need fails instead of waiting for input nobody can see.
-pub(super) fn save(request: &Request, claim: &Claim) -> Result<SaveOutcome> {
+pub(super) fn save(request: &Request, claim: &Claim, probe: HostProbe) -> Result<SaveOutcome> {
     request.remember_host_keys()?;
+    // Herdr 1's `machine add` provisions Herdr 1 there; a host with
+    // herdr-core alone needs none of that, only the device.
+    if probe == HostProbe::Core {
+        store_host(request, claim)?;
+        return Ok(SaveOutcome::Ready);
+    }
     let result = save_with(
         crate::daemon::executable(),
         request,
@@ -439,25 +445,24 @@ pub(super) fn save(request: &Request, claim: &Claim) -> Result<SaveOutcome> {
         load_catalog,
         resolve,
     );
-    finish_save(
-        result,
-        || request.probe(),
-        || {
-            verify_unsaved(request, claim)?;
-            let host = SavedHost {
-                id: uuid::Uuid::new_v4().simple().to_string(),
-                label: request.label.clone(),
-                target: request.target.clone(),
-                session: request.session.clone(),
-                enabled: true,
-            };
-            let saved = sheprd_client::store_saved_host(false, &host)?;
-            if saved.id != host.id {
-                return Err(Error::Exists(saved.label).into());
-            }
-            Ok(())
-        },
-    )
+    finish_save(result, || request.probe(), || store_host(request, claim))
+}
+
+/// Saves `request` as a device without Herdr's CLI.
+fn store_host(request: &Request, claim: &Claim) -> Result<()> {
+    verify_unsaved(request, claim)?;
+    let host = SavedHost {
+        id: uuid::Uuid::new_v4().simple().to_string(),
+        label: request.label.clone(),
+        target: request.target.clone(),
+        session: request.session.clone(),
+        enabled: true,
+    };
+    let saved = sheprd_client::store_saved_host(false, &host)?;
+    if saved.id != host.id {
+        return Err(Error::Exists(saved.label).into());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -48,7 +48,7 @@ impl Until<'_> {
 
     /// How long the next wait call may take, or `None` once the deadline
     /// has passed.
-    fn check_in(&self) -> Result<Option<Duration>> {
+    pub(crate) fn check_in(&self) -> Result<Option<Duration>> {
         if self.stop.load(Ordering::Acquire) {
             return Err(Error::Stopped);
         }
@@ -94,19 +94,30 @@ pub struct Started {
 /// an error that leaves the agent for the user to answer.
 pub fn ready(core: &Core, terminal: &str, until: Until<'_>) -> Result<()> {
     while let Some(timeout) = until.check_in()? {
-        let waited = core.wait(terminal, timeout)?;
-        if !waited.ended {
-            continue;
+        if let Some(ready) = readiness(&core.wait(terminal, timeout)?) {
+            return ready;
         }
-        ended(&waited)?;
-        return match waited.status.as_deref() {
-            Some("blocked" | "error") | None => Err(Error::AgentNotReady {
-                status: waited.status,
-            }),
-            Some(_) => Ok(()),
-        };
     }
     Err(Error::AgentNotReady { status: None })
+}
+
+/// What one wait on a new agent says about its readiness: `None` while it
+/// is still starting, so the caller waits again, else whether it is ready
+/// for its prompt. Shared with callers that wait through `herdr-core wait
+/// --json`, which answers the same record.
+pub fn readiness(waited: &Waited) -> Option<Result<()>> {
+    if !waited.ended {
+        return None;
+    }
+    if let Err(error) = ended(waited) {
+        return Some(Err(error));
+    }
+    Some(match waited.status.as_deref() {
+        Some("blocked" | "error") | None => Err(Error::AgentNotReady {
+            status: waited.status.clone(),
+        }),
+        Some(_) => Ok(()),
+    })
 }
 
 /// Waits until the turn after `turn` ends: the agent took a prompt sent at

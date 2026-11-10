@@ -67,6 +67,19 @@ pub struct SourceState {
     pub untracked: u32,
 }
 
+/// The root of the checkout `dir` is in. A workspace the app keeps may be
+/// opened in a subfolder of its worktree, while a move carries, maps, and
+/// restores the whole checkout from its root.
+pub fn toplevel(host: &Host, dir: &str, step: Step, cancelled: &AtomicBool) -> Result<String> {
+    let body = format!("git -C {} rev-parse --show-toplevel\n", shell_quote(dir));
+    let output = host.query(step, &body, &[], cancelled)?;
+    let root = String::from_utf8_lossy(&output).trim().to_owned();
+    if root.is_empty() {
+        return Err(Error::WorkspaceGone);
+    }
+    Ok(root)
+}
+
 pub fn source_state(host: &Host, checkout: &str, cancelled: &AtomicBool) -> Result<SourceState> {
     let body = format!(
         r#"cd -- {checkout}

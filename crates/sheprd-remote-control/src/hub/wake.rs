@@ -1,8 +1,10 @@
 //! A phone on a machine without Herdr 1, such as a cloud machine set up
 //! with only the pinned core, starts that core rather than finding nothing
 //! running: when it opens its home view, and when it asks for new work.
-//! Where Herdr 1 is installed it stays the user's to start: moving to
-//! Herdr 2 is their choice.
+//! Where Herdr 1 is installed, moving to Herdr 2 is the user's choice: a
+//! core starts there for new work only once they chose "New terminals use
+//! Herdr 2" (`herdr_2_terminals` in that computer's Sheprd settings), even
+//! while Herdr 1 runs. Herdr 1 keeps running either way.
 
 use super::{Hub, Result, core, locate, locate_on, on_core};
 use std::{
@@ -44,8 +46,10 @@ impl Hub {
         let Some(core) = self.startable() else {
             return Ok(None);
         };
+        let answering =
+            self.primary.borrow().connected || self.sessions.first_connected().is_some();
         // The login shell's PATH can take a moment to read the first time.
-        let Some(binary) = on_core(|| Ok(core_program())).await? else {
+        let Some(binary) = on_core(move || Ok(core_program(answering))).await? else {
             return Ok(None);
         };
         let mut failed = self.waking.lock().await;
@@ -94,27 +98,52 @@ impl Hub {
         });
     }
 
-    /// This machine's core source, when no Herdr 1 session answers; whether
-    /// Herdr 1 is installed is [`core_program`]'s to say.
+    /// This machine's core source; whether Herdr 1 leaves it unstarted is
+    /// [`core_program`]'s to say.
     fn startable(&self) -> Option<Arc<core::Source>> {
         // Tests' hubs look for no programs, and start nothing.
-        let core = self.core.clone().filter(|_| self.search_program)?;
-        if self.primary.borrow().connected || self.sessions.first_connected().is_some() {
-            return None;
-        }
-        Some(core)
+        self.core.clone().filter(|_| self.search_program)
     }
 }
 
-/// The program to start this machine's core with, when Herdr 1 is not
-/// installed here. Blocking: it may read the login shell's environment.
-fn core_program() -> Option<PathBuf> {
+/// The program to start this machine's core with: when Herdr 1 neither
+/// `answering` nor installed here, or the user chose Herdr 2 for new
+/// terminals. Blocking: it reads settings and the login shell's PATH.
+fn core_program(answering: bool) -> Option<PathBuf> {
+    let chosen = settings_path().is_some_and(|path| herdr_2_chosen(&path));
+    if answering && !chosen {
+        return None;
+    }
     let login = sheprd_client::login_env::path();
-    if find(HERDR, login.as_deref()).is_some() {
+    if !chosen && find(HERDR, login.as_deref()).is_some() {
         return None;
     }
     find(sheprd_core_client::PROGRAM, login.as_deref())
 }
+
+/// Sheprd's settings on this computer.
+fn settings_path() -> Option<PathBuf> {
+    let root = sheprd_client::local_path::config_root().ok()?;
+    Some(root.join("herdr/config-gpui.toml"))
+}
+
+/// Whether the settings at `path` say new terminals use Herdr 2: the
+/// user's overrides first, then the file itself, off when neither says.
+pub(super) fn herdr_2_chosen(path: &std::path::Path) -> bool {
+    let read = |path: &std::path::Path| -> Option<bool> {
+        let text = sheprd_client::settings_files::read(path).ok()??;
+        text.parse::<toml::Table>()
+            .ok()?
+            .get(HERDR_2_TERMINALS)?
+            .as_bool()
+    };
+    read(&sheprd_client::settings_files::overrides_path(path))
+        .or_else(|| read(path))
+        .unwrap_or(false)
+}
+
+/// The setting "New terminals use Herdr 2".
+const HERDR_2_TERMINALS: &str = "herdr_2_terminals";
 
 /// `program` where the daemon looks, else on the login shell's `login`
 /// PATH: a service's own PATH can leave out a directory the user's shell

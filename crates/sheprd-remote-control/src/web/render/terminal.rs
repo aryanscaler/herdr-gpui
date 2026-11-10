@@ -128,7 +128,10 @@ pub(crate) fn terminal(
                 div class="grab" {}
                 h4 { "This pane" }
                 div class="tiles" {
-                    @for (action, icon, label) in PANE_ACTIONS {
+                    // A Herdr desktop space's tab keeps its layout there.
+                    @for (action, icon, label) in PANE_ACTIONS.iter().filter(|(action, ..)| {
+                        *action == "close_pane" || crate::hub::arrangeable(&terminal.tab)
+                    }) {
                         button type="button"
                             class={ "tile" @if *action == "close_pane" { " danger" } }
                             data-term-action=(action) {

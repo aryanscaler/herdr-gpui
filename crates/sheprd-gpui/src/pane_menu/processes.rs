@@ -3,7 +3,6 @@
 //! confirmation. The worker does the listing and signalling; this side only
 //! keeps what it last reported and what the user chose.
 
-use super::PaneMenu;
 use crate::direction::Logical;
 use crate::i18n::fl;
 use crate::{
@@ -191,24 +190,23 @@ impl SheprdWindow {
         cx.notify();
     }
 
+    /// Shows a Herdr 2 pane's process list, which `watch` keeps current.
+    pub(crate) fn show_core_processes(&mut self, watch: Watch, cx: &mut Context<Self>) {
+        let Some(menu) = &mut self.menu.core else {
+            return;
+        };
+        menu.set_processes(PaneProcesses::new(watch));
+        self.menu.page = Some(Page::PaneProcesses);
+        cx.notify();
+    }
+
     /// Takes the worker's answers, and stops it once the pane or the
     /// connection it belongs to is gone.
     pub(crate) fn poll_pane_processes(&mut self, cx: &mut Context<Self>) {
-        if self
-            .menu
-            .pane
-            .as_ref()
-            .and_then(|pane| pane.processes.as_ref())
-            .is_none_or(|processes| processes.watch.is_none())
-        {
-            return;
-        }
-        let current = self.validate_pane_target().map(drop);
+        let current = self.processes_target_current();
         let Some(processes) = self
-            .menu
-            .pane
-            .as_mut()
-            .and_then(|pane| pane.processes.as_mut())
+            .pane_processes()
+            .filter(|processes| processes.watch.is_some())
         else {
             return;
         };
@@ -248,8 +246,44 @@ impl SheprdWindow {
         }
     }
 
+    /// The process list open in the pane menu, a Herdr pane's or a Herdr 2
+    /// pane's.
     fn pane_processes(&mut self) -> Option<&mut PaneProcesses> {
+        if let Some(processes) = self
+            .menu
+            .core
+            .as_mut()
+            .and_then(|menu| menu.processes_mut())
+        {
+            return Some(processes);
+        }
         self.menu.pane.as_mut()?.processes.as_mut()
+    }
+
+    /// The process list shown, and the name of its pane.
+    pub(super) fn shown_processes(&self, cx: &App) -> Option<(&PaneProcesses, String)> {
+        if let Some(core) = &self.menu.core
+            && let Some(processes) = core.processes()
+        {
+            return Some((processes, self.core_menu_pane_label(cx)));
+        }
+        let pane = self.menu.pane.as_ref()?;
+        Some((pane.processes.as_ref()?, pane.target.label.clone()))
+    }
+
+    /// Whether the pane whose processes are listed is still there: a Herdr
+    /// pane in the snapshot the menu opened on, or a Herdr 2 pane its tab
+    /// still holds.
+    fn processes_target_current(&self) -> crate::Result<()> {
+        if self
+            .menu
+            .core
+            .as_ref()
+            .is_some_and(|menu| menu.processes().is_some())
+        {
+            return self.core_processes_current();
+        }
+        self.validate_pane_target().map(drop)
     }
 
     fn toggle_pane_process(&mut self, identity: Identity, cx: &mut Context<Self>) {
@@ -270,7 +304,7 @@ impl SheprdWindow {
     }
 
     fn end_pane_processes(&mut self, cx: &mut Context<Self>) {
-        let current = self.validate_pane_target().map(drop);
+        let current = self.processes_target_current();
         let Some(processes) = self.pane_processes() else {
             return;
         };
@@ -338,16 +372,18 @@ impl SheprdWindow {
         true
     }
 
-    pub(super) fn render_pane_processes(&self, pane: &PaneMenu, cx: &mut Context<Self>) -> Div {
-        let Some(processes) = &pane.processes else {
-            return div();
-        };
+    pub(super) fn render_pane_processes(
+        &self,
+        processes: &PaneProcesses,
+        label: &str,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let theme = &self.theme;
         let muted = rgb(theme.muted);
-        let title = if pane.target.label.is_empty() {
+        let title = if label.is_empty() {
             fl!("pane-menu-processes-title")
         } else {
-            fl!("pane-menu-processes-in", pane = pane.target.label.as_str())
+            fl!("pane-menu-processes-in", pane = label)
         };
         let mut body = div().p(px(8.)).flex().flex_col().gap(px(8.)).child(
             div()
@@ -529,10 +565,11 @@ impl SheprdWindow {
         )
     }
 
-    pub(super) fn render_kill_processes(&self, pane: &PaneMenu, cx: &mut Context<Self>) -> Div {
-        let Some(processes) = &pane.processes else {
-            return div();
-        };
+    pub(super) fn render_kill_processes(
+        &self,
+        processes: &PaneProcesses,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let theme = &self.theme;
         let count = processes.chosen.len();
         div()

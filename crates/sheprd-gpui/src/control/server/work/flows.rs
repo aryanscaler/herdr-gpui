@@ -59,11 +59,63 @@ fn open_menu(
     Ok(workspace)
 }
 
+/// The caller's workspace when it is one the app keeps for Herdr 2: on the
+/// window's selected host, else a refusal, as dialogs act there alone.
+/// `None` when the caller is in no such workspace.
+fn kept_workspace(view: &SheprdWindow, caller: &Caller) -> Option<Result<String, Response>> {
+    let target = super::super::target(caller);
+    // A caller outside any pane acts on the workspace the window shows.
+    if target.workspace.is_none()
+        && target.terminal.is_none()
+        && target.pane.is_none()
+        && let Some(id) = view.kept_in_front()
+    {
+        return Some(Ok(id.to_owned()));
+    }
+    let (index, id) = target
+        .strictness()
+        .iter()
+        .find_map(|strict| view.control_target(&target, *strict))?;
+    if index != view.selected_endpoint {
+        let sessions = view.sessions(index);
+        sessions.core.as_ref()?.workspace(&id)?;
+        return Some(Err(invalid(format!(
+            "Workspace {id} is on host {}, which the window is not showing; select it first",
+            view.endpoints[index].label
+        ))));
+    }
+    view.is_kept_workspace(&id).then_some(Ok(id))
+}
+
+/// Opens the menu of the kept workspace `id`, as [`open_menu`] does a
+/// Herdr 1 workspace's.
+fn open_kept_menu(
+    view: &mut SheprdWindow,
+    id: &str,
+    window: &mut Window,
+    cx: &mut Context<SheprdWindow>,
+) -> Result<String, Response> {
+    view.open_kept_workspace_menu(id, Point::default(), window, cx);
+    if view.menu.page != Some(Page::Workspace) {
+        return Err(Response::error(
+            ErrorCode::Failed,
+            "The workspace's menu did not open",
+        ));
+    }
+    Ok(id.to_owned())
+}
+
+/// Refuses a flow that needs Herdr 1's state for a caller in a workspace
+/// the app keeps for Herdr 2, before any menu opens.
+fn needs_herdr(view: &SheprdWindow, caller: &Caller, what: &str) -> Result<(), Response> {
+    find(view, caller)?.herdr(what).map(|_| ())
+}
+
 /// What the caller's workspace is checked out on, for messages.
 fn branch(view: &SheprdWindow, caller: &Caller) -> String {
     find(view, caller)
         .ok()
-        .and_then(|found| found.workspace.branch.clone())
+        .and_then(|found| found.workspace.branch)
         .unwrap_or_else(|| "the checkout".to_owned())
 }
 
@@ -139,7 +191,8 @@ pub(super) fn script(
 fn launch(view: &SheprdWindow, caller: &Caller, kind: ScriptKind) -> Result<Launch, Response> {
     selected_workspace(view, caller)?;
     let found = find(view, caller)?;
-    let Some(tree) = &found.workspace.worktree else {
+    let herdr = found.herdr("a worktree script")?;
+    let Some(tree) = &herdr.workspace.worktree else {
         return Err(invalid(crate::worktree_scripts::Error::NotGit.to_string()));
     };
     // The menu offers the setup script on linked worktrees alone.
@@ -153,8 +206,8 @@ fn launch(view: &SheprdWindow, caller: &Caller, kind: ScriptKind) -> Result<Laun
         kind,
         endpoint: (view.selection_epoch, endpoint.generation),
         endpoint_id: endpoint.id.clone(),
-        boot: found.snapshot.boot_id.clone(),
-        workspace: found.workspace.workspace_id.clone(),
+        boot: herdr.snapshot.boot_id.clone(),
+        workspace: herdr.workspace.workspace_id.clone(),
         repo: tree.label.clone(),
         repo_key: tree.key.clone(),
         checkout: None,
@@ -213,16 +266,28 @@ pub(super) fn teleport(
     if id == view.endpoints[view.selected_endpoint].id {
         return invalid(format!("The worktree is already on {label}"));
     }
-    if let Err(response) = open_menu(view, caller, window, cx) {
-        return response;
-    }
+    // A workspace the app keeps for Herdr 2 has its own menu, and no
+    // Herdr 1 state to find it by.
+    let opened = match kept_workspace(view, caller) {
+        Some(kept) => kept.and_then(|id| open_kept_menu(view, &id, window, cx)),
+        None => open_menu(view, caller, window, cx),
+    };
+    let workspace = match opened {
+        Ok(workspace) => workspace,
+        Err(response) => return response,
+    };
     if !view.can_teleport() {
         view.dismiss_menu(window, cx);
         return invalid(
             "Teleport moves a linked worktree, from Linux or macOS, off a host it can script, while no other move runs",
         );
     }
-    let branch = branch(view, caller);
+    let branch = view
+        .sessions(view.selected_endpoint)
+        .core
+        .as_ref()
+        .and_then(|core| core.workspace(&workspace)?.branch.clone())
+        .unwrap_or_else(|| branch(view, caller));
     view.open_teleport(window, cx);
     let Some(teleport) = view
         .teleport
@@ -310,6 +375,9 @@ pub(super) fn fan_out(
             "This window's last fan-out is still open for comparison; keep a lane or close it from the workspace menu first",
         );
     }
+    if let Err(response) = needs_herdr(view, caller, "fan-out") {
+        return response;
+    }
     let workspace = match open_menu(view, caller, window, cx) {
         Ok(workspace) => workspace,
         Err(response) => return response,
@@ -321,7 +389,7 @@ pub(super) fn fan_out(
         );
     }
     let repo = find(view, caller)
-        .map(|found| repository(found.workspace).to_owned())
+        .map(|found| repository(&found.workspace).to_owned())
         .unwrap_or(workspace);
     view.open_fan_out(window, cx);
     let opened = view.menu.page == Some(Page::FanOut)

@@ -2,6 +2,7 @@
 //! tabs of herdr-core terminals matter here, so every other kind of tab, and
 //! one that fails to read, is skipped rather than costing the rest.
 
+pub mod edit;
 mod error;
 
 pub use error::Error;
@@ -10,6 +11,13 @@ use crate::panes::Panes;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+/// The lock beside the saved tabs at `tabs`. The app holds it from before
+/// it reads them until it quits, as it alone writes them then; anything
+/// else edits them only while it can take the lock itself.
+pub fn lock_path(tabs: &std::path::Path) -> std::path::PathBuf {
+    tabs.with_extension("lock")
+}
 
 /// The largest saved tabs file read.
 pub const MAX_SAVED_BYTES: usize = 1024 * 1024;
@@ -151,10 +159,16 @@ enum CoreLocation {
         /// Names the user gave panes, by terminal, shown over their titles.
         #[serde(default, deserialize_with = "pane_names")]
         names: BTreeMap<String, String>,
+        /// The tab's name, shown over its program's title.
+        #[serde(default)]
+        name: Option<String>,
         #[serde(default)]
         observe: bool,
         #[serde(alias = "terminal")]
         panes: Panes,
+        /// The pane filling the tab.
+        #[serde(default)]
+        zoomed: Option<sheprd_backend::TerminalId>,
     },
 }
 
@@ -210,12 +224,9 @@ impl SavedTabs {
     /// Names the user gave the panes of `scope`'s tab `id`, by terminal
     /// address, shown over their programs' titles.
     pub fn pane_names(&self, scope: &str, id: u64) -> Option<&BTreeMap<String, String>> {
-        self.tabs
-            .iter()
-            .find(|tab| tab.scope == scope && tab.id == id)
-            .and_then(|tab| match tab.location.as_ref()? {
-                CoreLocation::CoreTerminal { names, .. } => Some(names),
-            })
+        match self.location(scope, id)? {
+            CoreLocation::CoreTerminal { names, .. } => Some(names),
+        }
     }
 
     /// `scope`'s tabs in a workspace, in saved order. Mirrors are left out:
@@ -233,5 +244,31 @@ impl SavedTabs {
                     workspace_id: &tab.workspace_id,
                 })
             })
+    }
+
+    /// The name the user gave `scope`'s tab `id`, shown over its title.
+    pub fn tab_name(&self, scope: &str, id: u64) -> Option<&str> {
+        match self.location(scope, id)? {
+            CoreLocation::CoreTerminal { name, .. } => {
+                name.as_deref().filter(|name| !name.trim().is_empty())
+            }
+        }
+    }
+
+    /// The pane filling `scope`'s tab `id`, when one does.
+    pub fn tab_zoomed(&self, scope: &str, id: u64) -> Option<&sheprd_backend::TerminalId> {
+        match self.location(scope, id)? {
+            CoreLocation::CoreTerminal { panes, zoomed, .. } => {
+                zoomed.as_ref().filter(|zoomed| panes.contains(zoomed))
+            }
+        }
+    }
+
+    fn location(&self, scope: &str, id: u64) -> Option<&CoreLocation> {
+        self.tabs
+            .iter()
+            .find(|tab| tab.scope == scope && tab.id == id)?
+            .location
+            .as_ref()
     }
 }

@@ -3,7 +3,7 @@
 //! unique within one core, so each host keeps its own hub and its own list
 //! of what that core reports.
 
-use super::{CoreTerminals, Error, Hub, Purpose, State, infos::Infos};
+use super::{CoreTerminalView, CoreTerminals, Error, Hub, Purpose, State, infos::Infos};
 use crate::{
     SheprdWindow,
     browser::{Scope, TabId},
@@ -11,7 +11,7 @@ use crate::{
     i18n::fl,
     window::Flash,
 };
-use gpui::{Context, Window};
+use gpui::{Context, Entity, Window};
 use sheprd_backend::{TerminalId, TerminalInfo};
 use sheprd_client::ConnectTarget;
 use sheprd_core_client::CoreBackend;
@@ -110,11 +110,49 @@ impl CoreTerminals {
         self.infos_of(&self.tabs.get(&tab)?.host)?.get(terminal)
     }
 
+    /// Whether `tab` types into its terminals, on any host: a tab rather
+    /// than a watch-only mirror.
+    pub(crate) fn types_into(&self, tab: TabId) -> bool {
+        self.tabs.get(&tab).is_some_and(|shown| !shown.observe)
+    }
+
+    /// The core of `host`, while it answers.
+    pub(crate) fn host_backend(&self, host: &Host) -> Option<&CoreBackend> {
+        self.backend_of(host)
+    }
+
+    /// Every terminal of `tab`, the panes a zoom hides included.
+    pub(crate) fn tab_terminals(&self, tab: TabId) -> Vec<&TerminalId> {
+        self.tabs
+            .get(&tab)
+            .map(|shown| shown.panes.terminals())
+            .unwrap_or_default()
+    }
+
+    /// The tab and terminal `view` shows, if it is one of the tabs' panes.
+    pub(crate) fn view_key(&self, view: &Entity<CoreTerminalView>) -> Option<(TabId, TerminalId)> {
+        self.views
+            .iter()
+            .find(|(_, shown)| *shown == view)
+            .map(|(key, _)| key.clone())
+    }
+
     /// Every host whose core the window knows of, this computer first.
     pub(super) fn hosts(&self) -> Vec<Host> {
         std::iter::once(Host::Local)
             .chain(self.remote.keys().cloned().map(Host::Remote))
             .collect()
+    }
+
+    /// Says what Git would of the folder `cwd`, for tests outside this
+    /// module that keep workspaces in checkouts without running Git.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) fn seed_checkout_for_test(
+        &mut self,
+        cwd: &str,
+        identity: Option<sheprd_vcs::git::Identity>,
+    ) {
+        self.checkouts.seed(cwd, identity);
     }
 
     /// Uses `hub` for the core of the host `scope` names, as the first ask
@@ -265,10 +303,12 @@ impl SheprdWindow {
     /// attached anew; nothing is started or replayed.
     pub(super) fn poll_core_hubs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut changed = self.forget_stale_core_hosts();
+        let scrollback = self.config.herdr_2_scrollback;
         for host in self.core_terminals.hosts() {
             let Some(hub) = self.core_terminals.hub_of_mut(&host) else {
                 continue;
             };
+            hub.set_scrollback(scrollback);
             let connected = hub.backend().is_some();
             if !hub.poll() {
                 continue;
@@ -339,6 +379,15 @@ impl SheprdWindow {
                 cx,
             );
             return;
+        }
+        // A saved host's stand-in workspace whose first shell did not start
+        // goes while empty, so it is kept and its shell tried again once the
+        // core may be dialled again.
+        if let Purpose::Tab { scope, workspace } = &purpose
+            && !scope.is_local()
+            && workspace == super::WORKSPACE
+        {
+            self.forget_empty_kept_workspace(scope, workspace, window, cx);
         }
         // Only while the workspace the tab was asked for is still the one
         // shown, since the Herdr tab opens in the focused workspace.

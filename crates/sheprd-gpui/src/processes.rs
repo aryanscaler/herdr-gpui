@@ -127,6 +127,9 @@ pub(crate) enum Source {
         endpoint: sheprd_core_client::Endpoint,
         terminal: String,
     },
+    /// A terminal of the herdr-core the app joins on this machine, found as
+    /// the app finds it, on the worker rather than the UI thread.
+    AppCore { terminal: String },
 }
 
 impl Source {
@@ -134,7 +137,7 @@ impl Source {
     pub(crate) fn name(&self) -> &str {
         match self {
             Self::Herdr { pane, .. } => pane,
-            Self::Core { terminal, .. } => terminal,
+            Self::Core { terminal, .. } | Self::AppCore { terminal } => terminal,
         }
     }
 
@@ -143,6 +146,11 @@ impl Source {
         match self {
             Self::Herdr { daemon, pane } => daemon.process_info(pane, cancelled),
             Self::Core { endpoint, terminal } => core_process_info(endpoint, terminal),
+            Self::AppCore { terminal } => {
+                let endpoint = sheprd_core_client::Endpoint::resolve(sheprd_client::login_env::var)
+                    .map_err(Error::Core)?;
+                core_process_info(&endpoint, terminal)
+            }
         }
     }
 }

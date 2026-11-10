@@ -271,6 +271,13 @@ impl CoreTerminalView {
         self.screen.frame.is_some()
     }
 
+    /// The text revision of the screen shown, for tests that wait for one
+    /// update rather than any.
+    #[cfg(test)]
+    pub(crate) fn screen_revision(&self) -> u64 {
+        self.screen.revision
+    }
+
     /// Lets the view reach the window it is in.
     pub(crate) fn with_window(mut self, to_window: WindowCall) -> Self {
         self.to_window = Some(to_window);

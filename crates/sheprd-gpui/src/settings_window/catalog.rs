@@ -429,6 +429,12 @@ pub(super) const CATALOG: &[Entry] = &[
     ),
     entry(
         Section::Tabs,
+        "tabs-herdr-2-scrollback",
+        "settings-tabs-herdr-2-scrollback",
+        "settings-tabs-herdr-2-scrollback-description",
+    ),
+    entry(
+        Section::Tabs,
         "tabs-pane-history",
         "settings-tabs-pane-history",
         "settings-tabs-pane-history-description",

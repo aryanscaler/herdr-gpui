@@ -56,32 +56,30 @@ impl SheprdWindow {
                     (_, Some(Location::CoreTerminal { .. })) => "icons/terminal.svg",
                     _ => GLOBE,
                 };
-                // A terminal tab running an agent shows how it is doing, as a
-                // Herdr tab does; a page's own icon stands in for the globe.
-                let status = match &tab.location {
-                    Some(Location::CoreTerminal { panes, .. }) => {
-                        let host = crate::core_terminals::Host::of(&tab.scope);
-                        self.core_terminals.tab_status(&host, panes)
-                    }
-                    _ => sheprd_client::protocol::AgentStatus::Unknown,
-                };
-                let mark = match self.tab_favicon(id).filter(|_| icon == GLOBE) {
-                    _ if status != sheprd_client::protocol::AgentStatus::Unknown => Mark::Herdr {
-                        status,
-                        agent: None,
-                    },
-                    Some(favicon) => Mark::Favicon(favicon),
-                    None => Mark::Icon(icon),
+                // A terminal tab running an agent shows how it is doing and
+                // which agent, as a Herdr tab does; a page's own icon stands
+                // in for the globe.
+                let mut core = self.core_face(&tab, cx);
+                let mark = match (
+                    core.as_mut().and_then(|core| core.mark.take()),
+                    self.tab_favicon(id).filter(|_| icon == GLOBE),
+                ) {
+                    (Some(mark), _) => mark,
+                    (None, Some(favicon)) => Mark::Favicon(favicon),
+                    (None, None) => Mark::Icon(icon),
                 };
                 let base = div()
                     .id(SharedString::from(format!("browser-tab-{id}")))
                     .debug_selector(move || slot.selector(&format!("browser-tab-{id}")));
-                let core = matches!(tab.location, Some(Location::CoreTerminal { .. }));
+                let (zoomed, muted) = core
+                    .as_ref()
+                    .map_or((false, false), |core| (core.zoomed, core.muted));
+                let core = core.is_some();
                 let face = TabFace {
                     label: tab_label(&tab.label()),
                     mark,
-                    zoomed: false,
-                    muted: false,
+                    zoomed,
+                    muted,
                     probe: Probe::Page(id),
                     // Split, the page closes in its group alone.
                     close: Box::new(cx.listener(move |this, _, window, cx| {

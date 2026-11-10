@@ -17,6 +17,7 @@ use gpui::{prelude::*, *};
 use sheprd_client::protocol::{AgentStatus, ClientShellAgent, ClientShellSnapshot};
 
 pub(crate) mod groups;
+pub(crate) mod listed;
 
 pub(super) fn agents_sort(window: &SheprdWindow, cx: &mut Context<SheprdWindow>) -> Stateful<Div> {
     let theme = &window.theme;
@@ -597,9 +598,18 @@ pub(crate) fn state_label<'a>(
     agent: &ClientShellAgent,
     fallback: &'a str,
 ) -> std::borrow::Cow<'a, str> {
-    let key = status_key(agent.agent_status);
-    agent
-        .state_labels
+    state_label_in(&agent.state_labels, agent.agent_status, fallback)
+}
+
+/// The words `labels`, an integration's `state_labels`, chose for `status`,
+/// else `fallback`, as [`state_label`] reads them.
+pub(super) fn state_label_in<'a>(
+    labels: &[(String, String)],
+    status: AgentStatus,
+    fallback: &'a str,
+) -> std::borrow::Cow<'a, str> {
+    let key = status_key(status);
+    labels
         .iter()
         .find(|(state, _)| state == key)
         .map(|(_, label)| crate::notifications::safe_text(label, STATE_LABEL_LIMIT))

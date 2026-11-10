@@ -118,6 +118,7 @@ fn session_fixture(relative: &str) -> SessionFixture {
             },
             repositories: None,
             retired: Vec::new(),
+            lands_in: sheprd_session::Keeper::Herdr1,
         },
         _temp: temp,
         source_home,

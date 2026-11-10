@@ -36,6 +36,16 @@ impl CoreBackend {
     pub fn core(&self) -> &Core {
         &self.core
     }
+
+    /// Sets the scrollback lines of terminals attached from now on; those
+    /// attached already keep theirs.
+    pub fn set_scrollback(&mut self, scrollback: usize) {
+        self.scrollback = scrollback;
+    }
+
+    pub fn scrollback(&self) -> usize {
+        self.scrollback
+    }
 }
 
 impl sheprd_backend::Backend for CoreBackend {
@@ -217,22 +227,58 @@ pub fn info(terminal: &Terminal) -> Result<TerminalInfo> {
         .filter(|cwd| !cwd.is_empty())
         .or(Some(terminal.cwd.as_str()).filter(|cwd| !cwd.is_empty()))
         .map(PathBuf::from);
+    let status = terminal.status.as_ref().filter(|_| !agent_left(terminal));
     Ok(TerminalInfo {
-        agent: terminal.status.as_ref().map_or(AgentStatus::Unknown, agent),
+        agent: status.map_or(AgentStatus::Unknown, agent),
         cwd,
         foreground: terminal.foreground.as_ref().and_then(process),
         id: TerminalId::new(terminal.address.clone())?,
         labels: terminal.labels.clone(),
         name: terminal.name.clone(),
-        reporter: terminal
-            .status
-            .as_ref()
+        reporter: status
             .map(|status| status.app.trim())
             .filter(|app| !app.is_empty())
             .map(str::to_owned),
         state: run_state(terminal),
         title: terminal.title.clone().filter(|title| !title.is_empty()),
     })
+}
+
+/// Whether the agent whose report `terminal` holds has quit: the core keeps
+/// a program's last status report, so once a known agent started from the
+/// terminal's shell exits, the shell is back in front with the agent's last
+/// word. A report from a program Sheprd does not know, such as a shell's own
+/// integration, stands.
+fn agent_left(terminal: &Terminal) -> bool {
+    let Some(status) = &terminal.status else {
+        return false;
+    };
+    let Some(reporter) =
+        sheprd_client::herdr::AgentKind::identify(Some(status.app.trim()), "", &[])
+    else {
+        return false;
+    };
+    let Some(front) = terminal
+        .foreground
+        .as_ref()
+        .filter(|front| terminal.pid == Some(front.pid))
+    else {
+        return false;
+    };
+    // The process in front may be the reporting agent the shell became
+    // (`exec claude`), which keeps the shell's pid; any other program there,
+    // another agent included, means the report is stale.
+    let program = terminal.argv.first().map_or("", String::as_str);
+    let is = |kind: Option<sheprd_client::herdr::AgentKind>| kind == Some(reporter);
+    !is(sheprd_client::herdr::AgentKind::identify(
+        None,
+        &front.name,
+        &front.argv,
+    )) && !is(sheprd_client::herdr::AgentKind::identify(
+        None,
+        program,
+        &terminal.argv,
+    ))
 }
 
 /// The foreground process, unless its pid is not one a process can have.

@@ -3,6 +3,7 @@ use crate::config::SidebarLayout;
 use crate::sidebar::layout_tests;
 
 mod plugin_rows;
+mod state_labels;
 mod translated_rules;
 
 fn agent_layout(text: &str) -> AgentLayout {

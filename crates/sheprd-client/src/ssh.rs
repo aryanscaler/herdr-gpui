@@ -70,6 +70,8 @@ for path do
 
 const PROBE_CANDIDATE: &str = "herdr-probe:candidate";
 const PROBE_DONE: &str = "herdr-probe:done";
+/// Printed by the probe when herdr-core is where its bridge looks.
+const PROBE_CORE: &str = "herdr-probe:core";
 pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 /// `ssh -G` only reads configuration, but a cold start on a busy Windows
 /// machine (antivirus scanning `ssh.exe`) has taken over five seconds.
@@ -116,6 +118,9 @@ pub enum HostProbe {
     Stopped,
     /// A compatible Herdr server for the session is running.
     Running,
+    /// No compatible Herdr 1, but herdr-core (Herdr 2) is installed, which
+    /// is a whole setup of its own: the host's terminals run in its core.
+    Core,
 }
 
 /// Every candidate reports its client and server status, one block each, so
@@ -134,7 +139,14 @@ pub(crate) fn probe_script(session: &str) -> String {
         printf '%s\n%s\n%s\n' '{PROBE_CANDIDATE}' "$status" "$server"
     fi
 done
+{CORE_CANDIDATES}
+    if [ -n "$path" ] && [ -x "$path" ]; then
+        printf '%s\n' '{PROBE_CORE}'
+        break
+    fi
+done
 printf '%s\n' '{PROBE_DONE}'"#,
+        CORE_CANDIDATES = crate::core_bridge::CANDIDATES,
         session = quote(session)
     )
 }
@@ -152,13 +164,16 @@ fn classify_probe_with(
 ) -> Option<HostProbe> {
     // Each block holds one candidate's client status, then its server status.
     let mut blocks: Vec<Vec<serde_json::Value>> = Vec::new();
+    let mut core = false;
     for line in lines(output) {
         if line == PROBE_DONE.as_bytes() {
             let Some(statuses) = blocks
                 .iter()
                 .find(|statuses| statuses.iter().any(|s| compatible(s).is_some()))
             else {
-                return Some(if blocks.is_empty() {
+                return Some(if core {
+                    HostProbe::Core
+                } else if blocks.is_empty() {
                     HostProbe::Missing
                 } else {
                     HostProbe::Outdated
@@ -173,7 +188,9 @@ fn classify_probe_with(
                 HostProbe::Stopped
             });
         }
-        if line == PROBE_CANDIDATE.as_bytes() {
+        if line == PROBE_CORE.as_bytes() {
+            core = true;
+        } else if line == PROBE_CANDIDATE.as_bytes() {
             blocks.push(Vec::new());
         } else if let (Some(block), Ok(status)) = (blocks.last_mut(), serde_json::from_slice(line))
         {

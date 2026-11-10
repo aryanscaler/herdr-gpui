@@ -12,8 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Scrollback lines each herdr-core terminal keeps in the app.
-const SCROLLBACK: usize = 10_000;
+/// Scrollback lines each herdr-core terminal keeps in the app until the
+/// window says what `herdr_2_scrollback` asks for.
+const SCROLLBACK: usize = crate::config::HERDR_2_SCROLLBACK;
 /// How long a started core has to listen.
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long a failed join waits before restored tabs try again, so a core
@@ -58,6 +59,8 @@ pub(crate) struct Hub {
     join: Join,
     /// How long a failed join waits before a join-only ask dials again.
     retry: Duration,
+    /// Scrollback lines each terminal attached from now on keeps.
+    scrollback: usize,
     state: State,
     /// A start asked for while a join-only attempt was in flight; it runs if
     /// that attempt fails, rather than being dropped.
@@ -81,6 +84,7 @@ impl Hub {
             failed: None,
             join: Arc::new(join),
             retry: JOIN_RETRY,
+            scrollback: SCROLLBACK,
             state: State::Idle,
             wants_start: false,
         }
@@ -104,6 +108,18 @@ impl Hub {
 
     pub(crate) fn state(&self) -> &State {
         &self.state
+    }
+
+    /// Sets the scrollback lines of terminals attached from now on, through
+    /// this connection and the next; those attached already keep theirs.
+    pub(crate) fn set_scrollback(&mut self, lines: usize) {
+        if self.scrollback == lines {
+            return;
+        }
+        self.scrollback = lines;
+        if let State::Ready(backend) = &mut self.state {
+            backend.set_scrollback(lines);
+        }
     }
 
     pub(crate) fn backend(&self) -> Option<&CoreBackend> {
@@ -151,6 +167,15 @@ impl Hub {
         };
     }
 
+    /// Whether the last attempt failed within the retry interval, so asking
+    /// again now would dial too soon.
+    pub(crate) fn cooling(&self) -> bool {
+        matches!(self.state, State::Unavailable(_))
+            && self
+                .failed
+                .is_some_and(|failed| failed.elapsed() < self.retry)
+    }
+
     /// Forgets the last attempt and its outcome, so the next ask dials anew,
     /// as for a core just installed. An attempt in flight is left to end
     /// unread.
@@ -166,7 +191,10 @@ impl Hub {
     pub(crate) fn poll(&mut self) -> bool {
         match &self.state {
             State::Connecting(outcome) => match outcome.try_recv() {
-                Ok(Ok(backend)) => self.state = State::Ready(backend),
+                Ok(Ok(mut backend)) => {
+                    backend.set_scrollback(self.scrollback);
+                    self.state = State::Ready(backend);
+                }
                 Ok(Err(_)) if std::mem::take(&mut self.wants_start) => {
                     self.state = State::Idle;
                     self.connect(Start::IfMissing);

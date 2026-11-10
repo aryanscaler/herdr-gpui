@@ -3,7 +3,7 @@
 //! changes, so an agents panel that merges several hosts by recency needs an
 //! order across them, as Herdr's terminal client keeps one.
 
-use sheprd_client::protocol::ClientShellSnapshot;
+use sheprd_client::protocol::{AgentStatus, ClientShellSnapshot};
 use std::{
     collections::HashMap,
     sync::atomic::{AtomicU64, Ordering},
@@ -52,5 +52,34 @@ impl AgentRecency {
     /// The pane's latest observed change, or 0 when none was.
     pub(crate) fn of(&self, pane_id: &str) -> u64 {
         self.0.get(pane_id).copied().unwrap_or_default()
+    }
+}
+
+/// When this client saw each herdr-core agent last change state, on the
+/// same clock as [`AgentRecency`], so the agents panel orders Herdr 2
+/// agents among Herdr 1 ones. The core counts no changes, so a change is a
+/// status that differs from the one last observed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct StatusRecency(HashMap<String, (AgentStatus, u64)>);
+
+impl StatusRecency {
+    /// Stamps the agents of `listed`, by terminal, whose status changed, and
+    /// forgets those no longer listed. An agent seen for the first time is
+    /// new.
+    pub(crate) fn observe<'a>(&mut self, listed: impl IntoIterator<Item = (&'a str, AgentStatus)>) {
+        let mut kept = HashMap::new();
+        for (terminal, status) in listed {
+            let stamp = match self.0.get(terminal) {
+                Some((before, stamp)) if *before == status => *stamp,
+                _ => CLOCK.fetch_add(1, Ordering::Relaxed) + 1,
+            };
+            kept.insert(terminal.to_owned(), (status, stamp));
+        }
+        self.0 = kept;
+    }
+
+    /// The terminal's latest observed change, or 0 when none was.
+    pub(crate) fn of(&self, terminal: &str) -> u64 {
+        self.0.get(terminal).map_or(0, |(_, stamp)| *stamp)
     }
 }

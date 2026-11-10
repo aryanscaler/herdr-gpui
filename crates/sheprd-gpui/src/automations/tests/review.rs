@@ -66,10 +66,12 @@ fn a_steps_output_keeps_its_end() {
 fn local_commands_leave_the_callers_pane_behind() {
     let host = Host::new(&sheprd_client::ConnectTarget::Local).unwrap();
     let command = fetch::local_command(&host, &["approve", "/x.luau", "--hash", "h"]);
-    let removed = command
-        .get_envs()
-        .any(|(key, value)| key == "HERDR_PANE_ID" && value.is_none());
-    assert!(removed, "HERDR_PANE_ID must be removed");
+    for name in ["HERDR_PANE_ID", "HC_TERMINAL_ID"] {
+        let removed = command
+            .get_envs()
+            .any(|(key, value)| key == name && value.is_none());
+        assert!(removed, "{name} must be removed");
+    }
     let args: Vec<_> = command.get_args().collect();
     assert_eq!(args, ["approve", "/x.luau", "--hash", "h"]);
 }

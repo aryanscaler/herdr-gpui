@@ -116,6 +116,11 @@ impl Localize for install::Failure {
     fn localize(&self) -> String {
         use install::Retry;
         match self {
+            // What the core's installer printed, in its own words.
+            Self::Core(Some(output)) => {
+                fl!("error-remote-cloud-install-core", detail = output.as_str())
+            }
+            Self::Core(None) => fl!("error-remote-cloud-install-core-unknown"),
             Self::Missing => fl!("error-remote-cloud-install-missing"),
             Self::NoCurl => fl!("error-remote-cloud-install-no-curl"),
             Self::NoOutput => fl!("error-remote-cloud-install-no-output"),

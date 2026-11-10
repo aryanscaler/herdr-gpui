@@ -1,14 +1,17 @@
 //! `GET /api/v2/workspaces/{workspace}/changes` and its neighbours: a
 //! workspace's changed files, one file's diff, and its pull request's checks.
-//! All read-only, and all worked out by Sheprd (`control::changes`); this
-//! only puts the phone's question to it and hands back the answer.
+//! All read-only. Sheprd works them out while it is open and lists the
+//! workspace (`control::changes`); otherwise this daemon asks Git itself
+//! ([`local`]), so a Herdr 2 workspace, or one on a host, still answers.
 
 mod error;
+mod local;
 mod mailbox;
 
 pub(crate) use error::Error;
 pub(crate) use mailbox::Mailbox;
 
+use crate::hub::Keeper;
 use crate::{
     control::{
         changes::{Answer, CheckLog, Checks, Failure, FileDiff, FileList, MAX_PATH, Scope, Wanted},
@@ -40,23 +43,49 @@ pub(crate) struct DiffQuery {
     path: String,
 }
 
-/// Puts `wanted` to Sheprd and waits for its answer. A workspace this
-/// daemon does not list is refused here, so Sheprd is only asked about ones
-/// the phone could see.
+/// Answers `wanted` about `workspace`: Sheprd's answer while it is open
+/// and lists the workspace, else Git's. A workspace this daemon does not
+/// list is refused here, so only ones the phone could see are read.
 async fn ask(state: &Shared, workspace: String, wanted: Wanted) -> Result<Answer, ApiError> {
-    let boot = {
+    let (boot, cwd) = {
         let layout = state.hub.layout();
-        layout.workspace(&workspace).ok_or(ApiError::NotFound)?;
-        layout.boot.clone()
+        let listed = layout.workspace(&workspace).ok_or(ApiError::NotFound)?;
+        (layout.boot.clone(), listed.cwd.clone())
     };
-    let mut pending = state
-        .changes
-        .ask(boot, workspace, wanted, Instant::now())
-        .map_err(ApiError::from)?;
+    if state.changes.open() {
+        match ask_sheprd(state, boot, workspace, wanted.clone()).await {
+            // Closed meanwhile, or a workspace it does not keep.
+            Err(Error::NoDesktop | Error::Failed(Failure::Gone)) => {}
+            // It quit while the question waited.
+            Err(Error::TimedOut) if !state.changes.open() => {}
+            answered => return answered.map_err(ApiError::from),
+        }
+    }
+    if cwd.is_empty() {
+        return Err(Error::Failed(Failure::NoRepository).into());
+    }
+    let answer =
+        tokio::task::spawn_blocking(move || local::answer(std::path::Path::new(&cwd), &wanted))
+            .await
+            .map_err(|_| Error::Failed(Failure::Unreadable))?;
+    match answer {
+        Answer::Failed(failure) => Err(Error::Failed(failure).into()),
+        answer => Ok(answer),
+    }
+}
+
+/// Puts `wanted` to Sheprd and waits for its answer.
+async fn ask_sheprd(
+    state: &Shared,
+    boot: String,
+    workspace: String,
+    wanted: Wanted,
+) -> Result<Answer, Error> {
+    let mut pending = state.changes.ask(boot, workspace, wanted, Instant::now())?;
     match tokio::time::timeout(ANSWER_WAIT, pending.answer()).await {
-        Ok(Some(Answer::Failed(failure))) => Err(Error::Failed(failure).into()),
+        Ok(Some(Answer::Failed(failure))) => Err(Error::Failed(failure)),
         Ok(Some(answer)) => Ok(answer),
-        Ok(None) | Err(_) => Err(Error::TimedOut.into()),
+        Ok(None) | Err(_) => Err(Error::TimedOut),
     }
 }
 
@@ -84,6 +113,21 @@ pub(crate) async fn change_layout(
         Ok(Some(layout::Answer::Split(_))) => Err(mismatch()),
         Ok(Some(layout::Answer::Failed(failure))) => Err(Error::Layout(failure).into()),
         Ok(None) | Err(_) => Err(Error::TimedOut.into()),
+    }
+}
+
+/// Makes `op` where `keeper` says: Sheprd's saved tab is Sheprd's to
+/// change while it is open, and this daemon's otherwise.
+pub(crate) async fn arrange(
+    state: &Shared,
+    keeper: Keeper,
+    op: layout::Op,
+) -> Result<Option<String>, ApiError> {
+    match keeper {
+        Keeper::Saved { tab, terminal } if state.changes.open() => {
+            change_layout(state, tab, terminal, op).await
+        }
+        keeper => Ok(state.hub.arrange(keeper, op).await?),
     }
 }
 

@@ -230,7 +230,10 @@ struct MachineStatus: View {
         case .online:
             HStack(spacing: 6) {
                 if let waiting = machine.home?.waiting, waiting > 0 {
-                    Text("\(waiting) need you").font(.caption.weight(.semibold)).foregroundStyle(.white)
+                    Text(waiting == 1 ? "1 needs you" : "\(waiting) need you").font(.caption.weight(.semibold)).foregroundStyle(.white)
+                        // Squeezed by a long name and "via ...", the pill broke
+                        // "need you" across two lines; the name truncates instead.
+                        .fixedSize()
                         .padding(.horizontal, 8).padding(.vertical, 2).background(Home.AgentStatus.blocked.color, in: .capsule)
                 }
                 Circle().fill(.green).frame(width: 8, height: 8).accessibilityLabel("Connected")

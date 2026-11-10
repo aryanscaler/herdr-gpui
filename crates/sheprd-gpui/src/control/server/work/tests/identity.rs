@@ -12,10 +12,10 @@ fn callers_resolve_to_their_checkout_by_repository_and_branch(cx: &mut gpui::Tes
             connected(view);
             let found = find(view, &caller(Some("w4"))).ok().unwrap();
             assert_eq!(found.index, 0);
-            assert_eq!(found.workspace.workspace_id, "w4");
-            assert_eq!(repository(found.workspace), "agent-launcher");
+            assert_eq!(found.workspace.id, "w4");
+            assert_eq!(repository(&found.workspace), "agent-launcher");
             assert_eq!(
-                notes::checkout_of(&view.endpoints[found.index].id, found.workspace),
+                notes::checkout_of(&view.endpoints[found.index].id, &found.workspace),
                 Some(Checkout {
                     endpoint: crate::endpoint::LOCAL.into(),
                     repo_key: REPO_KEY.into(),
@@ -24,7 +24,7 @@ fn callers_resolve_to_their_checkout_by_repository_and_branch(cx: &mut gpui::Tes
             );
             // Outside Git there is no checkout to keep a note on.
             let outside = find(view, &caller(Some("w0"))).ok().unwrap();
-            assert_eq!(notes::checkout_of("local", outside.workspace), None);
+            assert_eq!(notes::checkout_of("local", &outside.workspace), None);
             assert_eq!(
                 find(view, &caller(Some("w9")))
                     .err()
@@ -36,7 +36,7 @@ fn callers_resolve_to_their_checkout_by_repository_and_branch(cx: &mut gpui::Tes
             std::sync::Arc::make_mut(view.live.snapshot.as_mut().unwrap()).focused_workspace_id =
                 Some("w3".into());
             let focused = find(view, &caller(None)).ok().unwrap();
-            assert_eq!(focused.workspace.workspace_id, "w3");
+            assert_eq!(focused.workspace.id, "w3");
             assert_eq!(
                 selected_workspace(view, &caller(None)).ok().as_deref(),
                 Some("w3")

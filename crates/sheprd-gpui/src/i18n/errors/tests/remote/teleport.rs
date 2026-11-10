@@ -52,6 +52,7 @@ fn every_variant_has_a_message() {
         Error::RepositoryNotOpen { host: host() },
         Error::SourceMoved,
         Error::OutsideCheckout { path: path() },
+        Error::CoreMissing { host: host() },
         Error::DestinationDirectoryMissing { path: path() },
         Error::OutsideHome { path: path() },
         Error::SessionAgentWorking,
@@ -65,6 +66,10 @@ fn every_variant_has_a_message() {
             host: host(),
         },
         Error::SessionRequired,
+        Error::TabTooLarge {
+            panes: 17,
+            most: 16,
+        },
         Error::SessionWorkspaceLeftBehind {
             workspace_id: "w-12".into(),
             cause: Box::new(Error::PaneGone),
@@ -93,5 +98,6 @@ fn every_variant_has_a_message() {
         Error::LocalFile(io()),
         Error::InvalidToken,
         Error::Cancelled,
+        Error::Work(sheprd_remote::work::Error::Dirty),
     ]);
 }

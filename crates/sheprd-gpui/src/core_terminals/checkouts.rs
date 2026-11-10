@@ -92,5 +92,13 @@ impl Checkouts {
 }
 
 #[cfg(test)]
+impl super::CoreTerminals {
+    /// Answers for `cwd` as Git would, for tests outside this module.
+    pub(crate) fn seed_checkout(&mut self, cwd: &str, identity: Option<Identity>) {
+        self.checkouts.seed(cwd, identity);
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests;

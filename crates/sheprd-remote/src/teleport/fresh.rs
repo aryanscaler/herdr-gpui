@@ -7,7 +7,7 @@ use super::{
     error::{Error, Result, Step},
     git,
     host::Host,
-    job::{self, HostRepositories, Place, Repository, Source},
+    job::{self, HostRepositories, Keeping, Place, Repository, Source},
     snapshot::WorktreeCreated,
 };
 use std::{collections::HashMap, io::Seek, sync::atomic::AtomicBool};
@@ -28,6 +28,7 @@ impl Origin {
         Source {
             place: self.place.clone(),
             workspace_id: self.workspace_id.clone(),
+            keeping: Keeping::Herdr1,
             custom_label: None,
             repo_key: self.repo_key.clone(),
             repo_label: self.repo_label.clone(),

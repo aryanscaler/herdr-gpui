@@ -5,6 +5,7 @@ mod agent_times;
 mod api_socket;
 mod chat_link;
 mod convert_offer;
+mod herdr_2_choice;
 mod herdr_installed;
 mod new_chat;
 mod program_dirs;

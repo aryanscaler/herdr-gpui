@@ -9477,6 +9477,7 @@ dependencies = [
  "sheprd-backend",
  "sheprd-client",
  "sheprd-control-protocol",
+ "sheprd-core-client",
  "sheprd-credentials",
  "sheprd-session",
  "tar",

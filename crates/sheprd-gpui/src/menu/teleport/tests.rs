@@ -5,6 +5,7 @@ use crate::teleport::Repository;
 #[cfg(feature = "cloud")]
 mod cloud;
 mod core_tabs;
+mod kept;
 
 #[test]
 fn repositories_prefer_their_main_checkout_workspace() {
@@ -28,7 +29,7 @@ fn repositories_prefer_their_main_checkout_workspace() {
 fn teleport_items(view: &SheprdWindow) -> usize {
     view.workspace_items()
         .iter()
-        .filter(|(action, _)| *action == super::super::WorkspaceMenuAction::Teleport)
+        .filter(|(action, _)| *action == WorkspaceMenuAction::Teleport)
         .count()
 }
 
@@ -82,7 +83,7 @@ fn teleport_is_offered_for_linked_worktrees_on_scriptable_hosts(cx: &mut gpui::T
 
 #[gpui::test]
 fn hosts_are_listed_at_once_with_none_chosen_for_the_user(cx: &mut gpui::TestAppContext) {
-    use super::super::WorkspaceMenuAction;
+    use WorkspaceMenuAction;
     let (view, cx) = cx.add_window_view(crate::sidebar::layout_tests::fixture_window);
     cx.update(|window, cx| {
         view.update(cx, |view, cx| {
@@ -135,7 +136,7 @@ fn hosts_are_listed_at_once_with_none_chosen_for_the_user(cx: &mut gpui::TestApp
 
 #[gpui::test]
 fn a_progress_bar_shows_the_review_and_fills_with_the_move(cx: &mut gpui::TestAppContext) {
-    use super::super::WorkspaceMenuAction;
+    use WorkspaceMenuAction;
     let (view, cx) = cx.add_window_view(crate::sidebar::layout_tests::fixture_window);
     cx.update(|window, cx| {
         view.update(cx, |view, cx| {
@@ -188,7 +189,7 @@ fn a_progress_bar_shows_the_review_and_fills_with_the_move(cx: &mut gpui::TestAp
     });
 }
 
-fn actions(view: &SheprdWindow) -> Vec<super::super::WorkspaceMenuAction> {
+fn actions(view: &SheprdWindow) -> Vec<WorkspaceMenuAction> {
     view.workspace_items()
         .into_iter()
         .map(|(action, _)| action)
@@ -197,7 +198,7 @@ fn actions(view: &SheprdWindow) -> Vec<super::super::WorkspaceMenuAction> {
 
 #[gpui::test]
 fn a_teleported_worktree_offers_its_copy_and_can_be_cleared(cx: &mut gpui::TestAppContext) {
-    use super::super::WorkspaceMenuAction;
+    use WorkspaceMenuAction;
     let (view, cx) = cx.add_window_view(crate::sidebar::layout_tests::fixture_window);
     cx.update(|window, cx| {
         view.update(cx, |view, cx| {
@@ -271,7 +272,7 @@ fn a_teleported_worktree_offers_its_copy_and_can_be_cleared(cx: &mut gpui::TestA
 
 #[gpui::test]
 fn a_teleported_copy_offers_to_go_back_where_it_came_from(cx: &mut gpui::TestAppContext) {
-    use super::super::WorkspaceMenuAction;
+    use WorkspaceMenuAction;
     let (view, cx) = cx.add_window_view(crate::sidebar::layout_tests::fixture_window);
     cx.update(|window, cx| {
         view.update(cx, |view, cx| {

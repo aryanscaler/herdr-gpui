@@ -18,6 +18,9 @@ use sheprd_client::shell_quote;
 use sheprd_session::panes::{Axis, Node as PaneNode, Panes, Share};
 use std::{collections::HashMap, sync::atomic::AtomicBool, time::Duration};
 
+mod sessions;
+pub(super) use sessions::{confirm, sessions, work};
+
 /// How long past a handoff's own timeout its script may stay quiet.
 const PROMPT_GRACE: Duration = Duration::from_secs(30);
 
@@ -77,8 +80,8 @@ impl Terminal {
     }
 
     /// What the terminal runs, as a Herdr 1 pane's process info would say.
-    /// herdr-core reports no agent session, so an agent is started afresh
-    /// with a handoff note rather than resumed.
+    /// herdr-core reports no agent session, so an agent is one to start
+    /// afresh with a handoff note, unless [`work`] finds its session.
     pub(super) fn work(&self) -> Work {
         let Some(foreground) = self.foreground.as_ref().filter(|f| !f.argv.is_empty()) else {
             return Work::Shell;

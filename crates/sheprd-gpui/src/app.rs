@@ -425,11 +425,18 @@ pub(crate) fn run() -> std::process::ExitCode {
         crate::overview::Marks::default()
     };
     // Nor with which workspaces and tabs the user muted.
-    let notification_mutes = if mode == LaunchMode::Normal {
+    let mut notification_mutes = if mode == LaunchMode::Normal {
         crate::notification_mutes::Mutes::load()
     } else {
         crate::notification_mutes::Mutes::default()
     };
+    // A closed Herdr 2 tab's ID can come back on a new tab after a restart:
+    // its mute goes first.
+    notification_mutes.forget_closed_tabs(|scope, id| {
+        browser_tabs
+            .tabs()
+            .any(|tab| tab.scope.as_str() == scope && tab.id.to_string() == id)
+    });
     // Nor with the user's jump list, which they would replace.
     #[cfg(windows)]
     let jump_list = (mode == LaunchMode::Normal).then(crate::jump_list::JumpList::load);

@@ -168,7 +168,10 @@ including one a `git pull` brings in, waits for approval again. A person
 approves either at a terminal, typing the script's name after reading its
 plan, or in Sheprd's dialog. `approve` refuses when its input is not a
 terminal or when the pane it runs in runs an agent, and `--hash` (Sheprd's
-path) is refused inside any Herdr pane. This guards against mistakes, not a
+path) is refused inside any Herdr pane. A Herdr 2 terminal (`HC_TERMINAL_ID`
+set) counts as a pane: `--hash` is refused there too, and approving there
+needs its core to report no agent in it, so an agent, or a core that cannot
+say, refuses the approval. Both panes are checked when both are set. This guards against mistakes, not a
 hostile agent: an agent with a shell could run commands directly.
 
 | Command | Does |

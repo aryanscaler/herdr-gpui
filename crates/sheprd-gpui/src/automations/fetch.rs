@@ -92,12 +92,15 @@ pub(crate) fn installed_command(host: &Host, args: &[&str]) -> std::process::Com
     command_for(host, PROGRAM, args)
 }
 
-/// The app may have been started from a Herdr pane, and `approve` refuses to
-/// run inside one (an agent there must not approve its own script), so the
-/// pane's ID is not passed on.
+/// The app may have been started from a Herdr pane or a Herdr 2 terminal,
+/// and `approve` refuses to run inside either (an agent there must not
+/// approve its own script), so neither's ID is passed on.
 fn command_for(host: &Host, program: &str, args: &[&str]) -> std::process::Command {
     let mut command = host.local_command(program);
-    command.args(args).env_remove("HERDR_PANE_ID");
+    command
+        .args(args)
+        .env_remove("HERDR_PANE_ID")
+        .env_remove("HC_TERMINAL_ID");
     command
 }
 

@@ -167,6 +167,7 @@ fn fixture(checkout: impl FnOnce(&Fixture) -> PathBuf) -> Fixture {
                 workspace_id: "w5".into(),
             }]),
             retired: Vec::new(),
+            lands_in: sheprd_session::Keeper::Herdr1,
         },
         main,
         linked,

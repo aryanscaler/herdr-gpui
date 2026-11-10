@@ -27,14 +27,13 @@ core-terminals-state-working = working
 core-terminals-mirror-needs-pane = Click a Herdr 2 pane to mirror first
 # The pane menu's row that opens a watch-only view of the pane in a new tab.
 core-terminals-menu-mirror = Mirror in New Tab
-# A pane or tab command a Herdr 2 pane cannot run.
-core-terminals-unsupported = Herdr 2 panes cannot do this yet
-# Move Pane on a Herdr 2 pane that is its tab's only one, with no other tab.
-core-terminals-nowhere-to-move = No other tab to move this pane to
+# Rename Pane or Move Pane on a watch-only mirror of a Herdr 2 pane.
+core-terminals-mirror-only-watches = A mirror only watches: rename or move the pane where it types
+# Move Pane on a Herdr 2 pane, or Move to Workspace on a tab, with no other
+# tab or workspace to go to.
+core-terminals-nowhere-to-move = No other tab or workspace to move this to
 # Shown on a watch-only view of a terminal another view types into.
 core-terminals-watching = Watching
-# The sidebar's list of herdr-core panes, under the agents.
-core-terminals-sidebar = Herdr 2
 core-terminals-edit-failed = Could not open the history in an editor
 # Editing scrollback saves it on this computer, so it is refused for a pane
 # running on another machine's Herdr 2.

@@ -246,10 +246,18 @@ fn with_store(command: &Command, paths: &Paths) -> Result<Answer> {
         Command::Approve { file, hash, .. } => {
             let herdr = Herdr::new(settings.herdr.clone(), settings.herdr_session.clone());
             let mode = hash.as_deref().map_or(Mode::Terminal, Mode::Hash);
-            let pane = std::env::var("HERDR_PANE_ID")
-                .ok()
-                .filter(|pane| !pane.is_empty());
-            let approved = approve::approve(paths, &store, &herdr, file, mode, pane.as_deref())?;
+            let herdr_pane = std::env::var("HERDR_PANE_ID").ok();
+            let core_terminal = std::env::var("HC_TERMINAL_ID").ok();
+            let panes = approve::Panes::of(herdr_pane.as_deref(), core_terminal.as_deref());
+            let approved = approve::approve(
+                paths,
+                &store,
+                &herdr,
+                file,
+                mode,
+                panes,
+                crate::herdr_core::terminal_agent,
+            )?;
             let short = approved.hash.get(..12).unwrap_or(&approved.hash);
             Answer::done(
                 format!("approved {} (sha256 {short}) on this host", approved.name),

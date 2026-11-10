@@ -3,38 +3,60 @@
 //! last row it drew of each, with the folder it ran in, to list under Closed
 //! and to start again (`reopen`). The window keeps them while it is open. A
 //! daemon restart is not a close: a new boot id starts the host afresh.
+//! Herdr 2 agents are noted the same way under [`super::core::ENDPOINT`],
+//! from the window's herdr-core tabs, with the workspace their tab was in.
 
 use super::model::{Key, Open, Row};
 use sheprd_client::protocol::ClientShellSnapshot;
-use std::{collections::HashMap, time::SystemTime};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant, SystemTime},
+};
 
 /// Closed agents kept; the oldest go first beyond this.
 const MAX_CLOSED: usize = 32;
+
+/// How long a Herdr 2 agent being started again holds off another Reopen:
+/// long enough for the core to connect and the agent to show up.
+const REOPEN_WAIT: Duration = Duration::from_secs(30);
 
 /// An agent that closed, as it last showed.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Agent {
     /// The daemon boot that owns the saved workspace and pane IDs.
     pub boot: String,
+    /// The host it was seen on, by endpoint id, or [`super::core::ENDPOINT`].
+    pub host: String,
     /// Tells apart agents that share a key, such as two of one kind in one
     /// checkout, for Reopen and Forget.
     pub id: u64,
     pub row: Row,
     /// The folder its pane last ran in, for the tab that reopens it.
     pub cwd: Option<String>,
+    /// The workspace a Herdr 2 agent's tab was in, which the tab that
+    /// reopens it opens in. A Herdr 1 row names its own.
+    pub workspace: Option<String>,
     pub closed: SystemTime,
+}
+
+/// An agent as a report listed it, with where it ran.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Listed {
+    pub row: Row,
+    pub cwd: Option<String>,
+    pub workspace: Option<String>,
 }
 
 /// One host's agents as its last report listed them.
 #[derive(Debug)]
 struct Seen {
     boot: String,
-    agents: Vec<(Row, Option<String>)>,
+    agents: Vec<Listed>,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct Closed {
-    /// By endpoint id.
+    /// By endpoint id, and herdr-core's under its own.
     seen: HashMap<String, Seen>,
     /// Oldest first.
     agents: Vec<Agent>,
@@ -45,13 +67,19 @@ pub(crate) struct Closed {
     /// Reopened agents not yet listed again, by endpoint and key: when one
     /// turns up, it is the agent reopened, not a closed twin coming back.
     reopened: Vec<(String, Key)>,
+    /// Closed agents being started again whose start may still fail, by
+    /// endpoint, key, and id, with when the start was asked for: each stays
+    /// listed, for another try, until an agent of its key turns up and
+    /// takes it off.
+    reopening: Vec<(String, Key, u64, Instant)>,
 }
 
-/// The pane an agent row stands in.
+/// The pane, or herdr-core terminal, an agent row stands in.
 fn pane(row: &Row) -> Option<&str> {
     match &row.open {
         Open::Pane { pane, .. } => Some(pane),
-        Open::Run(_) | Open::Core { .. } => None,
+        Open::Core { terminal, .. } => Some(terminal.as_str()),
+        Open::Run(_) => None,
     }
 }
 
@@ -81,24 +109,54 @@ impl Closed {
         rows: impl IntoIterator<Item = &'a Row>,
         now: SystemTime,
     ) {
-        let current: Vec<(Row, Option<String>)> = rows
+        let current = rows
             .into_iter()
-            .filter(|row| row.endpoint == endpoint && pane(row).is_some())
-            .map(|row| (row.clone(), cwd(snapshot, row)))
+            .filter(|row| row.endpoint == endpoint && matches!(row.open, Open::Pane { .. }))
+            .map(|row| Listed {
+                row: row.clone(),
+                cwd: cwd(snapshot, row),
+                workspace: None,
+            })
             .collect();
+        self.note(endpoint, &snapshot.boot_id, current, now, |_| false);
+    }
+
+    /// Notes the herdr-core agents the window's tabs hold now, `listed`.
+    /// The core has no boot: it never reuses a terminal's address while the
+    /// terminal is listed. An agent gone from the window's tabs while
+    /// `elsewhere` says it still runs, such as in a tab moved to another
+    /// window, did not close.
+    pub(crate) fn observe_core(
+        &mut self,
+        listed: Vec<Listed>,
+        now: SystemTime,
+        elsewhere: impl Fn(&Row) -> bool,
+    ) {
+        self.note(super::core::ENDPOINT, "", listed, now, elsewhere);
+    }
+
+    fn note(
+        &mut self,
+        endpoint: &str,
+        boot: &str,
+        current: Vec<Listed>,
+        now: SystemTime,
+        elsewhere: impl Fn(&Row) -> bool,
+    ) {
         let seen = Seen {
-            boot: snapshot.boot_id.clone(),
+            boot: boot.to_owned(),
             agents: current,
         };
         let previous = self.seen.insert(endpoint.to_owned(), seen);
         if previous
             .as_ref()
-            .is_some_and(|previous| previous.boot != snapshot.boot_id)
+            .is_some_and(|previous| previous.boot != boot)
         {
             self.reopened.retain(|(host, _)| host != endpoint);
+            self.reopening.retain(|(host, _, _, _)| host != endpoint);
         }
         let previous = previous
-            .filter(|previous| previous.boot == snapshot.boot_id)
+            .filter(|previous| previous.boot == boot)
             .map(|previous| previous.agents)
             .unwrap_or_default();
         let Some(current) = self.seen.get(endpoint).map(|seen| &seen.agents) else {
@@ -109,32 +167,37 @@ impl Closed {
         // of a key new on this report brings back one closed agent of it,
         // the latest closed.
         let mut counted: Vec<&Key> = Vec::new();
-        for (row, _) in current {
-            if counted.contains(&&row.key) {
+        for listed in current {
+            let key = &listed.row.key;
+            if counted.contains(&key) {
                 continue;
             }
-            counted.push(&row.key);
-            let count = |agents: &[(Row, Option<String>)]| {
-                agents
-                    .iter()
-                    .filter(|(shown, _)| shown.key == row.key)
-                    .count()
-            };
+            counted.push(key);
+            let count =
+                |agents: &[Listed]| agents.iter().filter(|shown| shown.row.key == *key).count();
             let mut back = count(current).saturating_sub(count(&previous));
+            while back > 0
+                && let Some(index) = self
+                    .reopening
+                    .iter()
+                    .position(|(host, reopening, _, _)| host == endpoint && reopening == key)
+            {
+                let (_, _, id, _) = self.reopening.remove(index);
+                self.agents.retain(|agent| agent.id != id);
+                back -= 1;
+            }
             while back > 0
                 && let Some(index) = self
                     .reopened
                     .iter()
-                    .position(|(host, key)| host == endpoint && *key == row.key)
+                    .position(|(host, reopened)| host == endpoint && reopened == key)
             {
                 self.reopened.remove(index);
                 back -= 1;
             }
             while back > 0
                 && let Some(index) = self.agents.iter().rposition(|agent| {
-                    agent.boot == snapshot.boot_id
-                        && agent.row.endpoint == endpoint
-                        && agent.row.key == row.key
+                    agent.boot == boot && agent.host == endpoint && agent.row.key == *key
                 })
             {
                 self.agents.remove(index);
@@ -144,10 +207,16 @@ impl Closed {
         let mut changed = self.agents.len() != before;
         // Another agent started in the pane, between two reports, still
         // closed the one before it.
-        for (row, cwd) in previous {
+        for Listed {
+            row,
+            cwd,
+            workspace,
+        } in previous
+        {
             if current
                 .iter()
-                .any(|(shown, _)| pane(shown) == pane(&row) && shown.identity == row.identity)
+                .any(|shown| pane(&shown.row) == pane(&row) && shown.row.identity == row.identity)
+                || elsewhere(&row)
             {
                 continue;
             }
@@ -155,10 +224,12 @@ impl Closed {
                 self.agents.remove(0);
             }
             self.agents.push(Agent {
-                boot: snapshot.boot_id.clone(),
+                boot: boot.to_owned(),
+                host: endpoint.to_owned(),
                 id: self.next,
                 row,
                 cwd,
+                workspace,
                 closed: now,
             });
             self.next += 1;
@@ -173,8 +244,9 @@ impl Closed {
     pub(crate) fn retain_hosts(&mut self, mut kept: impl FnMut(&str) -> bool) {
         self.seen.retain(|endpoint, _| kept(endpoint));
         self.reopened.retain(|(endpoint, _)| kept(endpoint));
+        self.reopening.retain(|(endpoint, _, _, _)| kept(endpoint));
         let before = self.agents.len();
-        self.agents.retain(|agent| kept(&agent.row.endpoint));
+        self.agents.retain(|agent| kept(&agent.host));
         if self.agents.len() != before {
             self.revision += 1;
         }
@@ -198,6 +270,7 @@ impl Closed {
     }
 
     pub(crate) fn forget(&mut self, id: u64) {
+        self.reopening.retain(|(_, _, pending, _)| *pending != id);
         let before = self.agents.len();
         self.agents.retain(|agent| agent.id != id);
         if self.agents.len() != before {
@@ -210,7 +283,7 @@ impl Closed {
     pub(crate) fn reopened(&mut self, id: u64) {
         let Some(reopened) = self
             .get(id)
-            .map(|agent| (agent.row.endpoint.clone(), agent.row.key.clone()))
+            .map(|agent| (agent.host.clone(), agent.row.key.clone()))
         else {
             return;
         };
@@ -219,6 +292,31 @@ impl Closed {
         }
         self.reopened.push(reopened);
         self.forget(id);
+    }
+
+    /// Notes that the closed agent `id` is being started again, by a start
+    /// that may yet fail: it stays listed until it turns up again, then is
+    /// the one taken off, not a closed twin.
+    pub(crate) fn reopening(&mut self, id: u64, now: Instant) {
+        let Some(agent) = self.get(id) else {
+            return;
+        };
+        let reopening = (agent.host.clone(), agent.row.key.clone(), id, now);
+        self.reopening.retain(|(_, _, pending, _)| *pending != id);
+        if self.reopening.len() >= MAX_CLOSED {
+            self.reopening.remove(0);
+        }
+        self.reopening.push(reopening);
+    }
+
+    /// Whether the closed agent `id` was asked to start again less than
+    /// [`REOPEN_WAIT`] before `now` and has not turned up yet: another
+    /// Reopen would start a second agent. After that, a start that failed
+    /// may be tried again.
+    pub(crate) fn is_reopening(&self, id: u64, now: Instant) -> bool {
+        self.reopening.iter().any(|(_, _, pending, at)| {
+            *pending == id && now.saturating_duration_since(*at) < REOPEN_WAIT
+        })
     }
 
     pub(crate) fn revision(&self) -> u64 {

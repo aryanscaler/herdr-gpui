@@ -4,23 +4,35 @@ use super::commands::{flash, id, run, window_with_split};
 use crate::{
     browser::Store,
     controls::Command,
-    core_terminals::menu::{Action, Target, clean_name},
+    core_terminals::{
+        menu::{Action, Target, clean_name},
+        mutes::MuteRow,
+    },
     menu::Page,
 };
 use gpui::{TestAppContext, point, px};
 
 #[gpui::test]
-fn a_tab_menu_offers_a_new_tab_renaming_and_closing(cx: &mut TestAppContext) {
+fn a_tab_menu_offers_what_a_herdr_1_tabs_does(cx: &mut TestAppContext) {
     let (view, cx, tab) = window_with_split(cx, &["t1"]);
     let actions = cx.update(|window, cx| {
         view.update(cx, |view, cx| {
             view.open_core_menu(Target::Tab(tab), point(px(10.), px(10.)), window, cx);
             assert_eq!(view.menu.page, Some(Page::CoreMenu));
             assert_eq!(view.menu.core.as_ref().unwrap().target(), &Target::Tab(tab));
-            view.core_menu_actions(&Target::Tab(tab))
+            view.core_menu_actions(&Target::Tab(tab), cx)
         })
     });
-    assert_eq!(actions, [Action::NewTab, Action::Rename, Action::Close]);
+    assert_eq!(
+        actions,
+        [
+            Action::NewTab,
+            Action::Rename,
+            Action::MoveToWorkspace,
+            Action::Mute(MuteRow::Mute),
+            Action::Close
+        ]
+    );
 }
 
 #[gpui::test]
@@ -30,7 +42,7 @@ fn a_pane_menu_offers_what_its_pane_can_do(cx: &mut TestAppContext) {
         tab,
         terminal: id("t2"),
     };
-    let actions = cx.update(|_, cx| view.read(cx).core_menu_actions(&pane));
+    let actions = cx.update(|_, cx| view.read(cx).core_menu_actions(&pane, cx));
     assert_eq!(
         actions,
         [
@@ -39,6 +51,7 @@ fn a_pane_menu_offers_what_its_pane_can_do(cx: &mut TestAppContext) {
             Action::SplitDown,
             Action::Zoom,
             Action::MoveTo,
+            Action::Processes,
             Action::Mirror,
             Action::Close,
         ]
@@ -46,7 +59,7 @@ fn a_pane_menu_offers_what_its_pane_can_do(cx: &mut TestAppContext) {
     // Zoomed, the row unzooms.
     run(&view, cx, Command::FocusRight);
     run(&view, cx, Command::Zoom);
-    let actions = cx.update(|_, cx| view.read(cx).core_menu_actions(&pane));
+    let actions = cx.update(|_, cx| view.read(cx).core_menu_actions(&pane, cx));
     assert!(actions.contains(&Action::Unzoom) && !actions.contains(&Action::Zoom));
 }
 
@@ -62,12 +75,12 @@ fn a_mirror_pane_only_closes(cx: &mut TestAppContext) {
         tab,
         terminal: id("t1"),
     };
-    let actions = cx.update(|_, cx| view.read(cx).core_menu_actions(&pane));
-    assert_eq!(actions, [Action::Close]);
+    let actions = cx.update(|_, cx| view.read(cx).core_menu_actions(&pane, cx));
+    assert_eq!(actions, [Action::Processes, Action::Close]);
     run(&view, cx, Command::RenamePane);
     assert_eq!(
         flash(&view, cx),
-        Some(crate::i18n::fl!("core-terminals-unsupported"))
+        Some(crate::i18n::fl!("core-terminals-mirror-only-watches"))
     );
 }
 

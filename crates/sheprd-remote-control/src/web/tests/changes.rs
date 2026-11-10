@@ -136,19 +136,45 @@ async fn a_workspace_this_daemon_does_not_list_never_reaches_sheprd() {
 }
 
 #[tokio::test]
-async fn a_phone_is_told_at_once_when_sheprd_is_closed() {
+async fn with_sheprd_closed_the_daemon_asks_git_at_once() {
     let dir = tempfile::tempdir().unwrap();
     let state = with_workspace(dir.path());
     let (_, token) = signed_in(&state, 3);
+    // `/code/app` is no checkout here.
     let (status, _, body) = send(&state, authed(&token, "/api/v2/workspaces/w1/changes")).await;
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    assert!(body.contains("not open"));
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(body.contains(&Failure::NoRepository.to_string()), "{body}");
+    assert!(state.changes.take(Duration::ZERO).0.is_empty());
+}
+
+#[tokio::test]
+async fn a_workspace_sheprd_does_not_keep_is_answered_from_git() {
+    let dir = tempfile::tempdir().unwrap();
+    let checkout = dir.path().join("checkout");
+    std::fs::create_dir(&checkout).unwrap();
+    let status = sheprd_client::new_command("git")
+        .args(["init", "--quiet"])
+        .current_dir(&checkout)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    std::fs::write(checkout.join("new.txt"), "hello\n").unwrap();
+    let mut layout = (*with_workspace(dir.path()).hub.layout()).clone();
+    layout.workspaces[0].cwd = checkout.to_string_lossy().into_owned();
+    let state = state_with(dir.path(), Hub::offline(layout));
+    let (_, token) = signed_in(&state, 3);
+    open(&state);
+    desktop(&state, |_| Answer::Failed(Failure::Gone));
+    let (status, _, body) = send(&state, authed(&token, "/api/v2/workspaces/w1/changes")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let list: FileList = serde_json::from_str(&body).unwrap();
+    assert_eq!(list.files[0].path, "new.txt");
 }
 
 #[tokio::test]
 async fn a_failure_keeps_its_meaning_for_the_phone() {
+    // Sheprd's `Gone` sends the question to Git instead.
     for (failure, expected) in [
-        (Failure::Gone, StatusCode::NOT_FOUND),
         (Failure::NoFile, StatusCode::NOT_FOUND),
         (Failure::NoBase, StatusCode::CONFLICT),
         (Failure::NoLog, StatusCode::CONFLICT),

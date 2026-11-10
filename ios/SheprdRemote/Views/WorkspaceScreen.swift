@@ -170,7 +170,6 @@ struct WorkspaceScreen: View {
                 } action: {
                     openTerminal(in: workspace)
                 }
-                .disabled(workspace.anyPane == nil)
                 if let recent {
                     bigButton(recent.name, id: recent.id) { AgentIcon(agent: recent.id, size: 40) } action: {
                         start(recent, in: workspace)
@@ -282,15 +281,21 @@ struct WorkspaceScreen: View {
 
     /// Sheprd opens a tab in the workspace of the pane an action names, so
     /// any of its panes will do.
+    /// A terminal tab beside the workspace's panes, or its first one, which
+    /// the computer starts in the workspace's folder.
     private func openTerminal(in workspace: Home.Workspace) {
-        guard let pane = workspace.anyPane else { return }
+        let pane = workspace.anyPane
+        let id = workspace.id
         let device = key.device
         starting = Self.terminal
         Task {
             defer { starting = nil }
             do {
-                let created = try await model.fleet.call(device) { client, token in
-                    try await client.termAction(.newTab, pane: pane, bearer: token)
+                let created = try await model.fleet.call(device) { client, token -> String? in
+                    if let pane {
+                        return try await client.termAction(.newTab, pane: pane, bearer: token)
+                    }
+                    return try await client.newTerminal(workspace: id, bearer: token)
                 }
                 if let created { opened = .term(PaneKey(device: device, pane: created), title: "Terminal") }
             } catch {

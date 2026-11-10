@@ -3,7 +3,7 @@
 use super::*;
 
 /// The folder a phone asks a new workspace for: absolute on this platform,
-/// as a workspace's folder must be to be kept.
+/// as a new workspace's label must be.
 const FOLDER: &str = if cfg!(windows) {
     r"C:\code\api"
 } else {

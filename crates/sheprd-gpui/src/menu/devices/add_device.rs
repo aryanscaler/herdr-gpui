@@ -578,7 +578,7 @@ impl SheprdWindow {
         // The claim travels with the save and comes back, so a failure that
         // offers a terminal still holds the host.
         let background = cx.background_executor().spawn(async move {
-            let result = setup::save(&request, &claim);
+            let result = setup::save(&request, &claim, probe);
             (result, claim)
         });
         form.task = Some(cx.spawn(async move |this, cx| {

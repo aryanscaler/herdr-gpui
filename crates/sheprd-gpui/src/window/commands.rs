@@ -364,6 +364,19 @@ impl SheprdWindow {
         {
             return;
         }
+        // A workspace the app keeps has no Herdr 1 panes: a pane command no
+        // herdr-core pane took must not reach Herdr 1's focused one. A review
+        // in front still searches its changes.
+        let searches_review = matches!(
+            command,
+            Command::Find | Command::FindNext | Command::FindPrevious
+        ) && self.focused_review(window, cx).is_some();
+        if self.kept_in_front().is_some()
+            && crate::core_terminals::acts_on_panes(command)
+            && !searches_review
+        {
+            return;
+        }
         match command {
             Command::OpenNotificationTarget => {
                 if let Some((endpoint, id)) = self.endpoints.iter().find_map(|e| {
@@ -761,8 +774,9 @@ impl SheprdWindow {
             | Command::PreviousAgent
             | Command::NextAgent
             | Command::AgentNumber(_) => {
-                self.step_sidebar(command, cx);
-                window.focus(&self.focus, cx);
+                if !self.step_sidebar(command, window, cx) {
+                    window.focus(&self.focus, cx);
+                }
                 return;
             }
             // A browser tab moves without the daemon, so before its check.
@@ -794,59 +808,100 @@ impl SheprdWindow {
     }
 
     /// Focuses the workspace or agent a sidebar step lands on, selecting its
-    /// host first when that is another one.
-    fn step_sidebar(&mut self, command: Command, cx: &mut Context<Self>) {
+    /// host first when that is another one. Whether it gave the keyboard to
+    /// a Herdr 2 agent's pane, which keeps it.
+    fn step_sidebar(
+        &mut self,
+        command: Command,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let agents = matches!(
             command,
             Command::PreviousAgent | Command::NextAgent | Command::AgentNumber(_)
         );
-        let workspaces = if agents {
-            Vec::new()
-        } else {
-            self.sidebar_workspaces()
-        };
-        let rows: Vec<(usize, &str)> = if agents {
-            self.sidebar_agents()
-        } else {
-            workspaces
-                .iter()
-                .map(|(host, id)| (*host, id.as_str()))
-                .collect()
-        };
+        if agents {
+            return self.step_agents(command, window, cx);
+        }
+        let workspaces = self.sidebar_workspaces();
+        let rows: Vec<(usize, &str)> = workspaces
+            .iter()
+            .map(|(host, id)| (*host, id.as_str()))
+            .collect();
         let selected = self.selected_endpoint;
         // The workspace in front may be one the app keeps for Herdr 2.
-        let front = (!agents)
-            .then(|| self.browser_key())
-            .flatten()
-            .map(|(_, workspace)| workspace);
-        let focused = if agents {
-            self.live
-                .snapshot
-                .as_ref()
-                .and_then(|snapshot| snapshot.focused_pane_id.as_deref())
-        } else {
-            front.as_deref()
-        };
+        let front = self.browser_key().map(|(_, workspace)| workspace);
         let current = rows
             .iter()
-            .position(|&(host, id)| host == selected && Some(id) == focused);
+            .position(|&(host, id)| host == selected && Some(id) == front.as_deref());
         let Some(&(host, id)) = crate::sidebar::sidebar_step(&rows, current, selected, command)
             .and_then(|index| rows.get(index))
         else {
-            return;
+            return false;
         };
         let id = id.to_owned();
-        let target = if agents {
-            NavigationTarget::Pane(id.as_str())
-        } else {
-            NavigationTarget::Workspace(id.as_str())
-        };
+        let target = NavigationTarget::Workspace(id.as_str());
         if host == selected {
             self.navigate(target, cx);
         } else {
             let endpoint = self.endpoints[host].id.clone();
             self.navigate_endpoint(&endpoint, target, cx);
         }
+        false
+    }
+
+    /// Steps through the agents list, Herdr 1's agents and Herdr 2's alike,
+    /// from the one whose pane holds the keyboard: a Herdr 2 pane, else the
+    /// selected host's focused pane.
+    fn step_agents(
+        &mut self,
+        command: Command,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let listed = self.panel_agents();
+        let rows: Vec<(usize, &str)> = listed
+            .iter()
+            .map(|(host, agent)| (*host, agent.id()))
+            .collect();
+        let selected = self.selected_endpoint;
+        let core_focus = self.current_core_terminal(window, cx);
+        let focused = match &core_focus {
+            Some(terminal) => Some(terminal.as_str()),
+            None => self
+                .live
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.focused_pane_id.as_deref()),
+        };
+        let current = listed.iter().position(|(host, agent)| {
+            *host == selected
+                && Some(agent.id()) == focused
+                && agent.is_core() == core_focus.is_some()
+        });
+        let Some((host, agent)) = crate::sidebar::sidebar_step(&rows, current, selected, command)
+            .and_then(|index| listed.get(index))
+        else {
+            return false;
+        };
+        let (host, target, core) = (*host, agent.target(), agent.is_core());
+        drop(listed);
+        if core {
+            let endpoint = self.endpoints[host].id.clone();
+            self.open_listed_agent(&endpoint, &target, window, cx);
+            return true;
+        }
+        let crate::sidebar::AgentTarget::Pane(pane) = &target else {
+            return false;
+        };
+        let target = NavigationTarget::Pane(pane.as_str());
+        if host == selected {
+            self.navigate(target, cx);
+        } else {
+            let endpoint = self.endpoints[host].id.clone();
+            self.navigate_endpoint(&endpoint, target, cx);
+        }
+        false
     }
 }
 

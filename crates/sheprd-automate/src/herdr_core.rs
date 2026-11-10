@@ -39,6 +39,8 @@ pub enum Error {
     NotFound,
     #[error("this host has no home folder for new worktrees")]
     NoHome,
+    #[error("herdr-core lists no terminal {0}")]
+    NoTerminal(String),
     #[error(transparent)]
     Worktree(#[from] worktree::Error),
 }
@@ -167,6 +169,28 @@ impl HerdrCore {
     pub fn terminals(&self) -> Result<Vec<Terminal>> {
         Ok(self.core()?.list(true)?.terminals)
     }
+}
+
+/// The agent the herdr-core terminal `terminal` runs, as Sheprd names it,
+/// asked of the core it runs in (`HC_TERMINAL_SOCKET`, else the one `hc`
+/// reaches); `None` for a shell or another program.
+pub fn terminal_agent(terminal: &str) -> Result<Option<String>> {
+    let endpoint = Endpoint::resolve(|name| {
+        let terminal_socket =
+            std::env::var_os("HC_TERMINAL_SOCKET").filter(|socket| !socket.is_empty());
+        match name {
+            "HC_SOCKET" => terminal_socket.or_else(|| std::env::var_os(name)),
+            _ => std::env::var_os(name),
+        }
+    })?;
+    let listed = Core::connect(&endpoint)?.list(false)?;
+    let found = listed
+        .terminals
+        .iter()
+        .find(|known| known.address == terminal)
+        .ok_or_else(|| Error::NoTerminal(terminal.to_owned()))?;
+    let info = sheprd_core_client::terminal_info(found)?;
+    Ok(sheprd_core_client::agent_name(&info))
 }
 
 /// How a step's harness starts: a known agent's own program, else the

@@ -25,6 +25,9 @@ error-remote-cloud-cancelled = Cancelled.
 # $detail is the tail of what the installer or the probe printed on the
 # machine.
 error-remote-cloud-install = Installing Herdr failed: { $detail }
+# $detail is the tail of what herdr-core's installer printed on the machine.
+error-remote-cloud-install-core = Installing Herdr failed: herdr-core could not be installed: { $detail }
+error-remote-cloud-install-core-unknown = Installing Herdr failed: herdr-core could not be installed
 error-remote-cloud-install-missing = Installing Herdr failed: the installer finished but Herdr is not on the expected paths
 error-remote-cloud-install-no-curl = Installing Herdr failed: the machine has no curl; add it to its image or install Herdr there manually
 error-remote-cloud-install-no-output = Installing Herdr failed: the installer did not finish

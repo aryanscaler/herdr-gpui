@@ -42,9 +42,13 @@ Every command accepts:
   to it as they would to a Herdr pane. When no window shows it, as for a
   session the app does not show, the command exits 5 rather than act on
   another session's window. Outside both, it acts in the frontmost window.
-  Commands that keep Herdr's workspace state (`work` notes, mutes, restore,
-  scripts, Teleport, fan-out) exit 8 from a herdr-core terminal in no Herdr
-  workspace.
+  From a herdr-core terminal in a workspace Sheprd keeps for Herdr 2, `work`
+  notes, `checkpoint restore`, and `host pr` act on that workspace's
+  checkout; mutes, scripts, and fan-out, which keep Herdr 1's
+  workspace state, exit 8 there for now, as every `work` command does from
+  a terminal in no workspace the window keeps.
+  Teleport works from a workspace the app keeps for Herdr 2 on this
+  computer, as its menu does.
 
 | Exit | Meaning |
 | --- | --- |
@@ -144,7 +148,7 @@ without embedded pages return exit 8. See [px0](../crates/sheprd-gpui/README.md#
 | `teleport --to HOST` | Open the teleport dialog for your linked worktree, reviewing HOST; you confirm there |
 | `fan-out PROMPT [--agent KIND[:N]]...` | Open the fan-out dialog prefilled; you start it there |
 | `chat [status]` | The `sheprd-acp` chat panes of the window's host, this machine or an SSH host: agent, status, model, context window use, and whether the chat view or the terminal shows |
-| `chat convert [--pane ID]` | Move the terminal agent in your pane (or ID, else the focused one) into a `sheprd-acp` chat in the same pane, keeping its conversation (see [Moving a terminal agent into a chat](rich-chat.md#moving-a-terminal-agent-into-a-chat)). Returns once the move has started; `chat` shows the chat when it attaches. Exits 6 while the agent works, 5 when the pane has no terminal agent, and 8 for an agent or pane that cannot move |
+| `chat convert [--pane ID]` | Move the terminal agent in your pane (or ID, else the focused one) into a `sheprd-acp` chat in the same pane, keeping its conversation. From a Herdr 2 pane, your pane is your terminal (`HC_TERMINAL_ID`), whose id in `chat` is `core:` and the terminal's (see [Moving a terminal agent into a chat](rich-chat.md#moving-a-terminal-agent-into-a-chat)). Returns once the move has started; `chat` shows the chat when it attaches. Exits 6 while the agent works, 5 when the pane has no terminal agent, and 8 for an agent or pane that cannot move |
 | `chat show\|hide\|toggle [--pane ID]` | Show the native chat view over your pane (or ID, else the focused one), or its terminal |
 | `chat new AGENT [--pane ID]` | Open a tab running a `sheprd-acp` chat with a built-in agent (`claude`, `codex`, `copilot`, `gemini`, `opencode`, `pi`) in the workspace and folder of your pane (or ID). On an SSH host the tab runs that host's `sheprd-acp` (see [Chats on SSH hosts](#chats-on-ssh-hosts)). With no Herdr pane to go by, as when called from a Herdr 2 pane, a Herdr 2 tab in the active group splits its pane in use with the chat instead (see [Chats in Herdr 2 panes](rich-chat.md#chats-in-herdr-2-panes)); its pane id in `chat` is `core:` and the terminal's. Exits 8 when `sheprd-acp` is missing here, the host cannot be reached, or the agent is not installed on it (`sheprd-acp agents` lists those that are) |
 

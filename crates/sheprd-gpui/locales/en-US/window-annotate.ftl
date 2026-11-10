@@ -35,3 +35,7 @@ window-annotate-queued =
 window-annotate-stale-copied = Notes whose original daemon is not selected were copied
 window-annotate-history-moved = new output moved the selection before it was read; select it again
 window-annotate-history-unread = the selection could not be read from the scrollback
+# Notes on a Herdr 2 pane that did not reach its agent were copied instead.
+window-annotate-core-gone = The agent left its pane; notes copied
+window-annotate-core-blocked = The agent is asking a question; notes copied
+window-annotate-core-unreachable = Could not reach the agent; notes copied

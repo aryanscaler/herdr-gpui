@@ -31,6 +31,8 @@ mod coder_dialog;
 #[cfg(test)]
 mod configured_rows;
 #[cfg(test)]
+mod core_agents;
+#[cfg(test)]
 mod device_footer;
 #[cfg(test)]
 mod device_footer_setting;
@@ -780,6 +782,7 @@ pub(crate) fn fixture_window(window: &mut Window, cx: &mut Context<SheprdWindow>
         menu: crate::menu::MenuState::new(cx),
         settings: Default::default(),
         integrations: Default::default(),
+        kept_worktree_done: Vec::new(),
         install_warning_shown: false,
         version_notice_shown: false,
         collapsed_repos: Default::default(),

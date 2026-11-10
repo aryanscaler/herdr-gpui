@@ -174,6 +174,10 @@ public struct Home: Codable, Hashable, Sendable {
         public var label: String
         public var cwd: String?
         public var zoomed: Bool
+        /// What its menu may do besides closing (`rename`, `split`,
+        /// `zoom`): a Herdr desktop space's tab keeps its layout and names
+        /// there. Older computers send none and allow them all.
+        public var actions: [String]? = nil
         public var panes: [Pane]
         /// The agent Herdr detects in it, the most pressing first.
         public var agent: DetectedAgent?
@@ -195,6 +199,16 @@ public struct Home: Codable, Hashable, Sendable {
 
         /// The pane a phone opens first: the focused one, else the first.
         public var firstPane: Pane? { panes.first { $0.focused } ?? panes.first }
+
+        /// What a terminal tab's menu may do with it.
+        public enum Action: String, Sendable {
+            case rename, split, zoom
+        }
+
+        /// Whether the computer would do `action` with this tab.
+        public func offers(_ action: Action) -> Bool {
+            actions?.contains(action.rawValue) ?? true
+        }
 
         public struct Pane: Codable, Hashable, Sendable, Identifiable {
             public var pane: String

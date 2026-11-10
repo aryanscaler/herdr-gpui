@@ -35,6 +35,7 @@ mod teleport;
     feature = "sprites"
 ))]
 mod value;
+mod work;
 
 use super::Localize;
 use crate::i18n::fl;
@@ -70,6 +71,7 @@ impl Localize for Error {
             #[cfg(feature = "cloud")]
             Self::SandboxImage(error) => error.localize(),
             Self::Teleport(error) => error.localize(),
+            Self::Work(error) => error.localize(),
             // keep-sorted end
         }
     }

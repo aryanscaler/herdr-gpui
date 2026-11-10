@@ -34,6 +34,8 @@ mod version_warning;
 fn only_a_present_herdr_is_saved_without_a_terminal() {
     assert_eq!(Offer::for_probe(HostProbe::Running), None);
     assert_eq!(Offer::for_probe(HostProbe::Stopped), None);
+    // herdr-core alone is a whole setup: saved as it is, nothing installed.
+    assert_eq!(Offer::for_probe(HostProbe::Core), None);
     assert_eq!(Offer::for_probe(HostProbe::Missing), Some(Offer::Install));
     assert_eq!(Offer::for_probe(HostProbe::Outdated), Some(Offer::Update));
     assert_eq!(

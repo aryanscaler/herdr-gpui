@@ -432,6 +432,9 @@ never installs or starts anything while checking:
   checks the host again. A still-running host that passes the app's compatibility
   probe is saved locally with a warning about version/startup differences and
   SSH recovery. Adding it does not require restarting the server or its panes.
+- herdr-core (Herdr 2) installed with no compatible Herdr: the device is
+  saved as it is, without `herdr machine add`, and its terminals run in
+  herdr-core.
 - Herdr missing: the dialog asks "Herdr was not detected on the host. Should we
   install it?" An outdated Herdr asks to update it instead.
 - SSH needs a prompt (unknown host key, password, passphrase), the check failed,
@@ -514,7 +517,11 @@ switch, on by default, is the approval to run Herdr's published installer
 verifies the release checksum and installs to `~/.local/bin`. This is the only
 remote installation the GUI performs, and only with that approval; reconnects
 never install anything. With the switch off, a workspace without Herdr is not
-added. A workspace without `curl` must get Herdr another way.
+added. A workspace without `curl` must get Herdr another way. A machine that
+already has herdr-core (Herdr 2) needs no Herdr 1: it is added as it is.
+With the switch on, setup also adds the pinned herdr-core beside Herdr, and a
+core that cannot be added fails the setup with what its installer printed,
+as it does for every provider.
 
 Cloud devices, from every provider, are stored in the GUI's own
 `cloud-devices.json` in its state directory, because Herdr's `endpoints.json`
@@ -1841,10 +1848,18 @@ Herdr 1 tabs, and nothing moves from one to the other.
 
 - **Opening one:** **New Herdr 2 Terminal** in the command palette, or
   `sheprd run new_core_terminal`. With `herdr_2_terminals = true`
-  (**Settings > Tabs > New terminals use Herdr 2**), every new tab on this
-  computer is one. herdr-core runs only on this computer, so a new tab in a
-  workspace on an SSH, WSL, or cloud host stays a Herdr tab on that host, and
-  **New Herdr 2 Terminal** is refused there.
+  (**Settings > Tabs > New terminals use Herdr 2**), every new tab is one,
+  on this computer and on an SSH, WSL, or cloud host, in that host's own
+  herdr-core and folders. A host found to have no herdr-core keeps its new tabs
+  in its Herdr; **Install Herdr 2** in the host's menu adds it.
+- **Workspaces:** herdr-core keeps no workspaces, so with Herdr 2 chosen, or
+  on a host with no Herdr 1, a new workspace is one Sheprd keeps beside its
+  tabs, per host. It lists, renames, moves, and closes like a Herdr
+  workspace, and closing it ends its terminals.
+- **A host with herdr-core alone:** Add Device saves an SSH host or WSL
+  distribution that has herdr-core and no Herdr 1 as it is, and cloud setup
+  accepts such a machine. Its window keeps a workspace with a Herdr 2 shell
+  in place of Herdr's.
 - **Starting herdr-core:** the app joins a core that already runs. Otherwise
   it starts the user's own `herdr-core`, or the pinned one every release
   bundles beside the app, and only when a Herdr 2 terminal is asked for.

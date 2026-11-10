@@ -491,12 +491,13 @@ impl SheprdWindow {
     }
 }
 
-/// Check Herdr inside `distro` and save it when a compatible copy answers. A
-/// stopped server is fine: the bridge starts it on the first connection.
+/// Check Herdr inside `distro` and save it when a compatible copy answers,
+/// or herdr-core (Herdr 2) is there alone. A stopped server is fine: the
+/// bridge starts it on the first connection.
 /// Blocking: runs on the background executor.
 fn add(distro: &str, session: &str) -> Outcome {
     match sheprd_client::probe_distro(distro, session) {
-        Ok(HostProbe::Running | HostProbe::Stopped) => {
+        Ok(HostProbe::Core | HostProbe::Running | HostProbe::Stopped) => {
             match sheprd_client::add_wsl_host(false, distro, session) {
                 Ok(()) => Outcome::Saved,
                 Err(error) => {

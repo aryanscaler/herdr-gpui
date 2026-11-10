@@ -42,8 +42,8 @@ fn button(button: MouseButton) -> Option<ClientMouseButton> {
 
 /// The modifiers a gesture reports: none for a passthrough right-click,
 /// which reaches the program without Herdr's
-/// `right_click_passthrough_modifier`. A herdr-core pane has no pane menu
-/// yet, so its other right-clicks reach the program as they are.
+/// `right_click_passthrough_modifier`. Any other right-click a program that
+/// reads the mouse takes reaches it as it is, and keeps the pane's menu shut.
 fn reported(held: Modifiers, bare: bool) -> Modifiers {
     if bare { Modifiers::default() } else { held }
 }

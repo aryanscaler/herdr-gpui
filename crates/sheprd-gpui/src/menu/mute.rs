@@ -26,6 +26,11 @@ impl SheprdWindow {
     /// Whether the selected endpoint's workspace or tab `id` is muted on its
     /// own: a tab silent only through its workspace is not.
     pub(crate) fn muted_on_selected(&self, scope: Scope, id: &str, cx: &App) -> bool {
+        // A workspace the app keeps for Herdr 2 has no snapshot to look in.
+        if scope == Scope::Workspace && self.is_kept_workspace(id) {
+            let browser = crate::browser::scope(&self.endpoints[self.selected_endpoint]);
+            return Mutes::of(cx).is_some_and(|mutes| mutes.kept(browser.as_str(), scope, id));
+        }
         let Some(snapshot) = self.live.snapshot.as_deref() else {
             return false;
         };
@@ -41,7 +46,8 @@ impl SheprdWindow {
 
     /// Mutes or unmutes the selected endpoint's workspace or tab `id`, while
     /// the menu still targets the connection and daemon process `boot` it
-    /// opened on. Returns whether anything changed.
+    /// opened on; a workspace the app keeps needs no daemon process. Returns
+    /// whether anything changed.
     pub(crate) fn set_muted_on_selected(
         &mut self,
         scope: Scope,
@@ -52,6 +58,15 @@ impl SheprdWindow {
     ) -> bool {
         if !self.menu_target_current() {
             return false;
+        }
+        if scope == Scope::Workspace && self.is_kept_workspace(id) {
+            let browser = crate::browser::scope(&self.endpoints[self.selected_endpoint]);
+            let changed =
+                crate::core_terminals::mutes::set_kept(cx, browser.as_str(), scope, id, muted);
+            if changed {
+                cx.notify();
+            }
+            return changed;
         }
         let Some(snapshot) = self
             .live

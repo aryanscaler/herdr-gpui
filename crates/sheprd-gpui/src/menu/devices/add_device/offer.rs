@@ -23,7 +23,7 @@ impl Offer {
     /// `None` when Herdr is present, so the device is saved without a terminal.
     pub(in crate::menu::devices) fn for_probe(probe: HostProbe) -> Option<Self> {
         match probe {
-            HostProbe::Running | HostProbe::Stopped => None,
+            HostProbe::Core | HostProbe::Running | HostProbe::Stopped => None,
             HostProbe::Missing => Some(Self::Install),
             HostProbe::Outdated => Some(Self::Update),
             HostProbe::SshFailed(SshFailure::Auth) => Some(Self::InstallKey),

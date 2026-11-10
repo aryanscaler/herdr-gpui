@@ -53,12 +53,38 @@ pub(super) fn serve(call: Call<WorkOp>, incoming: socket::Incoming, _: &mut Watc
 pub(super) struct Found<'a> {
     /// The endpoint showing it, by index into the window's endpoints.
     pub index: usize,
+    /// The workspace as the session model has it, whichever keeps it.
+    pub workspace: sheprd_session::Workspace,
+    /// Herdr 1's state of it; `None` for a workspace the app keeps for
+    /// Herdr 2, which has none of what mutes, scripts, and fan-out keep.
+    pub herdr: Option<Herdr<'a>>,
+}
+
+/// A workspace as Herdr 1's snapshot holds it.
+pub(super) struct Herdr<'a> {
     pub snapshot: &'a ClientShellSnapshot,
     pub workspace: &'a ClientShellWorkspace,
 }
 
+impl<'a> Found<'a> {
+    /// Herdr 1's state, or why a workspace the app keeps cannot do `what`.
+    pub(super) fn herdr(&self, what: &str) -> Result<&Herdr<'a>, Response> {
+        self.herdr.as_ref().ok_or_else(|| {
+            Response::error(
+                ErrorCode::Unsupported,
+                format!(
+                    "Workspace {} is a Herdr 2 workspace, where {what} is not available yet",
+                    self.workspace.label
+                ),
+            )
+        })
+    }
+}
+
 /// Finds the caller's workspace in `view`: on the caller's own daemon only
-/// when it names one, else on any endpoint showing a workspace of that ID.
+/// when it names one, else on any endpoint showing a workspace of that ID. A
+/// caller in a herdr-core terminal is in the workspace of the tab holding
+/// it: Herdr 1's, or one the app keeps for Herdr 2.
 pub(super) fn find<'a>(view: &'a SheprdWindow, caller: &Caller) -> Result<Found<'a>, Response> {
     let target = target(caller);
     let (index, id) = target
@@ -72,14 +98,21 @@ pub(super) fn find<'a>(view: &'a SheprdWindow, caller: &Caller) -> Result<Found<
             ),
             None => not_found("The window shows no workspace"),
         })?;
+    let sessions = view.sessions(index);
+    if let Some(kept) = sessions.core.as_ref().and_then(|core| core.workspace(&id)) {
+        return Ok(Found {
+            index,
+            workspace: kept.clone(),
+            herdr: None,
+        });
+    }
     let live = if index == view.selected_endpoint {
         &view.live
     } else {
         &view.endpoints[index].live
     };
-    // A herdr-core terminal outside Herdr's workspaces is in one of
-    // herdr-core tabs alone, which has none of Herdr's state that notes,
-    // mutes, scripts, and Teleport keep, whether Herdr runs beside it or not.
+    // A herdr-core terminal outside every workspace, as one in a tab
+    // another window placed, has none of Herdr's state.
     let unsupported = || {
         let terminal = caller
             .terminal_id
@@ -87,7 +120,7 @@ pub(super) fn find<'a>(view: &'a SheprdWindow, caller: &Caller) -> Result<Found<
             .filter(|_| caller.workspace_id.is_none())?;
         Some(Response::error(
             ErrorCode::Unsupported,
-            format!("herdr-core terminal {terminal} is in no Herdr workspace, which this needs"),
+            format!("herdr-core terminal {terminal} is in no workspace this window keeps"),
         ))
     };
     let snapshot = live.snapshot.as_deref().ok_or_else(|| {
@@ -100,15 +133,25 @@ pub(super) fn find<'a>(view: &'a SheprdWindow, caller: &Caller) -> Result<Found<
         .ok_or_else(|| {
             unsupported().unwrap_or_else(|| not_found(format!("No window shows workspace {id}")))
         })?;
+    let session = sessions
+        .herdr_1
+        .as_ref()
+        .and_then(|session| session.workspace(&id))
+        .cloned()
+        .ok_or_else(|| not_found(format!("No window shows workspace {id}")))?;
     Ok(Found {
         index,
-        snapshot,
-        workspace,
+        workspace: session,
+        herdr: Some(Herdr {
+            snapshot,
+            workspace,
+        }),
     })
 }
 
-/// The caller's workspace ID, when it is on the window's selected, connected
-/// host: dialogs act through that host's connection alone.
+/// The caller's workspace ID, when it is on the window's selected host:
+/// dialogs act through that host alone, and a Herdr 1 workspace only while
+/// its daemon is connected.
 pub(super) fn selected_workspace(view: &SheprdWindow, caller: &Caller) -> Result<String, Response> {
     let found = find(view, caller)?;
     if found.index != view.selected_endpoint {
@@ -116,21 +159,21 @@ pub(super) fn selected_workspace(view: &SheprdWindow, caller: &Caller) -> Result
             ErrorCode::InvalidRequest,
             format!(
                 "Workspace {} is on host {}, which the window is not showing; select it first",
-                found.workspace.workspace_id, view.endpoints[found.index].label
+                found.workspace.id, view.endpoints[found.index].label
             ),
         ));
     }
-    if !view.live.status.is_connected() {
+    if found.herdr.is_some() && !view.live.status.is_connected() {
         return Err(Response::error(
             ErrorCode::Busy,
             "Sheprd is not connected to that host right now",
         ));
     }
-    Ok(found.workspace.workspace_id.clone())
+    Ok(found.workspace.id)
 }
 
 /// The repository a workspace's checkout belongs to, for messages.
-pub(super) fn repository(workspace: &ClientShellWorkspace) -> &str {
+pub(super) fn repository(workspace: &sheprd_session::Workspace) -> &str {
     workspace
         .worktree
         .as_ref()

@@ -19,8 +19,9 @@ use std::{
 
 /// The most of Git's complaint that is kept for messages and logs.
 const MAX_COMPLAINT_CHARS: usize = 300;
-/// The folder under home that Herdr's default keeps checkouts in.
-const ROOT: &str = ".herdr/worktrees";
+/// The folder under home that Herdr's default keeps checkouts in, on this
+/// computer and on any host a script makes one on.
+pub const ROOT: &str = ".herdr/worktrees";
 /// The folder of a branch with no ASCII letters or digits.
 const FALLBACK_SLUG: &str = "worktree";
 /// The most of Git's output read; its answers here are a line or two.
@@ -53,8 +54,7 @@ pub fn add(
             OsStr::new("--git-common-dir"),
         ],
     )?;
-    let name = repository_name(Path::new(common.trim())).ok_or(Error::NoRepositoryName)?;
-    let checkout = root.join(name).join(path_slug(branch));
+    let checkout = root.join(folder(Path::new(common.trim()), branch)?);
     git(
         &give_up,
         repository,
@@ -93,6 +93,15 @@ pub fn remove(repository: &Path, checkout: &Path, branch: &str) -> Result<(), Er
         [OsStr::new("branch"), OsStr::new("-D"), OsStr::new(branch)],
     )?;
     Ok(())
+}
+
+/// Where under the worktree root a new checkout of `branch` goes, as Herdr
+/// files it: the repository's folder name, from its common Git directory
+/// `common`, then the branch's slug. For callers that make the checkout on
+/// another host, where the root is that host's own.
+pub fn folder(common: &Path, branch: &str) -> Result<PathBuf, Error> {
+    let name = repository_name(common).ok_or(Error::NoRepositoryName)?;
+    Ok(Path::new(name).join(path_slug(branch)))
 }
 
 /// The repository's folder name, from its common Git directory: the folder

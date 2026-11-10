@@ -162,6 +162,7 @@ impl SheprdWindow {
             },
             repositories: self.endpoint_snapshot(index).map(open_repositories),
             retired: Vec::new(),
+            lands_in: sheprd_session::Keeper::Herdr1,
         })
     }
 

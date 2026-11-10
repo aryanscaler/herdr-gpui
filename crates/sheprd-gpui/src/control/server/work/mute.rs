@@ -13,24 +13,27 @@ use gpui::{App, Context};
 use std::time::SystemTime;
 
 pub(super) fn status(view: &SheprdWindow, caller: &Caller, cx: &App) -> Response {
-    match find(view, caller) {
-        Ok(found) => {
-            let endpoint = &view.endpoints[found.index];
-            let silenced = Mutes::of(cx)
-                .map(|mutes| mutes.silenced(&Daemon::of(endpoint), found.snapshot))
-                .unwrap_or_default();
-            Response::Work {
-                reply: Reply::Mute {
-                    mute: MuteInfo {
-                        host: endpoint.label.clone(),
-                        workspace: found.workspace.label.clone(),
-                        muted: silenced.workspace(&found.workspace.workspace_id),
-                        host_muted: silenced.host(),
-                    },
-                },
-            }
-        }
-        Err(response) => response,
+    let found = match find(view, caller) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    let herdr = match found.herdr("a workspace mute") {
+        Ok(herdr) => herdr,
+        Err(response) => return response,
+    };
+    let endpoint = &view.endpoints[found.index];
+    let silenced = Mutes::of(cx)
+        .map(|mutes| mutes.silenced(&Daemon::of(endpoint), herdr.snapshot))
+        .unwrap_or_default();
+    Response::Work {
+        reply: Reply::Mute {
+            mute: MuteInfo {
+                host: endpoint.label.clone(),
+                workspace: herdr.workspace.label.clone(),
+                muted: silenced.workspace(&herdr.workspace.workspace_id),
+                host_muted: silenced.host(),
+            },
+        },
     }
 }
 
@@ -44,12 +47,16 @@ pub(super) fn set(
         Ok(found) => found,
         Err(response) => return response,
     };
+    let herdr = match found.herdr("a workspace mute") {
+        Ok(herdr) => herdr,
+        Err(response) => return response,
+    };
     let daemon = Daemon::of(&view.endpoints[found.index]);
-    let id = &found.workspace.workspace_id;
+    let id = &herdr.workspace.workspace_id;
     let changed = Mutes::update(cx, |mutes| {
         mutes.set(
             &daemon,
-            found.snapshot,
+            herdr.snapshot,
             Scope::Workspace,
             id,
             muted,

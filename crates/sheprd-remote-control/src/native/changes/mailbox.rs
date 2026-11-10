@@ -77,6 +77,11 @@ impl Mailbox {
         self.seen_at(Instant::now());
     }
 
+    /// Whether Sheprd is open: it was heard from lately.
+    pub(crate) fn open(&self) -> bool {
+        open_at(self.inner().seen, Instant::now())
+    }
+
     fn seen_at(&self, now: Instant) {
         self.inner().seen = Some(now);
     }
@@ -180,10 +185,7 @@ impl Mailbox {
 impl Inner {
     /// A new question's id, while Sheprd is open and the queue has room.
     fn admit(&mut self, now: Instant) -> Result<AskId, Error> {
-        if self
-            .seen
-            .is_none_or(|seen| now.saturating_duration_since(seen) >= OPEN_FOR)
-        {
+        if !open_at(self.seen, now) {
             return Err(Error::NoDesktop);
         }
         if self.waiting.len() >= MAX_WAITING {
@@ -193,6 +195,10 @@ impl Inner {
         self.next += 1;
         Ok(id)
     }
+}
+
+fn open_at(seen: Option<Instant>, now: Instant) -> bool {
+    seen.is_some_and(|seen| now.saturating_duration_since(seen) < OPEN_FOR)
 }
 
 #[cfg(test)]

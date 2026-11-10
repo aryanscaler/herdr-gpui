@@ -48,6 +48,8 @@ Tab and Shift-Tab move between the fields; Ctrl-Tab and Ctrl-Shift-Tab step thro
 
 If the dialog cannot open, for example because the workspace is not a Git repository, its main checkout is not open, or it has a detached `HEAD`, a short message says why.
 
+Herdr 2 (herdr-core) keeps no worktrees, so in a workspace Sheprd keeps for Herdr 2 terminals, Sheprd runs Git itself: **New worktree** adds the checkout in the folder Herdr 1 would use (`~/.herdr/worktrees/<repository>/<branch>`) and opens it as a new workspace, and **Delete worktree checkout** removes the checkout and closes its workspace, keeping the branch. The dialog's **Existing** tab lists the repository's checkouts no workspace has open. Worktree scripts do not run there yet.
+
 **Open worktree...** lists the repository's existing checkouts. Type to filter by branch, label or path, then press Enter or click a row to open it.
 
 ## Where a new worktree opens

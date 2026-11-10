@@ -210,3 +210,13 @@ fn path_install_keeps_precedence_over_mise() {
     drop(child);
     assert!(!host.home.join("mise-ran").exists());
 }
+
+#[test]
+fn herdr_core_where_its_bridge_looks_is_found_without_herdr_1() {
+    let host = Host::new();
+    let core = host.home.join(".local/bin/herdr-core");
+    fs::create_dir_all(core.parent().unwrap()).unwrap();
+    crate::test_executable::write(&core, "#!/bin/sh\nexit 1\n", 0o700).unwrap();
+    let mut probe = host.command(&probe_script("work's"));
+    assert_eq!(host.probe(&mut probe), HostProbe::Core);
+}

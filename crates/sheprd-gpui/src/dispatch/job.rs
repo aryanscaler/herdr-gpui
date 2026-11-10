@@ -190,6 +190,7 @@ impl Job {
                     },
                     repositories: None,
                     retired: Vec::new(),
+                    lands_in: sheprd_session::Keeper::Herdr1,
                 };
                 let mut report = |step| {
                     let _ = events.send(Event::Step(step));

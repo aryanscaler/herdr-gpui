@@ -156,7 +156,7 @@ activity_bar = false
 
 Herdr runs plugins; Sheprd shows what they report through the daemon. Tab-bar status segments, custom sidebar tokens, and agent views appear as the daemon reports them. For example, [Usage Tracker](https://github.com/VHemanth45/herdr_agents_tracker) adds account usage percentages to the header and context meters to the sidebar.
 
-**Settings > Plugins** lists every custom `$name` value plugins report on a connected host, with an example and the hosts reporting it. Each has a switch that adds or removes it as a row in Herdr's shared `[ui.sidebar]` config, so the terminal client shows the same rows, and a preview draws them. On Windows the switches are read-only.
+**Settings > Plugins** lists every custom `$name` value plugins report on a connected host, with an example and the hosts reporting it. For an agent in a Herdr 2 pane, the labels a plugin or hook sets on its herdr-core terminal are its custom values, under the label's name; the labels Sheprd sets itself (`acp` and `sheprd.*`) are left out. Each has a switch that adds or removes it as a row in Herdr's shared `[ui.sidebar]` config, so the terminal client shows the same rows, and a preview draws them. On Windows the switches are read-only.
 
 Two `[usage]` switches hide plugin output:
 

@@ -15,12 +15,34 @@ use crate::{
     i18n::fl,
     window::Flash,
 };
-use gpui::{Context, Window};
+use gpui::{App, Context, Window};
 use sheprd_backend::TerminalId;
 
 impl SheprdWindow {
-    /// Runs `command` on the focused herdr-core tab's panes. False when no
-    /// herdr-core pane has the keyboard or the command is not a pane's, so
+    /// The herdr-core pane a pane command acts on: the one holding the
+    /// keyboard, or whose chat does, else, while a workspace the app keeps
+    /// is in front, the pane in use of the tab it shows, as when the
+    /// keyboard is on the sidebar after stepping to the workspace.
+    pub(crate) fn core_command_pane(
+        &self,
+        window: &Window,
+        cx: &App,
+    ) -> Option<(TabId, TerminalId)> {
+        self.core_terminals
+            .focused_pane(window, cx)
+            .or_else(|| self.focused_core_chat(window, cx))
+            .or_else(|| self.kept_front_pane(cx))
+    }
+
+    /// While a workspace the app keeps is in front, the pane in use of the
+    /// herdr-core tab its active group shows.
+    pub(crate) fn kept_front_pane(&self, cx: &App) -> Option<(TabId, TerminalId)> {
+        self.kept_in_front()?;
+        self.shown_core_pane(cx)
+    }
+
+    /// Runs `command` on the herdr-core tab's panes [`Self::core_command_pane`]
+    /// names. False when there is none or the command is not a pane's, so
     /// the window runs it as usual.
     pub(crate) fn core_pane_command(
         &mut self,
@@ -28,8 +50,7 @@ impl SheprdWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let focused = self.core_terminals.focused_pane(window, cx);
-        let Some((tab, terminal)) = focused.or_else(|| self.focused_core_chat(window, cx)) else {
+        let Some((tab, terminal)) = self.core_command_pane(window, cx) else {
             return false;
         };
         let Some(shown) = self.core_terminals.tabs.get_mut(&tab) else {
@@ -144,12 +165,14 @@ impl SheprdWindow {
             Command::RenamePane if !shown.observe => {
                 self.rename_core(super::menu::Target::Pane { tab, terminal }, window, cx)
             }
-            // Pane and tab commands herdr-core panes cannot run yet say so,
-            // rather than reaching the Herdr pane behind them.
             Command::MovePane if !shown.observe => self.open_core_move(tab, terminal, window, cx),
-            // A mirror's pane is renamed and moved where it types.
+            // A mirror's pane is renamed and moved where it types, which it
+            // says rather than reaching the Herdr pane behind it.
             Command::RenamePane | Command::MovePane => {
-                self.show_flash(Flash::warning(fl!("core-terminals-unsupported")), cx);
+                self.show_flash(
+                    Flash::warning(fl!("core-terminals-mirror-only-watches")),
+                    cx,
+                );
             }
             _ => return false,
         }
@@ -248,4 +271,43 @@ fn holding(
         }
     }
     (shown, driven)
+}
+
+/// Whether `command` acts on the panes of the workspace in front: a kept
+/// workspace has none of Herdr 1's, so with no herdr-core pane to take it,
+/// it goes nowhere rather than to Herdr 1's focused pane behind. Closing is
+/// left out: it closes the page a group shows instead.
+pub(crate) fn acts_on_panes(command: Command) -> bool {
+    matches!(
+        command,
+        Command::SplitRight
+            | Command::SplitDown
+            | Command::FocusLeft
+            | Command::FocusRight
+            | Command::FocusUp
+            | Command::FocusDown
+            | Command::NextPane
+            | Command::PreviousPane
+            | Command::LastPane
+            | Command::SwapLeft
+            | Command::SwapRight
+            | Command::SwapUp
+            | Command::SwapDown
+            | Command::EqualizeSplits
+            | Command::ResizeLeft
+            | Command::ResizeRight
+            | Command::ResizeUp
+            | Command::ResizeDown
+            | Command::Zoom
+            | Command::MirrorCorePane
+            | Command::RenameTab
+            | Command::RenamePane
+            | Command::MovePane
+            | Command::Find
+            | Command::FindNext
+            | Command::FindPrevious
+            | Command::ClearPane
+            | Command::CopyMode
+            | Command::EditScrollback
+    )
 }

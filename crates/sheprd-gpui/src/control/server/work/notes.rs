@@ -9,11 +9,13 @@ use crate::{
     worktree_notes::{Checkout, Note, Notes},
 };
 use gpui::App;
-use sheprd_client::protocol::ClientShellWorkspace;
 
 /// The checkout a workspace's note is about, once it is a Git checkout on a
-/// branch, as the note dialog requires.
-pub(super) fn checkout_of(endpoint: &str, workspace: &ClientShellWorkspace) -> Option<Checkout> {
+/// branch, as the note dialog requires, whether Herdr 1 or the app keeps it.
+pub(super) fn checkout_of(
+    endpoint: &str,
+    workspace: &sheprd_session::Workspace,
+) -> Option<Checkout> {
     Some(Checkout {
         endpoint: endpoint.to_owned(),
         repo_key: workspace.worktree.as_ref()?.key.clone(),
@@ -75,7 +77,7 @@ fn caller_checkout(caller: &Caller, cx: &mut App) -> Result<Checkout, Response> 
     handle
         .read_with(cx, |view, _| {
             let found = find(view, caller)?;
-            checkout_of(&view.endpoints[found.index].id, found.workspace).ok_or_else(|| {
+            checkout_of(&view.endpoints[found.index].id, &found.workspace).ok_or_else(|| {
                 Response::error(
                     ErrorCode::InvalidRequest,
                     "Notes are kept on Git checkouts with a branch",

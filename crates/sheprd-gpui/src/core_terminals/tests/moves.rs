@@ -78,8 +78,16 @@ fn a_tabs_only_pane_joins_another_tab_and_its_tab_goes(cx: &mut TestAppContext) 
         })
     });
     // Alone in its tab, it has no new tab to go to.
-    assert_eq!(moves.len(), 1);
-    assert_eq!(moves[0].destination, Destination::Tab(other));
+    assert!(
+        !moves
+            .iter()
+            .any(|row| row.destination == Destination::NewTab)
+    );
+    assert!(
+        moves
+            .iter()
+            .any(|row| row.destination == Destination::Tab(other))
+    );
     assert_eq!(panes_of(cx, other).unwrap(), ["t9", "t1"]);
     assert!(panes_of(cx, tab).is_none(), "the emptied tab is gone");
     let kept = cx.update(|_, cx| Store::update(cx, Store::take_ending));
@@ -88,7 +96,16 @@ fn a_tabs_only_pane_joins_another_tab_and_its_tab_goes(cx: &mut TestAppContext) 
 
 #[gpui::test]
 fn a_lone_pane_with_nowhere_to_go_says_so(cx: &mut TestAppContext) {
-    let (view, cx, _) = window_with_split(cx, &["t1"]);
+    let (view, cx, tab) = window_with_split(cx, &["t1"]);
+    // Another host's pane cannot start a workspace here, and the window
+    // shows no other workspace.
+    cx.update(|_, cx| {
+        view.update(cx, |view, _| {
+            view.core_terminals.tabs.get_mut(&tab).unwrap().host =
+                crate::core_terminals::Host::Remote(crate::browser::Scope::endpoint("ssh:box"));
+            view.live.snapshot = None;
+        })
+    });
     run(&view, cx, Command::MovePane);
     assert_eq!(
         flash(&view, cx),

@@ -142,12 +142,13 @@ impl Place {
             .find(|workspace| workspace.workspace_id == self.workspace)
     }
 
+    /// Whether the window shows this workspace in front: a workspace the
+    /// app keeps for Herdr 2 when one is, else Herdr 1's focused one.
     pub(super) fn focused(&self, view: &SheprdWindow) -> bool {
         self.selected(view)
-            && self
-                .snapshot(view)
-                .and_then(|snapshot| snapshot.focused_workspace_id.as_deref())
-                == Some(self.workspace.as_str())
+            && view
+                .browser_key()
+                .is_some_and(|(_, front)| front == self.workspace)
     }
 }
 

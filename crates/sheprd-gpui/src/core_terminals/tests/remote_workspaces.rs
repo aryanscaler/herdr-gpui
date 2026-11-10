@@ -150,3 +150,43 @@ fn without_herdr_2_chosen_a_saved_hosts_herdr_keeps_new_workspaces(cx: &mut Test
         assert!(!view.new_workspaces_use_core());
     });
 }
+
+#[gpui::test]
+fn a_saved_host_without_herdr_1_keeps_a_workspace_with_a_shell(cx: &mut TestAppContext) {
+    let (view, cx) = window(cx, false);
+    view.update(cx, |view, cx| {
+        view.config.herdr_2_terminals = false;
+        // The bridge found no Herdr 1 there; the core is never dialled here.
+        view.live.ssh_failure = Some(sheprd_client::SshFailure::HerdrMissing);
+        let target = view.endpoints[1].connection.target.clone();
+        view.core_terminals.set_remote_hub_for_test(
+            scope(),
+            target,
+            crate::core_terminals::Hub::with_join(|_| {
+                Err(crate::core_terminals::Error::Bridge(
+                    sheprd_client::core_bridge::Error::Missing.into(),
+                ))
+            }),
+        );
+        view.refresh_core_session(cx);
+        assert_eq!(view.kept_in_front(), Some(crate::core_terminals::WORKSPACE));
+        assert!(view.new_workspaces_use_core(), "no Herdr 1 to make them");
+        let store = cx.global::<Store>();
+        assert!(
+            store
+                .kept_workspace(&scope(), crate::core_terminals::WORKSPACE)
+                .is_some()
+        );
+        // Its first shell waits for that host's core.
+        assert!(view.core_terminals.wanted.iter().any(|(purpose, host, ..)| {
+            *host == Host::Remote(scope())
+                && matches!(purpose, Purpose::Tab { workspace, .. } if workspace == crate::core_terminals::WORKSPACE)
+        }));
+        // This computer keeps none for it.
+        assert!(
+            view.sessions(0)
+                .core
+                .is_none_or(|local| local.workspaces.is_empty())
+        );
+    });
+}

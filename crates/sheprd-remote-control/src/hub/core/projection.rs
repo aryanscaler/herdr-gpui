@@ -60,13 +60,20 @@ pub(super) fn project(
             .filter_map(|id| records.iter().find(|record| record.address == id.as_str()))
             .filter(|record| assigned.insert(record.address.as_str()))
             .collect();
+        let named = saved
+            .zip(scope)
+            .and_then(|(saved, scope)| saved.tab_name(scope, tab.id));
         if let Some(mut terminal) = terminal(
             boot,
             &format!("{}{}", super::saved::SAVED_TAB, tab.id),
-            tab.title,
+            named.unwrap_or(tab.title),
             &members,
             urgency,
         ) {
+            terminal.zoomed = saved
+                .zip(scope)
+                .and_then(|(saved, scope)| saved.tab_zoomed(scope, tab.id))
+                .is_some();
             // A pane the user named shows that name, a chat's included.
             let names = saved
                 .zip(scope)
@@ -276,7 +283,7 @@ pub(super) fn cwd(record: &Record) -> Option<String> {
         .cloned()
 }
 
-fn urgency(status: AgentStatus) -> u8 {
+pub(super) fn urgency(status: AgentStatus) -> u8 {
     match status {
         AgentStatus::Blocked => 4,
         AgentStatus::Working => 3,

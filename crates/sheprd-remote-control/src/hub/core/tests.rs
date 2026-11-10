@@ -121,6 +121,7 @@ mod socket {
         time::Instant,
     };
 
+    mod arrange;
     mod chat_recovery;
     mod convert;
     mod holds;
@@ -309,6 +310,7 @@ mod socket {
             connected: AtomicBool::new(false),
             endpoint: Default::default(),
             holds: AtomicU64::new(0),
+            own: Mutex::default(),
             poller: Mutex::default(),
             scope: None,
             state: Mutex::new(State {
@@ -458,6 +460,7 @@ fn an_unreachable_core_stays_with_the_core_source() {
             session: "test".into(),
         }),
         holds: AtomicU64::new(0),
+        own: Mutex::default(),
         poller: Mutex::default(),
         scope: None,
         state: Mutex::new(State::default()),

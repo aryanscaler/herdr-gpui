@@ -19,6 +19,7 @@ pub(crate) use api::ApiMethod;
 pub(crate) use attach::TermHold;
 pub(crate) use chat::{Chat, Event, Summary, View};
 pub(crate) use convert::Error as ConvertError;
+pub(crate) use core::{Keeper, arrangeable};
 #[cfg(test)]
 pub(crate) use layout::TerminalAgent;
 pub(crate) use layout::{Chat as ChatRow, Layout, Terminal, TerminalPane, Workspace};
@@ -64,6 +65,10 @@ pub enum Error {
     Request(#[from] sheprd_client::Error),
     #[error("Herdr's answer did not have the expected shape")]
     Response,
+    #[error(
+        "new work here starts in Herdr 2, which has no Herdr 1 sessions; start it from a Herdr 2 workspace"
+    )]
+    SessionOnHerdr2,
     #[error("Herdr did not answer in time")]
     Timeout,
     #[error("no such chat")]
@@ -360,6 +365,11 @@ impl Hub {
         let program = self.program().ok_or(Error::ProgramMissing)?;
         let program = program.as_path();
         if let Some(core) = self.core_for_work().await? {
+            // Herdr 2 keeps no Herdr 1 session: asked for a named one, the
+            // workspace could not be where it was asked for.
+            if session.is_some_and(|name| self.sessions.get(name).is_some()) {
+                return Err(Error::SessionOnHerdr2);
+            }
             let (cwd, program) = (cwd.to_owned(), program.to_owned());
             let (branch, root) = (branch.map(str::to_owned), self.worktrees.clone());
             let (pane, folder) = on_core(move || match branch {
@@ -462,6 +472,26 @@ impl Hub {
         // An unlisted tab is still made: the phone reloads and finds it.
         let _ = tokio::time::timeout(CORE_LISTING, listed).await;
         Ok(Some(json!({"pane": {"pane_id": pane}})))
+    }
+
+    /// A shell tab in `workspace`, on the core while one answers, as a
+    /// phone's New Terminal opens one. Answers its pane.
+    pub(crate) async fn new_terminal(&self, workspace: &str) -> Result<String> {
+        if let Some(created) = self.new_core_tab(workspace).await? {
+            return created["pane"]["pane_id"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or(Error::Response);
+        }
+        let response = self
+            .call(
+                ApiMethod::TabCreate,
+                json!({"workspace_id": workspace, "focus": false}),
+            )
+            .await?;
+        created_tab(&response)
+            .map(|(_, pane)| pane)
+            .ok_or(Error::Response)
     }
 
     /// Calls Herdr's public API, for the terminal views.

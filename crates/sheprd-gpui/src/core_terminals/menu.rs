@@ -1,9 +1,10 @@
 //! The right-click menus of herdr-core (Herdr 2) tabs and panes. Herdr's
 //! own menus act through its daemon; these act on the tab's panes as the
 //! window keeps them, in the same rows and order where the action exists:
-//! a new tab, renaming, splitting, zooming, mirroring, and closing.
+//! a new tab, renaming, moving an agent into a chat, muting, splitting,
+//! zooming, listing processes, mirroring, and closing.
 
-use super::{Purpose, panes::Axis};
+use super::{Purpose, mutes::MuteRow, panes::Axis};
 use crate::{
     SheprdWindow,
     browser::{Store, TabId},
@@ -40,30 +41,44 @@ impl Target {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Action {
     NewTab,
     Rename,
+    /// Opens the list of workspaces the tab can move to.
+    MoveToWorkspace,
+    /// Continue the tab's terminal agent in a chat, in the same pane.
+    MoveToChat(TerminalId),
+    /// Silence the tab's notifications, or what silences it.
+    Mute(MuteRow),
     SplitRight,
     SplitDown,
     Zoom,
     Unzoom,
     MoveTo,
+    Processes,
     Mirror,
     Close,
 }
 
 impl Action {
-    fn label(self, target: &Target) -> String {
+    fn label(&self, target: &Target) -> String {
         match (self, target) {
             (Self::NewTab, _) => fl!("tab-menu-new-tab"),
             (Self::Rename, Target::Tab(_)) => fl!("tab-menu-rename"),
             (Self::Rename, Target::Pane { .. }) => fl!("pane-menu-rename"),
+            (Self::MoveToWorkspace, _) => fl!("tab-menu-move-to-workspace"),
+            (Self::MoveToChat(_), _) => fl!("tab-menu-move-to-chat"),
+            (Self::Mute(MuteRow::Mute), _) => fl!("tab-menu-mute"),
+            (Self::Mute(MuteRow::Unmute), _) => fl!("tab-menu-unmute"),
+            (Self::Mute(MuteRow::UnmuteWorkspace), _) => fl!("tab-menu-unmute-workspace"),
+            (Self::Mute(MuteRow::UnmuteDevice), _) => fl!("tab-menu-unmute-device"),
             (Self::SplitRight, _) => fl!("pane-menu-split-right"),
             (Self::SplitDown, _) => fl!("pane-menu-split-down"),
             (Self::Zoom, _) => fl!("pane-menu-zoom"),
             (Self::Unzoom, _) => fl!("pane-menu-unzoom"),
             (Self::MoveTo, _) => fl!("pane-menu-move-to"),
+            (Self::Processes, _) => fl!("pane-menu-processes"),
             (Self::Mirror, _) => fl!("core-terminals-menu-mirror"),
             (Self::Close, Target::Tab(_)) => fl!("tab-menu-close"),
             (Self::Close, Target::Pane { .. }) => fl!("pane-menu-close"),
@@ -81,10 +96,11 @@ pub(crate) struct CoreMenu {
     return_focus: Option<FocusHandle>,
     /// Whether `return_focus` was a pane's, which may have gone since.
     from_pane: bool,
+    /// The pane's processes, while the menu lists them (`processes.rs`).
+    pub(super) processes: Option<crate::pane_menu::PaneProcesses>,
 }
 
 impl CoreMenu {
-    #[cfg(test)]
     pub(crate) fn target(&self) -> &Target {
         &self.target
     }
@@ -104,12 +120,23 @@ pub(crate) fn clean_name(name: &str) -> Option<String> {
 impl SheprdWindow {
     /// The rows the menu offers, in Herdr's order. A mirror only watches,
     /// so it neither splits nor mirrors again.
-    pub(crate) fn core_menu_actions(&self, target: &Target) -> Vec<Action> {
+    pub(crate) fn core_menu_actions(&self, target: &Target, cx: &App) -> Vec<Action> {
         let Some(shown) = self.core_terminals.tabs.get(&target.tab()) else {
             return Vec::new();
         };
         match target {
-            Target::Tab(_) => vec![Action::NewTab, Action::Rename, Action::Close],
+            Target::Tab(tab) => {
+                let mut actions = vec![Action::NewTab, Action::Rename];
+                if !self.core_tab_moves(*tab).is_empty() {
+                    actions.push(Action::MoveToWorkspace);
+                }
+                if let Some(terminal) = self.core_convertible_pane(*tab) {
+                    actions.push(Action::MoveToChat(terminal));
+                }
+                actions.push(Action::Mute(self.core_mute_row(*tab, cx)));
+                actions.push(Action::Close);
+                actions
+            }
             Target::Pane { terminal, .. } => {
                 let mut actions = Vec::new();
                 if !shown.observe {
@@ -120,7 +147,13 @@ impl SheprdWindow {
                     actions.push(if zoomed { Action::Unzoom } else { Action::Zoom });
                 }
                 if !shown.observe {
-                    actions.extend([Action::MoveTo, Action::Mirror]);
+                    actions.push(Action::MoveTo);
+                }
+                if self.core_processes_source(target.tab(), terminal).is_some() {
+                    actions.push(Action::Processes);
+                }
+                if !shown.observe {
+                    actions.push(Action::Mirror);
                 }
                 actions.push(Action::Close);
                 actions
@@ -153,6 +186,7 @@ impl SheprdWindow {
             input: None,
             return_focus,
             from_pane,
+            processes: None,
         });
     }
 
@@ -180,8 +214,16 @@ impl SheprdWindow {
             return;
         };
         let tab = target.tab();
-        if let (Action::MoveTo, Target::Pane { terminal, .. }) = (action, &target) {
+        if let (Action::MoveTo, Target::Pane { terminal, .. }) = (&action, &target) {
             self.open_core_move(tab, terminal.clone(), window, cx);
+            return;
+        }
+        if action == Action::MoveToWorkspace {
+            self.open_core_tab_move(tab, window, cx);
+            return;
+        }
+        if let (Action::Processes, Target::Pane { terminal, .. }) = (&action, &target) {
+            self.open_core_processes(tab, terminal, cx);
             return;
         }
         if action == Action::Rename {
@@ -213,8 +255,23 @@ impl SheprdWindow {
             cx.notify();
             return;
         }
-        match (action, target) {
+        match (action.clone(), target) {
             (Action::NewTab, _) => self.new_core_terminal(window, cx),
+            (Action::Mute(row), _) => self.apply_core_mute_row(tab, row, cx),
+            (Action::MoveToChat(terminal), _) => {
+                // A refusal leaves the agent running, and says why.
+                if let Err(error) =
+                    self.convert_to_chat(Some(&crate::chat::core_pane::key(&terminal)))
+                {
+                    self.show_flash(
+                        crate::window::Flash::warning(fl!(
+                            "chat-convert-failed",
+                            error = crate::i18n::Localize::localize(&error)
+                        )),
+                        cx,
+                    );
+                }
+            }
             (Action::Close, Target::Tab(_)) => self.close_browser_tab(tab, window, cx),
             (Action::Close, Target::Pane { terminal, .. }) => {
                 self.close_core_pane(tab, terminal, window, cx)
@@ -248,6 +305,30 @@ impl SheprdWindow {
             }
             _ => {}
         }
+    }
+
+    /// The pane of `tab` whose terminal agent the menu offers to move into a
+    /// chat: the one in use when it runs an agent, else the first that
+    /// does. Only a tab that drives this computer's terminals holds chats.
+    fn core_convertible_pane(&self, tab: TabId) -> Option<TerminalId> {
+        if !self.config.features.acp_chats || cfg!(windows) || !self.core_terminals.drives(tab) {
+            return None;
+        }
+        let shown = self.core_terminals.tabs.get(&tab)?;
+        let agent = |terminal: &TerminalId| {
+            self.core_terminals
+                .reported(&shown.host, terminal)
+                .is_some_and(|info| sheprd_core_client::agent_kind(info).is_some())
+        };
+        if agent(&shown.active) {
+            return Some(shown.active.clone());
+        }
+        shown
+            .panes
+            .terminals()
+            .into_iter()
+            .find(|terminal| agent(terminal))
+            .cloned()
     }
 
     /// Whether `focus` is a herdr-core pane's the window still shows.
@@ -327,10 +408,18 @@ impl SheprdWindow {
                 .into_iter()
                 .map(|row| Row::Move(row.destination, row.place))
                 .collect(),
-            (target, _) => self
-                .core_menu_actions(target)
+            (Target::Tab(tab), Some(Page::CoreMove)) => self
+                .core_tab_moves(*tab)
                 .into_iter()
-                .map(|action| Row::Action(action, action.label(target)))
+                .map(|row| Row::Move(row.destination, row.place))
+                .collect(),
+            (target, _) => self
+                .core_menu_actions(target, cx)
+                .into_iter()
+                .map(|action| {
+                    let label = action.label(target);
+                    Row::Action(action, label)
+                })
                 .collect(),
         }
     }
@@ -339,13 +428,16 @@ impl SheprdWindow {
         match row {
             Row::Action(action, _) => self.activate_core_menu(action, window, cx),
             Row::Move(destination, _) => {
-                let Some(Target::Pane { tab, terminal }) =
-                    self.menu.core.as_ref().map(|menu| menu.target.clone())
-                else {
+                let Some(target) = self.menu.core.as_ref().map(|menu| menu.target.clone()) else {
                     return;
                 };
                 self.dismiss_menu(window, cx);
-                self.move_core_pane(tab, terminal, destination, window, cx);
+                match target {
+                    Target::Pane { tab, terminal } => {
+                        self.move_core_pane(tab, terminal, destination, window, cx)
+                    }
+                    Target::Tab(tab) => self.move_core_tab(tab, destination, window, cx),
+                }
             }
         }
     }
@@ -513,7 +605,10 @@ impl SheprdWindow {
                     .px(px(8.))
                     .py(px(4.))
                     .text_color(rgb(theme.muted))
-                    .child(fl!("pane-menu-move-heading")),
+                    .child(match menu.target {
+                        Target::Tab(_) => fl!("tab-menu-move-heading"),
+                        Target::Pane { .. } => fl!("pane-menu-move-heading"),
+                    }),
             );
         }
         for (index, row) in self.core_menu_rows(cx).into_iter().enumerate() {

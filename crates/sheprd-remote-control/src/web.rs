@@ -251,6 +251,10 @@ pub(crate) fn router(state: Shared) -> Router {
             get(crate::native::changes::check_log),
         )
         .route(
+            "/api/v2/workspaces/{workspace}/terminals",
+            post(crate::native::new_terminal),
+        )
+        .route(
             "/api/v2/workspaces/{workspace}/rename",
             post(terminal::rename_workspace),
         )
@@ -472,7 +476,8 @@ impl IntoResponse for ApiError {
                 crate::hub::ConvertError::AlreadyConverting
                 | crate::hub::ConvertError::Platform
                 | crate::hub::ConvertError::Refused(_),
-            )) => StatusCode::CONFLICT,
+            ))
+            | Self::Hub(crate::hub::Error::SessionOnHerdr2) => StatusCode::CONFLICT,
             Self::Hub(_) | Self::NoPush => StatusCode::SERVICE_UNAVAILABLE,
         };
         // The request line only has the status. A computer without push

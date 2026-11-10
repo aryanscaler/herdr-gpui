@@ -204,8 +204,12 @@ settings-tabs-confirm-pane = Confirm before closing a pane
 settings-tabs-confirm-workspace = Confirm before closing a workspace
 settings-tabs-focus-follows-mouse = Focus follows mouse
 settings-tabs-focus-follows-mouse-description = The pointer chooses the active pane within a split terminal tab.
-settings-tabs-pane-history = Restore scrollback after Herdr restarts
-settings-tabs-pane-history-description = Experimental, Herdr 1 only. Herdr saves pane output to session-history.json and replays it when the daemon restarts. Herdr 2 terminals always come back with the output herdr-core keeps.
+settings-tabs-herdr-2-scrollback = Herdr 2 scrollback
+settings-tabs-herdr-2-scrollback-description = Lines of output each Herdr 2 terminal keeps to scroll back through. Terminals opened from now on use the new size.
+# $lines is a number of lines of terminal output.
+settings-tabs-herdr-2-scrollback-lines = { $lines }
+settings-tabs-pane-history = Restore Herdr 1 scrollback after it restarts
+settings-tabs-pane-history-description = Experimental. Herdr 1 saves pane output to session-history.json and replays it when its daemon restarts. Herdr 2 needs no setting: herdr-core keeps its terminals running, so they come back with their output, up to the Herdr 2 scrollback above.
 settings-code-mode = VS Code server
 settings-code-mode-description = Start VS Code automatically, or use the address of a server you run.
 settings-notif-delivery = Deliver agent notifications

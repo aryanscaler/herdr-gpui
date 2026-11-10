@@ -183,11 +183,20 @@ impl SheprdWindow {
             .unwrap_or_default();
         let listed: Vec<Listed> = herdr
             .into_iter()
-            .chain(
-                self.browser_tab_labels(cx)
-                    .into_iter()
-                    .map(|entry| (entry, Lead::Icon, false, false)),
-            )
+            .chain(self.browser_tab_labels(cx).into_iter().map(|entry| {
+                // A Herdr 2 terminal tab's marks take room as a Herdr tab's.
+                let face = match &entry.0 {
+                    Pick::Page(id) => cx
+                        .try_global::<crate::browser::Store>()
+                        .and_then(|store| store.get(*id))
+                        .and_then(|tab| self.core_face(tab, cx)),
+                    _ => None,
+                };
+                match face {
+                    Some(face) => (entry, face.lead(), face.zoomed, face.muted),
+                    None => (entry, Lead::Icon, false, false),
+                }
+            }))
             .filter(|((pick, _), _, _, _)| self.group_lists(slot.id, pick))
             .map(|((tab, label), lead, zoomed, muted)| {
                 let shape = TabShape {

@@ -138,6 +138,19 @@ impl SheprdWindow {
         if self.menu.deletion.is_none() && self.menu.creation.is_none() {
             return;
         }
+        // A kept workspace's dialog waits on Git, not on Herdr 1's daemon or
+        // its boot; only a change of shown host makes it stale.
+        if self
+            .menu
+            .target
+            .as_ref()
+            .is_some_and(|target| target.keeper == sheprd_session::Keeper::App)
+        {
+            if !self.menu_target_current() {
+                self.menu.reset();
+            }
+            return;
+        }
         if !self.menu_target_current()
             || !self.live.status.is_connected()
             || self.menu.target.as_ref().is_some_and(|target| {

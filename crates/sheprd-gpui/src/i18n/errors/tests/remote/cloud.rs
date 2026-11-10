@@ -44,6 +44,7 @@ fn every_worker_has_a_message() {
 fn every_install_failure_has_a_message() {
     use sheprd_remote::cloud::install::{Failure, Retry};
     let mut failures = vec![
+        Failure::Core(None),
         Failure::Missing,
         Failure::NoCurl,
         Failure::NoOutput,
@@ -61,6 +62,7 @@ fn every_install_failure_has_a_message() {
     }
     assert_localized(&failures.into_iter().map(Error::Install).collect::<Vec<_>>());
     assert_localized(&[Error::Install(Failure::Output("exit 9: boom".into()))]);
+    assert_localized(&[Error::Install(Failure::Core(Some("curl: (22) 404".into())))]);
 }
 
 #[test]

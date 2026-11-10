@@ -6,7 +6,9 @@
 use crate::i18n::fl;
 use crate::{
     SheprdWindow,
-    sidebar::{Indicators, agents::sorted_agents, cell::RowContext, layout::SidebarLook, wash},
+    sidebar::{
+        Indicators, agents::listed::listed_agents, cell::RowContext, layout::SidebarLook, wash,
+    },
 };
 use gpui::{prelude::*, *};
 
@@ -59,13 +61,18 @@ impl SheprdWindow {
         }
         let selected = index == self.selected_endpoint;
         let live = if selected { &self.live } else { &endpoint.live };
-        let Some(snapshot) = live
-            .snapshot
-            .as_deref()
-            .filter(|_| live.status.is_connected())
-        else {
+        let connected = live.snapshot.is_some() && live.status.is_connected();
+        // This computer's Herdr 2 agents list under it too, whether or not
+        // its Herdr 1 answers.
+        let core = self.listed_core_agents(index);
+        if !connected && core.as_ref().is_none_or(|core| core.agents.is_empty()) {
             return (list, 0, None);
-        };
+        }
+        // A disconnected Herdr 1 lists no agents of its own, but its host
+        // stays listed for the core's.
+        let offline = crate::state::LiveState::default();
+        let host = if connected { live } else { &offline };
+        let agents = listed_agents(vec![(index, host)], core, self.agent_sort);
         let theme = &self.theme;
         let row_cx = RowContext {
             indicators,
@@ -85,18 +92,17 @@ impl SheprdWindow {
         };
         let mut count = 0;
         let mut focused = None;
-        for agent in sorted_agents(snapshot, self.agent_sort) {
+        for (_, agent) in agents {
             // Configured `[sidebar_layout.agents]` rows apply here as in the
             // agents panel, gap included.
-            let Some(lines) = self.configured_agent_lines(agent, snapshot, row_cx.host) else {
+            let Some(lines) = self.configured_agent_lines(&agent, row_cx.host) else {
                 continue;
             };
-            if selected && agent.focused {
+            if selected && agent.focused() {
                 focused = Some(count);
             }
             let gap = self.agent_row_gap(count);
-            list =
-                list.child(self.agent_cell(index, agent, snapshot, &row_cx, lines, gap, false, cx));
+            list = list.child(self.agent_cell(index, agent, &row_cx, lines, gap, false, cx));
             count += 1;
         }
         if count == 0 {

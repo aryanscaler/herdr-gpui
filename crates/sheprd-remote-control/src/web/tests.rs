@@ -25,6 +25,7 @@ mod hosts;
 mod indicators;
 mod layout;
 mod nearby;
+mod new_terminal;
 mod origins;
 mod pace;
 mod pairing;

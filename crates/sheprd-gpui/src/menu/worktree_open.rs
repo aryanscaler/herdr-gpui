@@ -21,8 +21,8 @@ pub(super) struct Entry {
     pub(super) path: String,
     pub(super) branch: Option<String>,
     pub(super) label: String,
-    is_bare: bool,
-    is_prunable: bool,
+    pub(super) is_bare: bool,
+    pub(super) is_prunable: bool,
     pub(super) is_detached: bool,
     pub(super) open_workspace_id: Option<String>,
 }

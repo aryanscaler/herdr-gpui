@@ -27,11 +27,15 @@ On this computer, Sheprd joins a herdr-core that is already running, or starts y
 
 A Herdr 2 terminal in a workspace on an SSH host, cloud machine, or WSL distribution runs in that host's herdr-core. Sheprd opens the connection itself, the same way it reaches the host's Herdr, and runs `herdr-core connect` there, which starts the host's core when none is running. Sheprd looks for `herdr-core` on the host's `PATH`, then in `~/.local/bin` and the usual Homebrew and Nix locations. A host without herdr-core keeps its new tabs in its Herdr. To add one, choose **Install Herdr 2** in the host's menu (right-click its header in the sidebar): Sheprd downloads the herdr-core it bundles there, checks it against its pinned checksum, and puts it in `~/.local/bin`, leaving a host's own herdr-core as it is. If Herdr 1 is not installed, the window opens a herdr-core shell instead of asking you to install Herdr.
 
-Herdr's shared `[ui]` settings apply to Herdr 2 panes too: `copy_on_select`, `mouse_scroll_lines`, and `right_click_passthrough_modifier` (a Herdr 2 pane has no pane menu yet, so its other right-clicks also reach a program that reads the mouse).
+Herdr's shared `[ui]` settings apply to Herdr 2 panes too: `copy_on_select`, `mouse_scroll_lines`, and `right_click_passthrough_modifier`.
 
-A Herdr 2 pane keeps 10,000 lines of scrollback. herdr-core itself keeps each terminal's recent output, a few thousand lines, through Sheprd and herdr-core restarts, and a pane shows it again when it opens, so scrolling back after a restart works without a switch. **Restore scrollback after Herdr restarts** and Herdr's `[advanced] scrollback_limit_bytes` apply to Herdr 1 only.
+A Herdr 2 pane keeps 10,000 lines of scrollback by default. **Settings > Tabs > Herdr 2 scrollback** offers 1,000 to 100,000, and `herdr_2_scrollback` in the config takes any number in that range; a terminal opened after the change uses the new size. herdr-core itself keeps each terminal's recent output, a few thousand lines, through Sheprd and herdr-core restarts, and a pane shows it again when it opens, so scrolling back after a restart works without a switch. **Restore Herdr 1 scrollback after it restarts** and Herdr's `[advanced] scrollback_limit_bytes` apply to Herdr 1 only.
 
-**Mirror Herdr 2 Pane** opens a watch-only view of the focused pane in a new tab. In the sidebar, a Herdr 2 list under the agents shows each pane of the workspace's Herdr 2 tabs with its status.
+```toml
+herdr_2_scrollback = 50000
+```
+
+**Mirror Herdr 2 Pane** opens a watch-only view of the focused pane in a new tab. Agents in Herdr 2 panes are listed with Herdr 1's in the sidebar, in every workspace and wherever the agents placement puts them, sorted and numbered together, so **Previous Agent**, **Next Agent**, and the agent numbers step through both.
 
 ## Splits
 
@@ -52,6 +56,8 @@ Right-click a pane, or an agent's row in the sidebar, for:
 The command palette's **Move Pane…** (`move_pane`, unbound by default) opens the same list for the focused pane. Moving into an existing tab splits that tab's focused pane and puts the moved pane on its right. The terminal keeps running throughout.
 
 Herdr refuses to move a pane out of or into a zoomed tab, and the menu shows its reason.
+
+A Herdr 2 pane's **Move to…** lists a new tab of its workspace, a new workspace, its workspace's other Herdr 2 tabs, and every other workspace of the host, where it opens in a new tab. A Herdr 2 tab's own menu has **Move to Workspace…** to move the whole tab. Either way the terminals keep running and Sheprd shows them in their new place.
 
 > **Note.** Moving panes is available on macOS and Linux clients, for the local daemon, a named session, or an SSH device. **Move to…** also lists other devices; see [Teleport](teleport.md) for moving work between machines.
 

@@ -10,8 +10,7 @@
 //! the narrow column cannot.
 
 use super::{
-    agent_name,
-    agents::{Indicators, agent_place, state_label, status_indicator, status_text},
+    agents::{Indicators, status_indicator, status_text},
     cell::RowState,
     glyph_width, label_text,
     layout::{self, Highlight, SidebarLook},
@@ -29,7 +28,7 @@ use crate::{
     herdr_settings::SidebarCollapsedMode,
 };
 use gpui::{prelude::*, *};
-use sheprd_client::protocol::{AgentStatus, ClientShellAgent};
+use sheprd_client::protocol::AgentStatus;
 use std::collections::HashMap;
 
 /// Wide enough for the shared mark grid: a two-digit workspace number, an
@@ -400,17 +399,14 @@ impl SheprdWindow {
                 continue;
             }
             let selected = index == self.selected_endpoint;
-            let live = if selected { &self.live } else { &endpoint.live };
-            let Some(snapshot) = live.snapshot.as_deref() else {
-                continue;
-            };
             let endpoint_id = &endpoint.id;
             let host = multi.then_some(endpoint.label.as_str());
-            let id = agent.pane_id.clone();
+            let id = agent.id();
             let key = format!("rail-agent-{endpoint_id}-{id}");
             let navigate_endpoint = endpoint_id.clone();
-            let focused = selected && agent.focused;
-            let place = agent_place(agent, snapshot);
+            let target = agent.target();
+            let focused = selected && agent.focused();
+            let place = agent.place();
             let place = place.map(|(workspace, tab)| match tab {
                 Some(tab) => format!("{workspace} / {tab}"),
                 None => workspace.to_owned(),
@@ -421,8 +417,7 @@ impl SheprdWindow {
             } else {
                 theme.muted
             };
-            let icon_path =
-                super::agents::agent_icon(agent, snapshot, &self.config.sidebar_style).path();
+            let icon_path = agent.icon(&self.config.sidebar_style).path();
             // The host letter shares the workspace number's column. With one
             // host there is no letter, so the icon takes that column and still
             // starts on the badge's left edge.
@@ -470,7 +465,7 @@ impl SheprdWindow {
                     format!("rail-dot-{key}"),
                     columns.dot,
                     columns.height,
-                    indicator(agent.agent_status, font, indicators),
+                    indicator(agent.status(), font, indicators),
                 ));
             agents = agents.child(
                 aligned_row(
@@ -490,13 +485,12 @@ impl SheprdWindow {
                 .cursor_pointer()
                 .tooltip(hint.with(describe(
                     host,
-                    agent_name(agent),
+                    agent.name(),
                     place.as_deref(),
-                    agent_status_word(agent).as_deref(),
+                    agent_status_word(&agent).as_deref(),
                 )))
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    this.navigate_endpoint(&navigate_endpoint, NavigationTarget::Pane(&id), cx);
-                    window.focus(&this.focus, cx);
+                    this.open_listed_agent(&navigate_endpoint, &target, window, cx);
                 })),
             );
         }
@@ -842,9 +836,9 @@ fn status_word(status: AgentStatus) -> Option<String> {
 }
 
 /// An agent's status word: its integration's state label when it set one.
-fn agent_status_word(agent: &ClientShellAgent) -> Option<String> {
-    let fallback = status_word(agent.agent_status).unwrap_or_default();
-    let word = state_label(agent, &fallback).into_owned();
+fn agent_status_word(agent: &super::Listed<'_>) -> Option<String> {
+    let fallback = status_word(agent.status()).unwrap_or_default();
+    let word = agent.state_label(&fallback).into_owned();
     (!word.is_empty()).then_some(word)
 }
 

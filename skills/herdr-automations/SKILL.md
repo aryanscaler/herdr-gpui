@@ -1,6 +1,6 @@
 ---
 name: herdr-automations
-description: "Write Sheprd automations: small Luau scripts that run on a schedule or by hand to pull a branch, run validation or commands, start agents in new worktrees with a prompt, and notify. Use it inside Herdr (HERDR_ENV=1) when the user asks for something to happen every day, every few hours, at a time, on a cron schedule, or on demand with one command: a nightly or recurring job, a scheduled agent, an automation, a routine, or 'every morning do X'. It covers writing the script, checking its plan with sheprd-automate check, and asking the user to approve it; never approve it yourself."
+description: "Write Sheprd automations: small Luau scripts that run on a schedule or by hand to pull a branch, run validation or commands, start agents in new worktrees with a prompt, and notify. Use it inside Herdr (HERDR_ENV=1 or HC_TERMINAL_ID set) when the user asks for something to happen every day, every few hours, at a time, on a cron schedule, or on demand with one command: a nightly or recurring job, a scheduled agent, an automation, a routine, or 'every morning do X'. It covers writing the script, checking its plan with sheprd-automate check, and asking the user to approve it; never approve it yourself."
 ---
 <!-- herdr-gpui-managed-skill v1: Sheprd keeps this file up to date. Edit a copy under another name to keep your changes. -->
 
@@ -14,6 +14,11 @@ are deterministic: steps are their only effects, and the plan
 
 The skill identifier, `.herdr` paths, and `herdr.*` Luau API remain stable so
 existing scripts and installed skills continue to work after the rename.
+
+Everything here works the same from a Herdr pane (`HERDR_ENV=1`) or a
+Herdr 2 terminal (`HC_TERMINAL_ID` is set). The daemon drives whichever
+Herdr the host runs, and on Herdr 2 an `agent` step starts its agent in a
+herdr-core terminal of its new worktree.
 
 ## How to make one
 
@@ -31,7 +36,8 @@ existing scripts and installed skills continue to work after the rename.
 5. Ask the user to approve it. Run `sheprd automation approve FILE` to open
    Sheprd's approval dialog, or ask them to run `sheprd-automate approve FILE`
    in their own terminal. Never approve it yourself: approval is the user's
-   review, and `sheprd-automate approve` refuses from an agent's pane.
+   review, and `sheprd-automate approve` refuses from an agent's pane or
+   Herdr 2 terminal.
 6. After approval, `sheprd-automate run-now FILE` runs it once by hand when the
    user wants to try it; it spends tokens if it starts agents, so ask first.
    `sheprd-automate status` and `sheprd-automate runs show RUN` show what

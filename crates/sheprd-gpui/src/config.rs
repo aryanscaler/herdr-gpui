@@ -6,7 +6,6 @@
 use crate::{
     Result,
     contrast::Contrast,
-    i18n::fl,
     keymap::{Binding, DaemonKeys, Keymap, PaneKeys},
 };
 mod accent;
@@ -25,6 +24,7 @@ mod container;
 mod daemon;
 mod daytona;
 mod devices;
+mod diagnostic;
 mod edit;
 mod error;
 pub(crate) mod favorite_themes;
@@ -33,6 +33,7 @@ mod files;
 mod font_weight;
 mod fonts;
 mod github;
+mod herdr_2;
 mod keybindings;
 mod layout;
 mod notifications;
@@ -92,6 +93,7 @@ pub use fonts::symbol_fallbacks;
 pub use fonts::{FONT_SIZE_RANGE, FONT_SIZE_STEP, FontConfig};
 pub(crate) use github::MAX_ACCOUNTS;
 pub use github::{GitHubAccount, GitHubConfig};
+pub(crate) use herdr_2::HERDR_2_SCROLLBACK;
 pub use layout::{Density, Layout, LayoutMode, Style};
 pub(crate) use notifications::NotificationDelivery;
 pub use notifications::{
@@ -221,6 +223,8 @@ pub struct Config {
     pub github: GitHubConfig,
     /// Where GitLab tokens pasted in the account menu are saved.
     pub gitlab: GitLabConfig,
+    /// Lines of output each Herdr 2 terminal keeps to scroll back through.
+    pub herdr_2_scrollback: usize,
     /// New tabs run in herdr-core (Herdr 2) rather than Herdr 1, for their
     /// native panes. Off by default while Herdr 1 holds the user's sessions;
     /// without Herdr 1 installed, terminals are Herdr 2's anyway.
@@ -445,6 +449,7 @@ impl Default for Config {
             focus_follows_mouse: true,
             github: GitHubConfig::default(),
             gitlab: GitLabConfig::default(),
+            herdr_2_scrollback: HERDR_2_SCROLLBACK,
             herdr_2_terminals: false,
             icon_font_missing: false,
             keep_selection_after_copy: true,
@@ -539,6 +544,7 @@ struct Settings {
     focus_follows_mouse: Option<bool>,
     github: GitHubConfig,
     gitlab: GitLabConfig,
+    herdr_2_scrollback: Option<usize>,
     herdr_2_terminals: Option<bool>,
     keep_selection_after_copy: Option<bool>,
     keybindings: BTreeMap<String, Binding>,
@@ -641,56 +647,6 @@ impl Config {
 
     pub fn local_path() -> Result<PathBuf> {
         Ok(Self::path()?.with_extension("local.toml"))
-    }
-
-    /// Warnings naming the keys this build ignored and the configured fonts
-    /// that are not installed, one line each, if any. Keys and families come
-    /// from the user's file, so each loses the characters untrusted text
-    /// does before it joins a message.
-    pub(crate) fn diagnostic(&self) -> Option<String> {
-        const LISTED: usize = 5;
-        const MAX_ITEM_CHARS: usize = 80;
-        let list = |items: &[String]| {
-            let listed: Vec<_> = items
-                .iter()
-                .take(LISTED)
-                .map(|item| sheprd_client::text::safe_text(item, MAX_ITEM_CHARS))
-                .collect();
-            (listed.join(", "), items.len().saturating_sub(LISTED))
-        };
-        let mut lines = Vec::new();
-        if !self.unknown_keys.is_empty() {
-            let (keys, more) = list(&self.unknown_keys);
-            lines.push(fl!(
-                "config-diagnostic-unknown-keys",
-                keys = keys,
-                more = more
-            ));
-        }
-        if self.layout.legacy_sidebar_gap.is_some() {
-            lines.push(fl!("config-diagnostic-sidebar-gap"));
-        }
-        if !self.missing_fonts.is_empty() {
-            let fonts: Vec<String> = self
-                .missing_fonts
-                .iter()
-                .map(|family| format!("\"{family}\""))
-                .collect();
-            let (fonts, more) = list(&fonts);
-            lines.push(fl!(
-                "config-diagnostic-missing-fonts",
-                fonts = fonts,
-                more = more
-            ));
-        }
-        if let Some(missing) = &self.missing_weight {
-            lines.push(fl!(
-                "config-diagnostic-missing-weight",
-                family = sheprd_client::text::safe_text(&missing.family, MAX_ITEM_CHARS),
-                weight = font_weight::describe(missing.weight)
-            ));
-        }
-        (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
     pub fn load() -> Result<Self> {
@@ -984,6 +940,7 @@ impl Config {
         config.editor_command = settings.editor_command;
         config.keep_selection_after_copy = settings.keep_selection_after_copy.unwrap_or(true);
         config.herdr_2_terminals = settings.herdr_2_terminals.unwrap_or(false);
+        config.herdr_2_scrollback = herdr_2::scrollback(settings.herdr_2_scrollback);
         for (name, font, settings) in [
             ("sidebar", &mut config.sidebar, settings.sidebar.font),
             ("tabs", &mut config.tabs, settings.tabs),

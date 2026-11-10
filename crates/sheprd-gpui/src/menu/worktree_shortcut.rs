@@ -99,6 +99,10 @@ impl SheprdWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(kept) = self.kept_in_front().map(str::to_owned) {
+            self.open_kept_worktree_shortcut(&kept, shortcut, window, cx);
+            return;
+        }
         let target = match &self.live.snapshot {
             Some(snapshot) if self.live.status.is_connected() => shortcut.target(snapshot),
             _ => Err(Unavailable::Disconnected),
@@ -113,6 +117,47 @@ impl SheprdWindow {
         self.open_workspace_menu(&id, Point::default(), window, cx);
         if self.menu.page == Some(Page::Workspace) {
             self.open_workspace_dialog(shortcut.action(), window, cx);
+        }
+    }
+
+    /// [`Self::open_worktree_shortcut`] for the kept workspace `id` in
+    /// front. Its new worktree dialog lists the repository's other
+    /// checkouts, so opening one shows that list.
+    fn open_kept_worktree_shortcut(
+        &mut self,
+        id: &str,
+        shortcut: WorktreeShortcut,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let linked = self
+            .sessions(self.selected_endpoint)
+            .core
+            .as_ref()
+            .and_then(|core| core.workspace(id))
+            .map(|workspace| workspace.worktree.as_ref().map(|tree| tree.linked));
+        // Git runs through host scripts, which need `/bin/sh`, as the
+        // menu's rows say.
+        let scripts = cfg!(any(target_os = "linux", target_os = "macos"));
+        // Git runs on this computer, so another host's kept workspaces wait.
+        let local = !self.selected_is_remote();
+        let linked = linked.flatten().filter(|_| scripts && local);
+        let action = match (shortcut, linked) {
+            (_, None) => Err(Unavailable::NotGit),
+            (WorktreeShortcut::Remove, Some(false)) => Err(Unavailable::MainCheckout),
+            (WorktreeShortcut::Open, Some(_)) => Ok(WorkspaceAction::NewWorktree),
+            (WorktreeShortcut::Remove, Some(true)) => Ok(WorkspaceAction::DeleteWorktree),
+        };
+        let action = match action {
+            Ok(action) => action,
+            Err(reason) => {
+                self.show_flash(crate::window::Flash::warning(reason.message()), cx);
+                return;
+            }
+        };
+        self.open_workspace_dialog_for(id, action, Point::default(), window, cx);
+        if action == WorkspaceAction::NewWorktree {
+            self.select_worktree_tab(super::worktree_source::Tab::Existing, window, cx);
         }
     }
 

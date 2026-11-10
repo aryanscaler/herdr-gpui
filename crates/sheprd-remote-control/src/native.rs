@@ -12,7 +12,7 @@ mod search;
 mod wire;
 
 pub(crate) use convert::convert;
-pub(crate) use create::{create_workspace, new_options, start_chat};
+pub(crate) use create::{create_workspace, new_options, new_terminal, start_chat};
 pub(crate) use search::search;
 
 use crate::{

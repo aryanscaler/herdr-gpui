@@ -99,13 +99,20 @@ impl Source {
     }
 
     fn run(&self, run: &Run<'_>) -> Result<String> {
+        let terminal = self.start_run(run)?;
+        let state = lock(&self.state);
+        let core = state.core.as_ref().ok_or(Error::Disconnected)?;
+        Ok(pane_id(&core.hello().core.id, &terminal.address))
+    }
+
+    /// Starts `run`, listed here at once: input may arrive before the next
+    /// poll lists it.
+    pub(super) fn start_run(&self, run: &Run<'_>) -> Result<sheprd_core_client::wire::Terminal> {
         let core = lock(&self.state).core.clone();
         let core = core.ok_or(Error::Disconnected)?;
         let terminal = core.run(run)?;
-        let pane = pane_id(&core.hello().core.id, &terminal.address);
-        // Input may arrive before the next poll lists it.
-        lock(&self.state).terminals.push(terminal);
-        Ok(pane)
+        lock(&self.state).terminals.push(terminal.clone());
+        Ok(terminal)
     }
 
     /// Ends the terminals `target` names: a pane's, or every pane's of a

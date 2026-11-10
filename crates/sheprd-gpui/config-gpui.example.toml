@@ -199,6 +199,10 @@ tab_layout = "classic"
 # herdr-core runs on this computer only, so tabs on other hosts stay Herdr's.
 # Also under Settings > Tabs.
 herdr_2_terminals = false
+# Lines of output each Herdr 2 terminal keeps to scroll back through, from
+# 1000 to 100000. Terminals opened after a change use the new size.
+# Also under Settings > Tabs.
+herdr_2_scrollback = 10000
 
 [palette]
 # Two short Shift taps open the unified palette in the focused GUI window.

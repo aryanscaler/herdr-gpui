@@ -7,6 +7,7 @@ use gpui::{
 use sheprd_client::protocol::{AgentStatus, ClientShellSnapshot};
 use std::sync::Arc;
 
+mod core_notes;
 mod delayed_origin;
 mod en_xa;
 mod host_batches;

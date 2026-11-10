@@ -1,22 +1,19 @@
-//! The sidebar's Herdr 2 rows: every pane of the focused workspace's
-//! herdr-core tabs, under the agents, with the status dot its agent reports
-//! and the mark of the agent it runs.
-//! Clicking a row shows its tab and gives that pane the keyboard. Mirrors are
-//! left out: the terminal they watch is listed where it types.
+//! Herdr 2 panes as Go To reaches them: every pane of the focused
+//! workspace's herdr-core tabs that types into its terminal, and showing an
+//! agent's pane. The agents themselves are listed with Herdr 1's
+//! (`sidebar::Listed`). Mirrors are left out: the terminal they watch is
+//! listed where it types.
 
 use crate::{
     SheprdWindow,
     browser::{Location, Store, TabId},
-    fonts::StyledFont,
-    i18n::fl,
-    sidebar::{label_text, status_indicator},
 };
 use gpui::{prelude::*, *};
 use sheprd_backend::TerminalId;
 
 impl SheprdWindow {
     /// Every pane of the focused workspace's herdr-core tabs that type into
-    /// their terminals, tab by tab, as the sidebar and Go To list them.
+    /// their terminals, tab by tab, as Go To lists them.
     pub(crate) fn listed_core_panes(&self, cx: &App) -> Vec<(TabId, TerminalId)> {
         let (Some(store), Some((scope, workspace))) =
             (cx.try_global::<Store>(), self.browser_key())
@@ -39,81 +36,6 @@ impl SheprdWindow {
                     .map(move |terminal| (tab, terminal.clone()))
             })
             .collect()
-    }
-
-    /// The Herdr 2 rows, or nothing when the workspace has no herdr-core tab.
-    pub(crate) fn core_sidebar_rows(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let panes = self.listed_core_panes(cx);
-        if panes.is_empty() {
-            return None;
-        }
-        let theme = &self.theme;
-        let font = &self.config.sidebar;
-        let indicators = self.core_indicators(cx);
-        let hover = theme.active;
-        let rows = panes.into_iter().map(|(tab, terminal)| {
-            let (title, status) = self.core_pane_label(tab, &terminal, cx);
-            // The tab's host's record: IDs repeat across machines.
-            let agent = self
-                .core_terminals
-                .info(tab, &terminal)
-                .and_then(sheprd_core_client::agent_kind);
-            let id = SharedString::from(format!("core-sidebar-{}-{terminal}", u64::from(tab)));
-            let clicked = terminal.clone();
-            // The ID beside a title, unless the title already is the ID.
-            let address = (title != terminal.as_str()).then(|| terminal.to_string());
-            div()
-                .id(id.clone())
-                .debug_selector(move || id.to_string())
-                .px_3()
-                .py_1()
-                .mx_1()
-                .flex()
-                .items_center()
-                .gap_2()
-                .rounded(px(crate::config::corners::CONTROL))
-                .cursor_pointer()
-                .hover(move |row| row.bg(rgb(hover)))
-                .child(status_indicator(status, font, indicators).flex_none())
-                .children(agent.map(|agent| {
-                    crate::icons::AgentIcon::from_identity(Some(agent.name()))
-                        .element(font.size, theme.muted)
-                }))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_color(rgb(theme.foreground))
-                        .child(label_text(&title)),
-                )
-                .children(address.map(|address| {
-                    div()
-                        .flex_none()
-                        .text_color(rgb(theme.muted))
-                        .child(label_text(&address))
-                }))
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.show_core_pane(tab, &clicked, window, cx);
-                }))
-        });
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .pt_2()
-                .text_font(font)
-                .text_size(px(font.size))
-                .child(
-                    div()
-                        .px_3()
-                        .pb_1()
-                        .text_color(rgb(theme.muted))
-                        .child(label_text(&fl!("core-terminals-sidebar"))),
-                )
-                .children(rows)
-                .into_any_element(),
-        )
     }
 
     /// Shows a Herdr 2 agent the overview lists: its workspace, then its tab
@@ -147,7 +69,14 @@ impl SheprdWindow {
         let Ok(terminal) = TerminalId::new(terminal) else {
             return;
         };
-        self.show_core_pane(TabId::from(tab), &terminal, window, cx);
+        let tab = TabId::from(tab);
+        // A tab of a workspace not shown since launch has no state until a
+        // sync restores it; without it the pane asked for would not be the
+        // one put in use.
+        if !self.core_terminals.tabs.contains_key(&tab) {
+            self.sync_core_views(cx);
+        }
+        self.show_core_pane(tab, &terminal, window, cx);
     }
 
     /// Shows `tab` with `terminal` as its pane in use, unzoomed if another
@@ -167,5 +96,44 @@ impl SheprdWindow {
         }
         self.show_browser_tab(tab, window, cx);
         cx.notify();
+    }
+
+    /// Opens the pane menu of a Herdr 2 agent the sidebar lists, its
+    /// workspace and host first brought forward as a click brings them, so
+    /// the menu acts where the agent is and its tab state is restored.
+    pub(crate) fn open_core_agent_menu(
+        &mut self,
+        endpoint: &str,
+        target: &crate::sidebar::AgentTarget,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let crate::sidebar::AgentTarget::Core {
+            workspace,
+            tab,
+            terminal,
+        } = target
+        else {
+            return;
+        };
+        let (Ok(number), Ok(terminal_id)) =
+            (tab.parse::<u64>(), TerminalId::new(terminal.as_str()))
+        else {
+            return;
+        };
+        // The menu's actions, Move To's destinations among them, are those
+        // of the workspace and host in front: bring the agent's forward.
+        self.show_core_agent(endpoint, workspace, tab, terminal, window, cx);
+        let tab_id = TabId::from(number);
+        self.open_core_menu(
+            super::menu::Target::Pane {
+                tab: tab_id,
+                terminal: terminal_id,
+            },
+            position,
+            window,
+            cx,
+        );
     }
 }

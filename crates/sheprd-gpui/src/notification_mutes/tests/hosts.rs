@@ -119,6 +119,7 @@ fn the_largest_set_of_devices_fits_in_the_file() {
         hosts: (0..MAX_HOSTS)
             .map(|index| format!("{index:\"<MAX_FIELD_BYTES$}"))
             .collect(),
+        kept: Vec::new(),
     };
     let bytes = serde_json::to_vec(&saved).unwrap();
     assert!(bytes.len() as u64 <= MAX_FILE_BYTES);

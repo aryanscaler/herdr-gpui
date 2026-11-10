@@ -41,5 +41,6 @@ pub mod railway;
 #[cfg(feature = "sprites")]
 pub mod sprites;
 pub mod teleport;
+pub mod work;
 
 pub use error::{Error, Result};

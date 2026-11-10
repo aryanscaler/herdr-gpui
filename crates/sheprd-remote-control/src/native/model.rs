@@ -115,6 +115,11 @@ pub(crate) struct Terminal {
     pub(crate) label: String,
     pub(crate) cwd: Option<String>,
     pub(crate) zoomed: bool,
+    /// What its menu may do besides closing: a Herdr desktop space's tab
+    /// keeps its layout and names in that app. Older servers send none and
+    /// allow every one.
+    #[serde(default = "TabAction::all")]
+    pub(crate) actions: Vec<TabAction>,
     pub(crate) panes: Vec<Pane>,
     /// The agent Herdr detects in the tab, the most pressing first.
     pub(crate) agent: Option<TerminalAgent>,
@@ -123,6 +128,32 @@ pub(crate) struct Terminal {
     /// from older servers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) convert: Option<ConvertOffer>,
+}
+
+/// What a terminal tab's menu may do with it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TabAction {
+    // keep-sorted start
+    Rename,
+    Split,
+    Zoom,
+    // keep-sorted end
+}
+
+impl TabAction {
+    pub(crate) fn all() -> Vec<Self> {
+        vec![Self::Rename, Self::Split, Self::Zoom]
+    }
+
+    /// What a phone may do with the tab `tab`.
+    fn of(tab: &str) -> Vec<Self> {
+        if hub::arrangeable(tab) {
+            Self::all()
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 /// A terminal agent a phone may move into a chat: its pane, and the agent
@@ -322,6 +353,7 @@ fn terminal(terminal: &hub::Terminal) -> Terminal {
         label: terminal.label.clone(),
         cwd: terminal.cwd.clone(),
         zoomed: terminal.zoomed,
+        actions: TabAction::of(&terminal.tab),
         panes: terminal
             .panes
             .iter()

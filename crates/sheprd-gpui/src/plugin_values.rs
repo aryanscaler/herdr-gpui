@@ -5,7 +5,9 @@
 //! (`pane.report_metadata`, `workspace.report_metadata`) and the status labels
 //! integrations choose. The sidebar draws them only where Herdr's
 //! `[ui.sidebar]` rows list them, so Settings > Plugins lists what is reported
-//! and previews the rows. Everything here is pure and bounded.
+//! and previews the rows. On Herdr 2, the labels plugins and hooks set on an
+//! agent's terminal (`hc label`) are its custom values. Everything here is
+//! pure and bounded.
 use crate::{
     SheprdWindow,
     config::{
@@ -53,37 +55,86 @@ fn sample(text: &str) -> Option<String> {
 
 /// Plugin output in `snapshot`, bounded and safe to display.
 pub(crate) fn host_report(host: &str, snapshot: &ClientShellSnapshot) -> HostReport {
-    let mut reported = BTreeMap::<(SidebarScope, &str), String>::new();
-    let agents = snapshot
-        .agents
-        .iter()
-        .map(|agent| (SidebarScope::Agents, &agent.tokens));
-    let spaces = snapshot
-        .workspaces
-        .iter()
-        .map(|workspace| (SidebarScope::Spaces, &workspace.tokens));
-    for (scope, tokens) in agents.chain(spaces) {
-        // Remote browser requests are this app's own traffic, not values a
-        // plugin reported for display.
-        let reported_tokens = tokens
+    let agents = snapshot.agents.iter().flat_map(|agent| {
+        agent
+            .tokens
             .iter()
-            .filter(|(name, _)| !crate::remote_browser::is_request_token(name));
-        for (name, value) in reported_tokens {
-            let full = reported.len() >= MAX_REPORTED;
-            if let (Entry::Vacant(new), Some(value)) =
-                (reported.entry((scope, name.as_str())), sample(value))
-                && !full
-            {
-                new.insert(value);
-            }
-        }
-    }
-    let mut labels = snapshot.agents.iter().filter_map(|agent| {
+            .map(|(name, value)| (SidebarScope::Agents, name.as_str(), value.as_str()))
+    });
+    let spaces = snapshot.workspaces.iter().flat_map(|workspace| {
+        workspace
+            .tokens
+            .iter()
+            .map(|(name, value)| (SidebarScope::Spaces, name.as_str(), value.as_str()))
+    });
+    let labels = snapshot.agents.iter().filter_map(|agent| {
         agent
             .state_labels
             .iter()
             .find_map(|(_, label)| sample(label))
     });
+    report(host, agents.chain(spaces), labels)
+}
+
+/// What one host reports: its Herdr 1 `snapshot`'s plugin output, if it
+/// has one, and the labels plugins set on its Herdr 2 agents' terminals,
+/// which stand for Herdr 2's custom agent values.
+pub(crate) fn host_report_with_core(
+    host: &str,
+    snapshot: Option<&ClientShellSnapshot>,
+    core: &[crate::sidebar::CoreAgent<'_>],
+) -> HostReport {
+    let Some(snapshot) = snapshot else {
+        return report(host, core_values(core), std::iter::empty());
+    };
+    let mut report = host_report(host, snapshot);
+    let core = self::report(host, core_values(core), std::iter::empty());
+    for reported in core.reported {
+        let known = report
+            .reported
+            .iter()
+            .any(|known| known.scope == reported.scope && known.name == reported.name);
+        if !known && report.reported.len() < MAX_REPORTED {
+            report.reported.push(reported);
+        }
+    }
+    report
+        .reported
+        .sort_by(|a, b| (a.scope, &a.name).cmp(&(b.scope, &b.name)));
+    report
+}
+
+fn core_values<'a>(
+    core: &'a [crate::sidebar::CoreAgent<'a>],
+) -> impl Iterator<Item = (SidebarScope, &'a str, &'a str)> {
+    core.iter().flat_map(|agent| {
+        agent
+            .plugin_values()
+            .map(|(name, value)| (SidebarScope::Agents, name, value))
+    })
+}
+
+/// The report of `values`, each a value reported for an agent or a
+/// workspace, and of the state labels integrations chose, `labels`.
+fn report<'a>(
+    host: &str,
+    values: impl IntoIterator<Item = (SidebarScope, &'a str, &'a str)>,
+    mut labels: impl Iterator<Item = String>,
+) -> HostReport {
+    let mut reported = BTreeMap::<(SidebarScope, &str), String>::new();
+    // Remote browser requests are this app's own traffic, not values a
+    // plugin reported for display.
+    let values = values
+        .into_iter()
+        .filter(|(_, name, _)| !crate::remote_browser::is_request_token(name));
+    for (scope, name, value) in values {
+        let full = reported.len() >= MAX_REPORTED;
+        if let (Entry::Vacant(new), Some(value)) = (reported.entry((scope, name)), sample(value))
+            && !full
+        {
+            new.insert(value);
+        }
+    }
     let label_sample = labels.next();
     HostReport {
         host: host.to_owned(),
@@ -283,7 +334,8 @@ pub(crate) fn preview_space(
 }
 
 impl SheprdWindow {
-    /// What every enabled, connected host's plugins report, in sidebar order.
+    /// What every enabled, connected host's plugins report, in sidebar
+    /// order, this computer's Herdr 2 agents' labels with its own.
     pub(crate) fn plugin_reports(&self) -> Vec<HostReport> {
         self.endpoints
             .iter()
@@ -295,10 +347,19 @@ impl SheprdWindow {
                 } else {
                     &endpoint.live
                 };
-                let snapshot = live.snapshot.as_deref()?;
-                live.status
-                    .is_connected()
-                    .then(|| host_report(&endpoint.label, snapshot))
+                let snapshot = live
+                    .snapshot
+                    .as_deref()
+                    .filter(|_| live.status.is_connected());
+                let core = self
+                    .listed_core_agents(index)
+                    .filter(|core| core.answers)
+                    .map(|core| core.agents)
+                    .unwrap_or_default();
+                if snapshot.is_none() && core.is_empty() {
+                    return None;
+                }
+                Some(host_report_with_core(&endpoint.label, snapshot, &core))
             })
             .collect()
     }

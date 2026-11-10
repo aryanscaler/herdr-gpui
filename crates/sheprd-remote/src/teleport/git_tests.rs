@@ -374,3 +374,29 @@ fn teleporting_back_reclaims_the_old_checkout_and_keeps_a_backup() {
     );
     assert!(git(&fx.source, &["for-each-ref", "refs/herdr-teleport/back"]).is_empty());
 }
+
+/// A workspace opened in a subfolder of a worktree moves, maps, and restores
+/// from the worktree's root.
+#[test]
+fn a_subfolder_resolves_to_its_checkouts_root() {
+    let fixture = fixture();
+    let host = Host::new(&ConnectTarget::Local).unwrap();
+    let cancelled = AtomicBool::new(false);
+    let sub = fixture.checkout.join("nested/dir");
+    fs::create_dir_all(&sub).unwrap();
+    let root = toplevel(&host, sub.to_str().unwrap(), Step::Review, &cancelled).unwrap();
+    assert_eq!(
+        fs::canonicalize(root).unwrap(),
+        fs::canonicalize(&fixture.checkout).unwrap()
+    );
+    let outside = tempfile::tempdir().unwrap();
+    assert!(
+        toplevel(
+            &host,
+            outside.path().to_str().unwrap(),
+            Step::Review,
+            &cancelled
+        )
+        .is_err()
+    );
+}

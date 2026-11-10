@@ -1,7 +1,7 @@
 //! Resolve sidebar tokens, omitting missing values and empty rows.
 
 use super::{
-    agents::{agent_names, agent_place, state_label, status_key, status_text},
+    agents::{agent_names, agent_place, state_label_in, status_key, status_text},
     segment_budgets,
 };
 use crate::config::{AgentLayout, AgentToken, Rows, SpaceLayout, SpaceToken, TokenStyle};
@@ -91,6 +91,22 @@ fn resolve_rows<T>(
         .collect()
 }
 
+/// What an agent's configured rows can show, whichever Herdr runs it.
+struct AgentContext<'a> {
+    identity: Option<&'a str>,
+    name: Option<&'a str>,
+    workspace: &'a str,
+    tab: Option<&'a str>,
+    pane: Option<&'a str>,
+    status: AgentStatus,
+    /// Its integration's own words for its statuses.
+    state_labels: &'a [(String, String)],
+    terminal_title: Option<&'a str>,
+    terminal_title_stripped: Option<&'a str>,
+    /// Values plugins reported for it, by `$name`.
+    tokens: HashMap<&'a str, &'a str>,
+}
+
 /// The rows for one agent. `machine` is the host label when more than one
 /// endpoint is shown. An agent whose workspace has gone has no rows.
 pub(super) fn agent_rows(
@@ -111,48 +127,88 @@ pub(super) fn agent_rows(
                 .find(|pane| pane.pane_id == agent.pane_id)
                 .and_then(|pane| pane.label.as_deref())
         });
-    let status = match agent.agent_status {
+    let context = AgentContext {
+        identity: agent.agent.as_deref(),
+        name: agent_names(agent).into_iter().flatten().next(),
+        workspace,
+        tab,
+        pane,
+        status: agent.agent_status,
+        state_labels: &agent.state_labels,
+        terminal_title: agent.terminal_title.as_deref(),
+        terminal_title_stripped: agent.terminal_title_stripped.as_deref(),
+        tokens: token_values(&agent.tokens),
+    };
+    Some(resolve_agent(layout, &context, machine))
+}
+
+/// The rows for one Herdr 2 agent: its terminal's title stands for the
+/// terminal title tokens, and the labels plugins set on its terminal for
+/// the custom ones.
+pub(super) fn core_agent_rows(
+    layout: &AgentLayout,
+    agent: &super::CoreAgent<'_>,
+    machine: Option<&str>,
+) -> Vec<Vec<ResolvedToken>> {
+    let (workspace, tab) = agent.place().unwrap_or(("", None));
+    let title = agent
+        .info
+        .and_then(|info| info.title.as_deref())
+        .and_then(sheprd_client::text::caption);
+    let context = AgentContext {
+        identity: agent.agent.identity.as_deref(),
+        name: Some(agent.agent.name.as_str()),
+        workspace,
+        tab,
+        pane: title,
+        status: agent.agent.status,
+        state_labels: &[],
+        terminal_title: title,
+        terminal_title_stripped: title,
+        tokens: agent.plugin_values().collect(),
+    };
+    resolve_agent(layout, &context, machine)
+}
+
+fn resolve_agent(
+    layout: &AgentLayout,
+    agent: &AgentContext<'_>,
+    machine: Option<&str>,
+) -> Vec<Vec<ResolvedToken>> {
+    let status = match agent.status {
         AgentStatus::Unknown => AgentStatus::Idle,
         status => status,
     };
+    // An integration may name `unknown` itself: its labels are looked up
+    // by the status the agent reports, only the fallback by the mapped one.
     let fallback = status_text(status);
-    let state_text = state_label(agent, &fallback);
-    let state_rule = state_label(agent, status_key(status));
-    let tokens = token_values(&agent.tokens);
+    let state_text = state_label_in(agent.state_labels, agent.status, &fallback);
+    let state_rule = state_label_in(agent.state_labels, agent.status, status_key(status));
     let mut strings = HashMap::new();
     let mut text = |value, role| TokenKind::Text(shared_text(&mut strings, value), role);
-    let mut rows = resolve_rows(
-        layout.rows_for(agent.agent.as_deref()),
-        &state_rule,
-        |token| {
-            Some(match token {
-                AgentToken::StateIcon => TokenKind::StateIcon,
-                AgentToken::StateText => text(&state_text, TextRole::Status),
-                AgentToken::Machine => text(machine?, TextRole::Secondary),
-                AgentToken::Workspace => text(workspace, TextRole::Workspace),
-                AgentToken::Tab => text(tab?, TextRole::Secondary),
-                AgentToken::Pane => text(pane?, TextRole::Secondary),
-                AgentToken::Agent => text(
-                    agent_names(agent).into_iter().flatten().next()?,
-                    TextRole::Agent,
-                ),
-                AgentToken::TerminalTitle => {
-                    text(agent.terminal_title.as_deref()?, TextRole::Muted)
-                }
-                AgentToken::TerminalTitleStripped => {
-                    text(agent.terminal_title_stripped.as_deref()?, TextRole::Muted)
-                }
-                AgentToken::Custom(name) => text(tokens.get(name.as_str())?, TextRole::Muted),
-            })
-        },
-    );
+    let mut rows = resolve_rows(layout.rows_for(agent.identity), &state_rule, |token| {
+        Some(match token {
+            AgentToken::StateIcon => TokenKind::StateIcon,
+            AgentToken::StateText => text(&state_text, TextRole::Status),
+            AgentToken::Machine => text(machine?, TextRole::Secondary),
+            AgentToken::Workspace => text(agent.workspace, TextRole::Workspace),
+            AgentToken::Tab => text(agent.tab?, TextRole::Secondary),
+            AgentToken::Pane => text(agent.pane?, TextRole::Secondary),
+            AgentToken::Agent => text(agent.name?, TextRole::Agent),
+            AgentToken::TerminalTitle => text(agent.terminal_title?, TextRole::Muted),
+            AgentToken::TerminalTitleStripped => {
+                text(agent.terminal_title_stripped?, TextRole::Muted)
+            }
+            AgentToken::Custom(name) => text(agent.tokens.get(name.as_str())?, TextRole::Muted),
+        })
+    });
     if rows.is_empty() {
         rows.push(vec![ResolvedToken {
             kind: TokenKind::StateIcon,
             style: TokenStyle::default(),
         }]);
     }
-    Some(rows)
+    rows
 }
 
 pub(super) struct SpaceContext<'a> {

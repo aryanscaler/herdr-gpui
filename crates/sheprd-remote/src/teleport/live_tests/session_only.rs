@@ -111,6 +111,7 @@ fn session_only_move_between_two_daemons() {
         },
         repositories: None,
         retired: Vec::new(),
+        lands_in: sheprd_session::Keeper::Herdr1,
     };
     let cancelled = AtomicBool::new(false);
 

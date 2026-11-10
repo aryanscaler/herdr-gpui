@@ -148,17 +148,25 @@ fn output_into_a_full_history_drops_the_selection(cx: &mut gpui::TestAppContext)
             revision,
         }]
     };
+    // Waits for the screen of `revision` itself: a poll may first apply an
+    // update that was already on its way.
+    let shown_revision = |revision: u64, cx: &mut gpui::VisualTestContext| {
+        until(|| {
+            cx.update(|window, cx| {
+                view.update(cx, |view, cx| {
+                    view.poll(window, cx);
+                    (view.screen_revision() == revision).then_some(())
+                })
+            })
+        })
+    };
     // Full, but nothing new: the rows still hold the selected text.
     backend.push(full(4));
-    until(|| {
-        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx).then_some(())))
-    });
+    shown_revision(4, cx);
     cx.update(|_, cx| view.update(cx, |view, _| assert!(view.copy_selection())));
     // New output drops the oldest line, moving every row under it.
     backend.push(full(5));
-    until(|| {
-        cx.update(|window, cx| view.update(cx, |view, cx| view.poll(window, cx).then_some(())))
-    });
+    shown_revision(5, cx);
     cx.update(|_, cx| view.update(cx, |view, _| assert!(!view.copy_selection())));
 }
 

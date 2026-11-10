@@ -1,6 +1,6 @@
 ---
 name: herdr-mods
-description: "Write Sheprd mods: small sandboxed Luau extensions that add a status bar item, a sidebar section, a section of the right-hand mod panel, palette commands, or an app with its own activity bar icon to Sheprd without changing its code, reloaded live when saved. Use it inside Herdr (HERDR_ENV=1) when the user asks to extend, customize, or add to Sheprd's own interface: show a count, a list, a meter, or a button in the status bar, the sidebar, or a panel beside the terminals (like opencode's sidebar), add a palette command, add an activity bar app such as a dashboard of agents or workspaces, or write a mod, plugin, extension, or widget for Sheprd. It covers the folder layout, the element tree, checking a mod with sheprd mod check, and reading its errors and logs."
+description: "Write Sheprd mods: small sandboxed Luau extensions that add a status bar item, a sidebar section, a section of the right-hand mod panel, palette commands, or an app with its own activity bar icon to Sheprd without changing its code, reloaded live when saved. Use it inside Herdr (HERDR_ENV=1 or HC_TERMINAL_ID set) when the user asks to extend, customize, or add to Sheprd's own interface: show a count, a list, a meter, or a button in the status bar, the sidebar, or a panel beside the terminals (like opencode's sidebar), add a palette command, add an activity bar app such as a dashboard of agents or workspaces, or write a mod, plugin, extension, or widget for Sheprd. It covers the folder layout, the element tree, checking a mod with sheprd mod check, and reading its errors and logs."
 ---
 <!-- herdr-gpui-managed-skill v1: Sheprd keeps this file up to date. Edit a copy under another name to keep your changes. -->
 
@@ -14,6 +14,10 @@ commands when the user clicks. Saving a file reloads the mod.
 
 The skill identifier, existing mod folder, `herdr.*` API and `@herdr/ui`
 module name remain stable so installed mods continue to work after the rename.
+
+Mods work the same from a Herdr pane (`HERDR_ENV=1`) or a Herdr 2 terminal
+(`HC_TERMINAL_ID` is set): the workspaces and agents a mod reads include
+Herdr 2's.
 
 ## How to make one
 

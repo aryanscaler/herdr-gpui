@@ -272,6 +272,14 @@ final class RemoteClient: Sendable {
 
     /// Runs an action from the sheet; answers the pane to show next, or
     /// `nil` when the pane or tab is gone.
+    /// A terminal tab in `workspace`, which needs no pane there, so a
+    /// workspace with nothing in it yet gets its first; answers its pane.
+    func newTerminal(workspace: String, bearer: String) async throws -> String {
+        struct Answer: Decodable { let pane: String }
+        let answer: Answer = try await send("POST", "/api/v2/workspaces/\(Self.segment(workspace))/terminals", bearer: bearer, timeout: 30)
+        return answer.pane
+    }
+
     func termAction(_ action: TermAction, pane: String, bearer: String) async throws -> String? {
         struct Body: Encodable { let action: TermAction }
         struct Answer: Decodable { let pane: String? }

@@ -22,6 +22,7 @@
 //! session on it, and it lasts until the user lifts it or removes the device.
 
 mod error;
+mod kept;
 
 pub(crate) use error::Error;
 
@@ -48,6 +49,7 @@ const MAX_FIELD_BYTES: usize = 1024;
 /// string's bytes; plus the field names, the time, and punctuation.
 const MAX_FILE_BYTES: u64 = (MAX_MUTES * (2 * 5 * MAX_FIELD_BYTES + 160)
     + MAX_HOSTS * (2 * MAX_FIELD_BYTES + 8)
+    + kept::MAX_KEPT * (2 * 2 * MAX_FIELD_BYTES + 80)
     + 64) as u64;
 const FILE: &str = "notification-mutes.json";
 /// How long a new mute ignores a snapshot that would forget it: one that does
@@ -232,6 +234,9 @@ struct Saved {
     /// Missing from a file saved before devices could be muted.
     #[serde(default)]
     hosts: Vec<String>,
+    /// Missing from a file saved before Herdr 2 tabs could be muted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    kept: Vec<kept::KeptMute>,
 }
 
 /// Whether `endpoint` can be saved as a muted device.
@@ -245,7 +250,9 @@ fn parse(bytes: &[u8]) -> Result<Saved, Error> {
     let saved: Saved = serde_json::from_slice(bytes)?;
     if saved.mutes.len() > MAX_MUTES
         || saved.hosts.len() > MAX_HOSTS
+        || saved.kept.len() > kept::MAX_KEPT
         || !saved.mutes.iter().all(Mute::valid)
+        || !saved.kept.iter().all(kept::KeptMute::valid)
         || !saved.hosts.iter().all(|host| valid_host(host))
     {
         return Err(Error::Invalid);
@@ -327,6 +334,8 @@ pub(crate) struct Mutes {
     mutes: Vec<Mute>,
     /// The endpoints of the muted devices, least recently muted first.
     hosts: Vec<String>,
+    /// The app's own workspaces and tabs muted, least recently changed first.
+    kept: Vec<kept::KeptMute>,
     writer: Option<state_file::Writer<Saved>>,
     quitting: bool,
     /// Counts changes, so a window can tell another one changed a mute.
@@ -375,6 +384,7 @@ impl Mutes {
         Self {
             mutes: saved.mutes,
             hosts: saved.hosts,
+            kept: saved.kept,
             writer,
             quitting: false,
             revision: 0,
@@ -417,7 +427,7 @@ impl Mutes {
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.mutes.is_empty() && self.hosts.is_empty()
+        self.mutes.is_empty() && self.hosts.is_empty() && self.kept.is_empty()
     }
 
     /// Whether the device `endpoint` is muted.
@@ -656,6 +666,7 @@ impl Mutes {
             writer.save(Saved {
                 mutes: self.mutes.clone(),
                 hosts: self.hosts.clone(),
+                kept: self.kept.clone(),
             });
         }
     }
@@ -667,6 +678,7 @@ impl Mutes {
         Self {
             mutes: self.mutes.clone(),
             hosts: self.hosts.clone(),
+            kept: self.kept.clone(),
             ..Self::default()
         }
     }

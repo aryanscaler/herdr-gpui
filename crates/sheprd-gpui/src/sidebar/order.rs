@@ -3,11 +3,12 @@
 //! its own sidebar: every listed host's rows, top to bottom.
 
 use super::{
-    agents::{groups::Groups, panel_agents},
+    Listed,
+    agents::{groups::Groups, listed::listed_agents, panel_agents},
     visible_workspace_entries,
 };
 use crate::{SheprdWindow, controls::Command, state::LiveState};
-use sheprd_client::protocol::{ClientShellAgent, ClientShellSnapshot};
+use sheprd_client::protocol::ClientShellSnapshot;
 
 /// A listed row: its host, by endpoint index, and the workspace or agent
 /// pane it shows.
@@ -69,22 +70,38 @@ impl SheprdWindow {
             .collect()
     }
 
-    /// The agents the panel paints, by host index, in its order. Painting
-    /// and stepping both read it, so a shortcut lands on the row below. A
-    /// picked coordinator group narrows it for both.
-    pub(super) fn panel_agents(&self) -> Vec<(usize, &ClientShellAgent)> {
-        let rows = panel_agents(self.listed_lives(), self.agent_sort);
+    /// The agents the panel paints, by host index, in its order: every
+    /// listed host's Herdr 1 and Herdr 2 agents.
+    /// Painting and stepping both read it, so a shortcut lands on the row
+    /// below. A picked coordinator group narrows it for both to its Herdr 1
+    /// agents, which alone name coordinators.
+    pub(crate) fn panel_agents(&self) -> Vec<(usize, Listed<'_>)> {
+        let lives: Vec<_> = self.listed_lives().collect();
         let (Some(groups), Some(group)) = (self.agent_groups(), self.agent_group_filter()) else {
-            return rows;
+            // Every listed host's Herdr 2 agents: this computer's, and those
+            // of saved hosts whose workspaces the app keeps.
+            let cores: Vec<_> = lives
+                .iter()
+                .filter_map(|(index, _)| self.listed_core_agents(*index))
+                .collect();
+            return listed_agents(lives, cores, self.agent_sort);
         };
+        let rows = panel_agents(lives, self.agent_sort);
         let hosts: Vec<_> = self.listed_hosts().collect();
-        groups.narrow(
-            group,
-            rows.into_iter().filter_map(|(index, agent)| {
+        groups
+            .narrow(
+                group,
+                rows.into_iter().filter_map(|(index, agent)| {
+                    let (_, snapshot) = hosts.iter().find(|(host, _)| *host == index)?;
+                    Some((index, agent, *snapshot))
+                }),
+            )
+            .into_iter()
+            .filter_map(|(index, agent)| {
                 let (_, snapshot) = hosts.iter().find(|(host, _)| *host == index)?;
-                Some((index, agent, *snapshot))
-            }),
-        )
+                Some((index, Listed::Herdr1 { agent, snapshot }))
+            })
+            .collect()
     }
 
     /// The suffix that names coordinators, while the agents panel is there to
@@ -116,10 +133,11 @@ impl SheprdWindow {
 
     /// The agent panel's rows, whether or not the panel is shown, as Herdr
     /// steps through its agents either way.
+    #[cfg(test)]
     pub(crate) fn sidebar_agents(&self) -> Vec<Row<'_>> {
         self.panel_agents()
             .into_iter()
-            .map(|(index, agent)| (index, agent.pane_id.as_str()))
+            .map(|(index, agent)| (index, agent.id()))
             .collect()
     }
 }

@@ -52,7 +52,13 @@ impl SheprdWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(view) = self.core_terminals.focused_view(window, cx) else {
+        // As pane commands do, one with the keyboard elsewhere goes to the
+        // pane a kept workspace in front shows.
+        let view = self.core_terminals.focused_view(window, cx).or_else(|| {
+            let pane = self.kept_front_pane(cx)?;
+            self.core_terminals.views.get(&pane).cloned()
+        });
+        let Some(view) = view else {
             return false;
         };
         match command {

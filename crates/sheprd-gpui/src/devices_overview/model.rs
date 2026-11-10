@@ -76,7 +76,7 @@ pub(crate) fn online_tally(
 /// Whether a host answers: its Herdr 1 daemon, or with none installed, the
 /// herdr-core the window runs its terminals in.
 fn online(live: &LiveState, sessions: &Sessions) -> bool {
-    live.status.is_connected() || (live.missing_installation && sessions.core_answers)
+    live.status.is_connected() || (live.herdr_1_unavailable() && sessions.core_answers)
 }
 
 /// Whether a device can be reached.

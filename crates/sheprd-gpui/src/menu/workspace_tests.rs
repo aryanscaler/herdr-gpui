@@ -10,6 +10,9 @@ mod dialog_layout;
 mod dispatch;
 mod en_xa;
 mod issues;
+// Kept workspaces' worktrees run Git through host scripts.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod kept_worktrees;
 mod left_checkout;
 mod left_checkout_lookup;
 mod merged_removal;

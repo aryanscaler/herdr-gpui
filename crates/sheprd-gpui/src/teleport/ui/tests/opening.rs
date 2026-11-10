@@ -17,15 +17,17 @@ fn a_moves_herdr_2_tabs_open_in_the_destination_workspace(cx: &mut TestAppContex
     let tabs = vec![split, Panes::single(id("t7"))];
     let outcome = Outcome {
         endpoint_id: "buildbox".into(),
-        workspace_id: "w9".into(),
+        workspace: Landed::Workspace("w9".into()),
         repo_key: "repo".into(),
         branch: "feature".into(),
         warnings: Vec::new(),
         core_tabs: tabs.clone(),
     };
     let scope = Scope::endpoint("buildbox");
-    view.update(cx, |view, cx| {
-        view.open_teleported_core_tabs(&outcome, &scope, cx)
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.settle_teleport(&outcome, &scope, window, cx)
+        })
     });
     cx.update(|_, cx| {
         let opened: Vec<Panes> = cx
@@ -58,7 +60,7 @@ fn another_window_finishes_a_move_whose_window_closed(cx: &mut TestAppContext) {
     });
     let outcome = || Outcome {
         endpoint_id: "buildbox".into(),
-        workspace_id: "w9".into(),
+        workspace: Landed::Workspace("w9".into()),
         repo_key: "repo".into(),
         branch: "feature".into(),
         warnings: Vec::new(),
@@ -68,7 +70,12 @@ fn another_window_finishes_a_move_whose_window_closed(cx: &mut TestAppContext) {
     // The destination as the starting window named it, which the claiming
     // window, with its own `buildbox`, must not rename.
     let destination = Scope::local(std::path::Path::new("/run/default.sock"));
-    let leftover = || (destination.clone(), vec![(source_tab, moved.clone())]);
+    let leftover = || unclaimed::Handover {
+        scope: destination.clone(),
+        closing: vec![(source_tab, moved.clone())],
+        source: super::source(),
+        source_scope: Scope::endpoint("laptop"),
+    };
 
     let (sender, receiver) = mpsc::channel();
     unclaimed::deliver(&sender, Ok(outcome()), leftover(), &unclaimed);

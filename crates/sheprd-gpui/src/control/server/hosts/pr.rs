@@ -47,14 +47,35 @@ fn lookup(view: &SheprdWindow, caller: &Caller) -> Result<(Place, Lookup), Respo
             "Sheprd looks up pull requests only for this machine's own daemon and saved SSH hosts",
         ));
     };
-    let workspace = place.workspace(view).ok_or_else(|| {
-        Response::error(
-            ErrorCode::WorkspaceNotFound,
-            format!("Workspace {} closed", place.workspace),
-        )
-    })?;
-    let input = workspace_input(workspace, &origin)
-        .map_err(|error| Response::error(ErrorCode::InvalidRequest, error.to_string()))?;
+    // A workspace the app keeps for Herdr 2 is looked up by the checkout
+    // Git names for its folder, as the window prefetches it.
+    let kept = view
+        .kept_checkout_inputs()
+        .into_iter()
+        .find(|(id, _)| *id == place.workspace)
+        .map(|(_, input)| input);
+    let input = match kept {
+        Some(input) => input,
+        None if view.is_kept_workspace(&place.workspace) => {
+            return Err(Response::error(
+                ErrorCode::InvalidRequest,
+                format!(
+                    "Workspace {} is not a Git checkout on a branch, as far as Sheprd knows yet",
+                    place.workspace
+                ),
+            ));
+        }
+        None => {
+            let workspace = place.workspace(view).ok_or_else(|| {
+                Response::error(
+                    ErrorCode::WorkspaceNotFound,
+                    format!("Workspace {} closed", place.workspace),
+                )
+            })?;
+            workspace_input(workspace, &origin)
+                .map_err(|error| Response::error(ErrorCode::InvalidRequest, error.to_string()))?
+        }
+    };
     let found = match view.menu.pr_cache.lookup(&input) {
         Some((Some(pr), _)) => Lookup::Found(Box::new(pr)),
         Some((None, message)) => Lookup::Missing(message),

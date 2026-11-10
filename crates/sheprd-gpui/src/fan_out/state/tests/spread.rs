@@ -45,6 +45,7 @@ fn destination(endpoint: &str) -> Option<HostRepositories> {
         },
         repositories: None,
         retired: Vec::new(),
+        lands_in: sheprd_session::Keeper::Herdr1,
     })
 }
 

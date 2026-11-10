@@ -26,14 +26,23 @@ const NO_CURL: i32 = 4;
 
 /// Same search as the connection bridge, so "installed" means "the bridge
 /// will find it". Paths stay in shell variables; nothing discovered is eval'd.
-const PROBE: &str = r#"candidate=$(command -v herdr 2>/dev/null || :)
+const PROBE_HERDR: &str = r#"candidate=$(command -v herdr 2>/dev/null || :)
 case "$candidate" in /*/mise/shims/herdr) candidate=;; /*) ;; *) candidate=;; esac
 linuxbrew=
 case "$(PATH=/usr/bin:/bin uname -s)" in Linux) linuxbrew=/home/linuxbrew/.linuxbrew/bin/herdr;; esac
 for path in "$candidate" "$HOME/.local/bin/herdr" /opt/homebrew/bin/herdr /usr/local/bin/herdr "$linuxbrew" "$HOME/.nix-profile/bin/herdr" "/etc/profiles/per-user/$USER/bin/herdr" /nix/var/nix/profiles/default/bin/herdr /run/current-system/sw/bin/herdr; do
     if [ -n "$path" ] && [ -x "$path" ]; then exit 0; fi
-done
-exit 3"#;
+done"#;
+
+/// Whether the machine has a Herdr the app can use: Herdr 1, as its bridge
+/// finds it, else herdr-core (Herdr 2) alone, as the core bridge finds it.
+/// Exits 0 for either and 3 for neither.
+fn probe() -> String {
+    format!(
+        "{PROBE_HERDR}\n{}\n    if [ -n \"$path\" ] && [ -x \"$path\" ]; then exit 0; fi\ndone\nexit 3",
+        sheprd_client::core_bridge::CANDIDATES
+    )
+}
 
 const INSTALL: &str = r#"command -v curl >/dev/null 2>&1 || { echo "curl is required to install Herdr" >&2; exit 4; }
 curl -fsSL https://herdr.dev/install.sh | sh"#;
@@ -44,6 +53,9 @@ curl -fsSL https://herdr.dev/install.sh | sh"#;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Failure {
     // keep-sorted start
+    /// herdr-core could not be added, with the tail of what its installer
+    /// printed when it printed anything.
+    Core(Option<String>),
     /// The installer finished, but the probe still finds no Herdr.
     Missing,
     /// The machine has no `curl` for the installer.
@@ -79,6 +91,8 @@ pub enum Retry {
 impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Core(Some(output)) => write!(f, "herdr-core could not be installed: {output}"),
+            Self::Core(None) => f.write_str("herdr-core could not be installed"),
             Self::Missing => {
                 f.write_str("the installer finished but Herdr is not on the expected paths")
             }
@@ -221,11 +235,12 @@ fn tail(bytes: &[u8]) -> String {
     lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n")
 }
 
-/// Whether the machine already has a Herdr the bridge can run. `ssh` is the
+/// Whether the machine already has a Herdr a bridge can run: Herdr 1, or
+/// herdr-core (Herdr 2) alone, which is a whole setup of its own. `ssh` is the
 /// provider's remote command, such as `coder ssh … <workspace>`; the probe is
 /// appended.
 pub fn installed(mut ssh: Command, cancelled: &impl Fn() -> bool) -> Result<bool> {
-    ssh.arg(remote(PROBE));
+    ssh.arg(remote(&probe()));
     let finished = run(ssh, PROBE_TIMEOUT, cancelled)?;
     match finished.code {
         Some(0) => Ok(true),
@@ -268,11 +283,11 @@ pub fn install(mut ssh: Command, cancelled: &impl Fn() -> bool) -> Result<()> {
 
 /// Add the pinned herdr-core beside Herdr, for a setup that approved
 /// installing, whether Herdr was installed now or was already there. A
-/// machine with a core is left alone. Its own deadline bounds it, and any
-/// failure, a timeout included, only leaves the machine without Herdr 2
-/// terminals: its new tabs stay Herdr tabs. Only cancellation is an error,
-/// so `ssh` comes as it was prepared: a command that could not be made, such
-/// as a gateway token that did not come, is a failure of this step too.
+/// machine with a core is left alone. Its own deadline bounds it. A core
+/// that could not be added fails the setup with why, as Herdr 2 is what new
+/// terminals there run on; only a build with no pinned core for this app
+/// skips it. `ssh` comes as it was prepared: a command that could not be
+/// made, such as a gateway token that did not come, fails this step too.
 pub fn add_core<E: std::fmt::Display>(
     ssh: std::result::Result<Command, E>,
     cancelled: &impl Fn() -> bool,
@@ -289,28 +304,25 @@ pub fn add_core<E: std::fmt::Display>(
         }
     };
     ssh.arg(remote(&script));
-    match run(ssh, CORE_TIMEOUT, cancelled) {
-        Err(Error::Cancelled) => Err(Error::Cancelled),
-        Ok(Finished { code: Some(0), .. }) => Ok(()),
-        Ok(Finished { code, .. }) => {
+    let finished = run(ssh, CORE_TIMEOUT, cancelled)?;
+    match finished.code {
+        Some(0) => Ok(()),
+        code => {
             tracing::warn!(?code, "herdr-core was not installed beside Herdr");
-            Ok(())
-        }
-        Err(error) => {
-            tracing::warn!(%error, "herdr-core was not installed beside Herdr");
-            Ok(())
+            let output = (!finished.output.is_empty()).then_some(finished.output);
+            Err(Error::Install(Failure::Core(output)))
         }
     }
 }
 
-/// The core step's command could not be made: setup goes on without the
+/// The core step's command could not be made: setup fails without the
 /// core, unless the user cancelled it.
 pub fn core_unprepared(error: impl std::fmt::Display, cancelled: &impl Fn() -> bool) -> Result<()> {
     if cancelled() {
         return Err(Error::Cancelled);
     }
     tracing::warn!(%error, "herdr-core was not installed beside Herdr");
-    Ok(())
+    Err(Error::Install(Failure::Core(None)))
 }
 
 #[cfg(all(test, unix))]

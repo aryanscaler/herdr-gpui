@@ -42,6 +42,9 @@ error-remote-teleport-decode = { $step ->
 error-remote-teleport-unsupported-host = Teleport needs a local session, SSH host, or cloud device; custom socket and WSL endpoints are unsupported
 error-remote-teleport-development-session = Host scripts cannot reach a development (--dev) session
 error-remote-teleport-workspace-gone = The workspace is no longer open on its host
+error-remote-teleport-core-missing = Herdr 2 is not running on { $host }, where the work would open
+# $panes is how many panes the tab has, $most the most a Herdr 2 tab holds.
+error-remote-teleport-tab-too-large = A tab of { $panes } panes cannot open in Herdr 2, which holds { $most } in a tab
 error-remote-teleport-pane-gone = The pane is no longer open on its host
 error-remote-teleport-repository-not-open = The repository is not open on { $host }
 error-remote-teleport-source-moved = The checkout here has new commits since the review; review the move again

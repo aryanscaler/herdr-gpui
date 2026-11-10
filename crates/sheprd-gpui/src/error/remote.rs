@@ -47,5 +47,6 @@ remote_errors! {
     #[cfg(feature = "railway")] sheprd_remote::railway::Error,
     #[cfg(feature = "sprites")] sheprd_remote::sprites::Error,
     sheprd_remote::teleport::Error,
+    sheprd_remote::work::Error,
     // keep-sorted end
 }

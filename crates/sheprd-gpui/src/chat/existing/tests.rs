@@ -253,14 +253,17 @@ fn a_chain_of_known_launchers_is_checked_without_unbounded_parent_walks() {
 #[cfg(target_os = "linux")]
 mod host {
     use super::*;
-    use std::{fs, os::unix::fs::PermissionsExt};
+    use std::fs;
 
     pub(super) fn fixture(session_changes: bool, shell: bool) -> (tempfile::TempDir, Host) {
         let temp = tempfile::tempdir().unwrap();
         let bin = temp.path().join(".local/bin");
         fs::create_dir_all(&bin).unwrap();
         let script = bin.join("herdr");
-        fs::write(
+        // Written from a child shell: a sibling test forking while this
+        // process held it open for writing would make running it fail with
+        // "Text file busy".
+        crate::test_executable::write(
             &script,
             r#"#!/bin/sh
 case "$1 $2" in
@@ -273,9 +276,9 @@ case "$1 $2" in
 *) exit 99 ;;
 esac
 "#,
+            0o755,
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
         let snapshot = |session: &str| {
             serde_json::json!({"result":{"snapshot":{
             "workspaces":[],"tabs":[],"panes":[{

@@ -221,6 +221,9 @@ pub(crate) struct Store {
     next: u64,
     pub(super) closed: super::closed::ClosedTabs,
     writer: Option<state_file::Writer<Saved>>,
+    /// Held from before the tabs are read until the app quits, so the
+    /// remote control daemon never edits them under it.
+    _owner: Option<std::fs::File>,
     quitting: bool,
     /// herdr-core terminals of closed tabs and the core each runs in, for a
     /// window connected to that core to end.
@@ -254,6 +257,36 @@ fn parse(bytes: &[u8]) -> crate::Result<Saved> {
     Ok(saved)
 }
 
+/// How long the app waits at launch for the remote control daemon to finish
+/// an edit of the saved tabs it made while the app was closed.
+const OWN_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Takes the lock beside the saved tabs at `path`, waiting briefly for the
+/// daemon's edit to end. Without it the app still starts, as before.
+fn own(path: &std::path::Path) -> Option<std::fs::File> {
+    let lock = sheprd_session::saved::lock_path(path);
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock)
+        .inspect_err(|error| tracing::warn!(%error, "Cannot open the browser-tab lock"))
+        .ok()?;
+    let started = std::time::Instant::now();
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Some(file),
+            Err(std::fs::TryLockError::WouldBlock) if started.elapsed() < OWN_WAIT => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(error) => {
+                tracing::warn!(%error, "Cannot hold the browser-tab lock");
+                return None;
+            }
+        }
+    }
+}
+
 impl Store {
     pub(crate) fn path() -> Option<PathBuf> {
         crate::preferences::state_dir().map(|dir| dir.join("browser-tabs.json"))
@@ -263,6 +296,7 @@ impl Store {
     /// damaged file starts with no tabs.
     pub(crate) fn load() -> Self {
         let path = Self::path();
+        let owner = path.as_deref().and_then(own);
         let saved = path
             .as_deref()
             .map(|path| {
@@ -294,6 +328,7 @@ impl Store {
         );
         let mut store = Self::with_tabs(tabs, writer);
         store.workspaces = workspaces;
+        store._owner = owner;
         store
     }
 
@@ -303,6 +338,7 @@ impl Store {
         tabs.retain(|tab| !matches!(tab.location, Some(Location::Orchestrator { .. })));
         let next = tabs.iter().map(|tab| tab.id.0 + 1).max().unwrap_or(0);
         Self {
+            _owner: None,
             tabs,
             workspaces: Vec::new(),
             last_kept: 0,
@@ -597,6 +633,22 @@ impl Store {
         let tab = self.tabs.remove(index);
         self.save();
         Some(tab)
+    }
+
+    /// Moves a tab to `workspace_id`, another workspace of its daemon, after
+    /// that workspace's tabs. Returns whether it moved.
+    pub(crate) fn move_to_workspace(&mut self, id: TabId, workspace_id: &str) -> bool {
+        let Some(index) = self.tabs.iter().position(|tab| tab.id == id) else {
+            return false;
+        };
+        if self.tabs[index].workspace_id == workspace_id || workspace_id.is_empty() {
+            return false;
+        }
+        let mut tab = self.tabs.remove(index);
+        tab.workspace_id = workspace_id.to_owned();
+        self.tabs.push(tab);
+        self.save();
+        true
     }
 
     /// Records where a page went and what it calls itself. Returns whether

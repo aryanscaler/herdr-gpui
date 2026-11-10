@@ -87,3 +87,19 @@ fn converting_needs_chats_on_and_an_agent_to_move(cx: &mut gpui::TestAppContext)
         assert_eq!(code(&off), Some(ErrorCode::Unsupported));
     });
 }
+
+#[test]
+fn a_caller_in_a_core_terminal_converts_its_own_terminal() {
+    let from_core = Caller {
+        terminal_id: Some("t7".into()),
+        ..Caller::default()
+    };
+    assert_eq!(callers_pane(&from_core).as_deref(), Some("core:t7"));
+    let from_herdr = Caller {
+        pane_id: Some("w1:p1".into()),
+        ..Caller::default()
+    };
+    assert_eq!(callers_pane(&from_herdr).as_deref(), Some("w1:p1"));
+    // Neither: the focused pane is the window's to pick.
+    assert_eq!(callers_pane(&Caller::default()), None);
+}

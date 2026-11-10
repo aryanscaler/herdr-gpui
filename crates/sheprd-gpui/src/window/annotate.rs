@@ -23,10 +23,11 @@ mod core;
 mod offer;
 mod render;
 
-/// A queued note and the daemon whose agent it goes to; a note on a
-/// herdr-core pane has none and is copied.
+/// A queued note and the daemon whose agent it goes to, or the Herdr 2
+/// agent, by the note's target terminal; a note with neither is copied.
 struct Queued {
     origin: Option<Origin>,
+    core: Option<core::CoreAgent>,
     note: Note,
 }
 
@@ -290,11 +291,25 @@ impl SheprdWindow {
                     );
                     return;
                 }
-                let origin = match &composer.source {
-                    Source::Pane { origin, .. } => Some(origin.clone()),
-                    Source::Core(_) => None,
+                let (origin, core) = match &composer.source {
+                    Source::Pane { origin, .. } => (Some(origin.clone()), None),
+                    Source::Core(view) => (None, self.core_note_agent(view, cx)),
                 };
-                self.terminal_notes.queued.push(Queued { origin, note });
+                // The agent a Herdr 2 note goes to is the one there now.
+                let note = match &core {
+                    Some(agent) => Note {
+                        target: Some(agent.terminal.to_string()),
+                        ..note
+                    },
+                    None if origin.is_none() => Note {
+                        target: None,
+                        ..note
+                    },
+                    None => note,
+                };
+                self.terminal_notes
+                    .queued
+                    .push(Queued { origin, core, note });
             }
             None if send && !self.terminal_notes.queued.is_empty() => {}
             None => {
@@ -326,16 +341,17 @@ impl SheprdWindow {
     /// written.
     pub(crate) fn send_terminal_notes(&mut self, cx: &mut Context<Self>) {
         let clipboard = crate::agent_notes::Copies::default();
-        let (mut queued, copied): (Vec<_>, Vec<_>) =
-            std::mem::take(&mut self.terminal_notes.queued)
-                .into_iter()
-                .partition(|queued| {
-                    queued
-                        .origin
-                        .as_ref()
-                        .is_some_and(|origin| origin.current(self))
-                        && queued.note.target.is_some()
-                });
+        let (core, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.terminal_notes.queued)
+            .into_iter()
+            .partition(|queued| queued.core.is_some() && queued.note.target.is_some());
+        self.send_core_notes(core, &clipboard, cx);
+        let (mut queued, copied): (Vec<_>, Vec<_>) = rest.into_iter().partition(|queued| {
+            queued
+                .origin
+                .as_ref()
+                .is_some_and(|origin| origin.current(self))
+                && queued.note.target.is_some()
+        });
         while let Some(first) = queued.first() {
             let (origin, target) = (first.origin.clone(), first.note.target.clone());
             let (batch, rest): (Vec<_>, Vec<_>) = queued
