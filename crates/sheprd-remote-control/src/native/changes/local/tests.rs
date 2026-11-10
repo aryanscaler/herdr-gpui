@@ -261,12 +261,19 @@ fn colors_and_patterns_in_names_leave_a_diff_as_git_wrote_it() {
     let repository = repository(dir.path());
     run(&repository, &["config", "color.diff", "always"]);
     run(&repository, &["config", "color.ui", "always"]);
-    std::fs::write(repository.join("a*.txt"), "x\n").unwrap();
+    // A name Git would read as a pattern matching the other file. Windows
+    // forbids `*` in a file name, so it takes a `[` pattern instead.
+    let (name, other) = if cfg!(windows) {
+        ("a[b].txt", "ab.txt")
+    } else {
+        ("a*.txt", "a.txt")
+    };
+    std::fs::write(repository.join(name), "x\n").unwrap();
     run(&repository, &["add", "."]);
     run(&repository, &["commit", "--quiet", "-m", "star"]);
-    std::fs::write(repository.join("a*.txt"), "y\n").unwrap();
-    std::fs::write(repository.join("a.txt"), "other\n").unwrap();
-    let diff = diff_of(&repository, "a*.txt");
+    std::fs::write(repository.join(name), "y\n").unwrap();
+    std::fs::write(repository.join(other), "other\n").unwrap();
+    let diff = diff_of(&repository, name);
     let texts: Vec<&str> = diff.lines.iter().map(|line| line.text.as_str()).collect();
     assert_eq!(texts[1..], ["x", "y"], "{texts:?}");
 }
