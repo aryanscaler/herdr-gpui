@@ -104,6 +104,11 @@ fn serve(exit: u64, status: u32) -> (String, mpsc::Receiver<Seen>) {
             start: start.unwrap(),
             stdin,
         });
+        // Close gracefully: end the reply, then read until the client hangs
+        // up. Dropping the socket first can reset it on Windows, which takes
+        // the reply's unread end with it.
+        let _ = writer.shutdown(std::net::Shutdown::Write);
+        let _ = std::io::copy(&mut reader, &mut std::io::sink());
     });
     (base, received)
 }
