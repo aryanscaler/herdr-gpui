@@ -144,17 +144,6 @@ impl CoreTerminals {
             .collect()
     }
 
-    /// Says what Git would of the folder `cwd`, for tests outside this
-    /// module that keep workspaces in checkouts without running Git.
-    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    pub(crate) fn seed_checkout_for_test(
-        &mut self,
-        cwd: &str,
-        identity: Option<sheprd_vcs::git::Identity>,
-    ) {
-        self.checkouts.seed(cwd, identity);
-    }
-
     /// Uses `hub` for the core of the host `scope` names, as the first ask
     /// for it would, so a test never dials a real host.
     #[cfg(test)]
