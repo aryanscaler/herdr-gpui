@@ -10,6 +10,7 @@ pub(crate) fn origin() -> Origin {
         repo_key: "/tmp/repo/.git".into(),
         repo_label: "repo".into(),
         base: "HEAD".into(),
+        checkout: None,
     }
 }
 
@@ -24,9 +25,14 @@ pub(crate) fn checkout(n: usize) -> Checkout {
     Checkout {
         endpoint_id: "local".into(),
         host: origin().host,
-        workspace_id: format!("w{n}"),
-        path: format!("/tmp/lane-{n}"),
-        pane_id: format!("p{n}"),
+        worktree: work::Worktree {
+            path: format!("/tmp/lane-{n}"),
+            opened: work::Opened::Herdr1 {
+                workspace_id: format!("w{n}"),
+                pane_id: format!("p{n}"),
+            },
+        },
+        terminal: None,
     }
 }
 
@@ -44,7 +50,10 @@ fn each_step_is_recorded_before_and_after_it_runs() {
     assert_eq!(record.lanes[0].step, Checkpoint::Planned);
     let steps = [
         (Progress::CreatingWorktree, Checkpoint::CreatingWorktree),
-        (Progress::Created(checkout(1)), Checkpoint::Created),
+        (
+            Progress::Created(Box::new(checkout(1))),
+            Checkpoint::Created,
+        ),
         (Progress::StartingAgent, Checkpoint::StartingAgent),
         (Progress::Prompting, Checkpoint::Prompting),
         (Progress::Running, Checkpoint::Prompted),
@@ -77,7 +86,7 @@ fn a_lane_never_claims_an_agent_without_a_worktree_nor_forgets_its_worktree() {
     let mut record = record(1);
     assert!(!record.advance(&lane(0, Progress::StartingAgent)));
     assert_eq!(record.lanes[0].step, Checkpoint::Planned);
-    record.advance(&lane(0, Progress::Created(checkout(1))));
+    record.advance(&lane(0, Progress::Created(Box::new(checkout(1)))));
     assert!(!record.advance(&lane(0, Progress::CreatingWorktree)));
     assert_eq!(record.lanes[0].step, Checkpoint::Created);
     assert!(record.valid());
@@ -127,7 +136,7 @@ fn records_survive_a_restart() {
     let journal = Journal::at(Some(path.clone()));
     journal.begin(record(1)).unwrap().unwrap().write().unwrap();
     journal
-        .advance(1, &lane(0, Progress::Created(checkout(1))))
+        .advance(1, &lane(0, Progress::Created(Box::new(checkout(1)))))
         .unwrap()
         .write()
         .unwrap();
@@ -219,8 +228,8 @@ fn a_checkout_or_commit_too_long_to_keep_is_not_recorded() {
     let mut record = record(1);
     record.advance(&lane(0, Progress::CreatingWorktree));
     let mut long = checkout(1);
-    long.path = "p".repeat(MAX_FIELD_BYTES + 1);
-    assert!(!record.advance(&lane(0, Progress::Created(long))));
+    long.worktree.path = "p".repeat(MAX_FIELD_BYTES + 1);
+    assert!(!record.advance(&lane(0, Progress::Created(Box::new(long)))));
     assert_eq!(record.lanes[0].step, Checkpoint::CreatingWorktree);
     assert_eq!(record.lanes[0].checkout, None);
     assert!(!record.advance(&Report::Base("c".repeat(MAX_FIELD_BYTES + 1))));
@@ -354,7 +363,7 @@ fn a_snapshot_taken_before_a_rewind_is_retaken_when_written() {
     let path = dir.path().join(FILE);
     let journal = Journal::at(Some(path.clone()));
     journal.begin(record(1)).unwrap().unwrap().write().unwrap();
-    let created = lane(0, Progress::Created(checkout(1)));
+    let created = lane(0, Progress::Created(Box::new(checkout(1))));
     journal.advance(1, &created).unwrap().write().unwrap();
     // Taken while lane 0 claims an agent start whose save then failed.
     let stale = journal
@@ -382,6 +391,7 @@ fn the_largest_valid_journal_fits_the_file_limit() {
             repo_key: field.clone(),
             repo_label: field.clone(),
             base: field.clone(),
+            checkout: Some(field.clone()),
         };
         let lane = SavedLane {
             kind: "claude".into(),
@@ -394,6 +404,8 @@ fn the_largest_valid_journal_fits_the_file_limit() {
                 workspace_id: field.clone(),
                 path: field.clone(),
                 pane_id: field.clone(),
+                herdr_2: true,
+                terminal: Some(field.clone()),
             }),
         };
         record.lanes = vec![lane; MAX_LANES];
@@ -430,4 +442,5 @@ fn a_failed_save_is_returned_with_its_cause() {
     assert!(std::error::Error::source(&error).is_some());
 }
 
+mod herdr_2;
 mod unsaved;

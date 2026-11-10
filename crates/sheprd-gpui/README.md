@@ -157,7 +157,7 @@ The panel shows archive download progress and an animated bar for work without a
 known percentage. Homebrew-managed installs use `brew upgrade --cask` on their cask;
 if the installed version is behind the offer, `brew update` refreshes metadata
 before one retry. Linux distribution installs download the signed package matching
-the owning package manager and invoke APT, DNF, or pacman through PolicyKit.
+the owning package manager and invoke APT, DNF, zypper, or pacman through PolicyKit.
 Package-manager upgrades cannot be cancelled mid-install and offer **Restart**
 on completion. Standalone installs restart as part of installation.
 The existing UI timer polls the updater mailbox; workers own blocking work, and
@@ -2440,7 +2440,10 @@ warning, and each lane says where it stopped: while creating its worktree (the
 branch may exist), before its agent started, while the agent was starting, or
 while the prompt was being sent. Nothing runs by itself. Start agent or Send
 prompt finishes a lane only when clicked, and Send prompt never starts a second
-agent. A lane that fails, finishing included, offers the same button again.
+agent. A lane that fails, finishing included, offers the same button again,
+except when a Herdr 2 agent may have started but its terminal address was not
+saved before a crash. That lane cannot be resumed safely: keep its checkout
+and inspect the running terminals before starting another agent.
 Keep removes the other worktrees after its usual confirmation; a lane whose
 worktree may exist or sits on a host no longer set up stays saved until Forget,
 which lets the fan-out go and leaves every worktree as it is. Up to four

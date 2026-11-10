@@ -2,6 +2,7 @@ use super::*;
 use std::os::unix::process::ExitStatusExt;
 
 mod branding;
+mod rpm_manager;
 
 #[test]
 fn ownership_selects_the_installed_format_not_available_tools() -> Result<()> {
@@ -58,13 +59,15 @@ fn ownership_selects_the_installed_format_not_available_tools() -> Result<()> {
 #[test]
 fn package_commands_pass_a_literal_absolute_path_and_fixed_manager() {
     let path = Path::new("/tmp/private dir/Herdr-20261010.1-x86_64-unknown-linux-gnu.deb");
+    // Which RPM manager this host has is pinned in tests/rpm_manager.rs.
+    let rpm = RpmManager::detect();
     for (format, program, expected) in [
         (
             Format::Deb,
             "/usr/bin/apt-get",
             vec!["install", "--yes", "--no-remove", "--"],
         ),
-        (Format::Rpm, "/usr/bin/dnf", vec!["install", "--assumeyes"]),
+        (Format::Rpm, rpm.program(), rpm.arguments().to_vec()),
         (
             Format::Arch,
             "/usr/bin/pacman",

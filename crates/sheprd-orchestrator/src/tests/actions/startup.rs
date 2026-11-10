@@ -39,7 +39,10 @@ fn busy_new_shell_keeps_its_worktree_and_sends_exactly_one_prompt_when_ready() {
     let run = store.runs().unwrap().remove(0);
     assert_eq!(run.state, RunState::Running);
     assert_eq!(run.workspace.unwrap().id, "w9");
-    assert_eq!(store.sessions().unwrap()[0].pane_id, "p9");
+    assert!(matches!(
+        &store.sessions().unwrap()[0].pane,
+        Pane::Herdr1 { pane_id, .. } if pane_id == "p9"
+    ));
 }
 
 #[test]

@@ -13,7 +13,7 @@ fn a_fan_out_beyond_the_journal_keeps_its_steps_in_memory() {
         .record(99, &lane(0, Progress::CreatingWorktree))
         .unwrap();
     journal
-        .record(99, &lane(0, Progress::Created(checkout(1))))
+        .record(99, &lane(0, Progress::Created(Box::new(checkout(1)))))
         .unwrap();
     journal
         .record(99, &lane(0, Progress::StartingAgent))

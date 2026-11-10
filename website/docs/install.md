@@ -14,7 +14,7 @@ Install the latest stable Sheprd release on macOS, Linux or Windows, or build it
 | Platform | Command |
 | --- | --- |
 | macOS | `brew install sheprd-labs/tap/sheprd` |
-| Linux (APT, DNF or pacman) | `curl -fsSL https://sheprd.org/install.sh \| sh` |
+| Linux (APT, DNF, zypper or pacman) | `curl -fsSL https://sheprd.org/install.sh \| sh` |
 | Windows (PowerShell) | `irm https://sheprd.org/install.ps1 \| iex` |
 | Nix | `nix run github:sheprd-labs/sheprd` |
 | iPhone and iPad (beta) | Join on TestFlight: [sheprd.org/testflight](https://sheprd.org/testflight/) |
@@ -46,7 +46,7 @@ A Homebrew install updates through Homebrew. The in-app updater detects this and
 
 ## Linux
 
-Releases include x86_64 and ARM64 builds as a `.deb`, an `.rpm`, an Arch Linux package and a plain tarball. They need glibc 2.39 or newer: Ubuntu 24.04, Debian 13, Fedora 40, current Arch, or later.
+Releases include x86_64 and ARM64 builds as a `.deb`, an `.rpm`, an Arch Linux package and a plain tarball. They need glibc 2.39 or newer: Ubuntu 24.04, Debian 13, Fedora 40, current Arch, openSUSE Tumbleweed or Leap 16, or later.
 
 ```sh
 curl -fsSL https://sheprd.org/install.sh | sh
@@ -55,9 +55,9 @@ curl -fsSL https://sheprd.org/install.sh | sh
 The script, which you can read first at [sheprd.org/install.sh](https://sheprd.org/install.sh):
 
 1. Checks that you are on Linux and picks `x86_64` or `aarch64`.
-2. Picks the package format from your package manager: APT (`.deb`), DNF (`.rpm`) or pacman (`.pkg.tar.zst`). Without one of them it stops and points you to the tarball or Nix.
+2. Picks the package format from your package manager: APT (`.deb`), DNF or zypper (`.rpm`) or pacman (`.pkg.tar.zst`). Without one of them it stops and points you to the tarball or Nix.
 3. Finds the latest stable release (betas are never picked), downloads the package and its `.sha256` file, and stops on a checksum mismatch.
-4. Installs it with `sudo apt-get install`, `sudo dnf install` or `sudo pacman -U` (no `sudo` when run as root).
+4. Installs it with `sudo apt-get install`, `sudo dnf install`, `sudo zypper install` or `sudo pacman -U` (no `sudo` when run as root).
 
 It needs `curl` and `sha256sum`. Once installed, start Sheprd from your applications menu or run `sheprd`.
 
@@ -67,9 +67,11 @@ To install by hand, download the file for your architecture from Releases, then:
 sudo apt install ./Sheprd-VERSION-x86_64-unknown-linux-gnu.deb      # Debian, Ubuntu
 sudo dnf install ./Sheprd-VERSION-x86_64-unknown-linux-gnu.rpm      # Fedora
 sudo pacman -U Sheprd-VERSION-x86_64-unknown-linux-gnu.pkg.tar.zst  # Arch Linux
+# openSUSE: the release RPM is unsigned, which zypper stops on without the flag
+sudo zypper install --allow-unsigned-rpm ./Sheprd-VERSION-x86_64-unknown-linux-gnu.rpm
 ```
 
-The package is still named `herdr-gpui` internally. It provides the `sheprd` command and a `/usr/bin/herdr-gpui` compatibility executable. Your package manager pulls in the runtime libraries, including the Vulkan loader.
+The package is still named `herdr-gpui` internally. It provides the `sheprd` command and a `/usr/bin/herdr-gpui` compatibility executable. Your package manager pulls in the runtime libraries, including the Vulkan loader. App Updates installs a newer `.rpm` through DNF or, on openSUSE, zypper. See [Updates](updates.md).
 
 ### Vulkan driver
 

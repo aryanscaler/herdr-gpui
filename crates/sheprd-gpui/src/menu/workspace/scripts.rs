@@ -16,6 +16,14 @@ impl SheprdWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self
+            .menu
+            .target
+            .as_ref()
+            .is_some_and(|target| target.keeper == sheprd_session::Keeper::App)
+        {
+            return self.run_kept_workspace_script(kind, window, cx);
+        }
         let launch = self.menu.target.as_ref().map(|target| {
             let tree = target.worktree.as_ref();
             crate::worktree_scripts::Launch {
@@ -40,6 +48,27 @@ impl SheprdWindow {
             }
             Some(launch) => self.start_worktree_script(launch, cx),
             None => Err(crate::Error::StaleWorkspace),
+        };
+        self.dismiss_menu(window, cx);
+        if let Err(error) = started {
+            self.show_flash(crate::window::Flash::warning(error.to_string()), cx);
+        }
+    }
+
+    /// Runs one of a kept workspace's scripts in a new herdr-core tab of it:
+    /// its folder is the checkout, so no daemon has to name it.
+    fn run_kept_workspace_script(
+        &mut self,
+        kind: crate::worktree_scripts::ScriptKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let workspace = self.menu.target.as_ref().map(|target| target.id.clone());
+        let launch = workspace
+            .and_then(|workspace| self.kept_script_launch(kind, workspace, self.kept_checkout()));
+        let started = match launch {
+            Some(launch) => self.start_worktree_script(launch, cx),
+            None => Err(crate::worktree_scripts::Error::NotGit.into()),
         };
         self.dismiss_menu(window, cx);
         if let Err(error) = started {
@@ -140,16 +169,32 @@ impl SheprdWindow {
             .target
             .clone();
         let (checkout, expected) = (path.clone(), path.clone());
+        let endpoint = self.menu.endpoint_target;
+        // Herdr 1 names the main checkout in the daemon's answer; a kept
+        // checkout's is read from Git here, for the archive's
+        // `HERDR_ROOT_PATH`.
+        let kept = self
+            .menu
+            .target
+            .as_ref()
+            .is_some_and(|target| target.keeper == sheprd_session::Keeper::App);
         let read = cx.background_executor().spawn(async move {
-            crate::worktree_scripts::read_config(
-                &target,
-                &checkout,
-                &std::sync::atomic::AtomicBool::new(false),
-            )
+            let cancelled = std::sync::atomic::AtomicBool::new(false);
+            let resolved = kept
+                .then(|| crate::worktree_scripts::kept_script_checkout(&checkout, &cancelled))
+                .transpose()?;
+            let path = resolved
+                .as_ref()
+                .map_or(checkout.as_str(), |checkout| checkout.path.as_str());
+            let config = crate::worktree_scripts::read_config(&target, path, &cancelled)?;
+            Ok::<_, crate::Error>((config, resolved))
         });
         cx.spawn(async move |this, cx| {
             let result = read.await;
             this.update(cx, |this, cx| {
+                if this.menu.endpoint_target != endpoint || !this.menu_target_current() {
+                    return;
+                }
                 let Some(deletion) = &mut this.menu.deletion else {
                     return;
                 };
@@ -157,8 +202,21 @@ impl SheprdWindow {
                     && matches!(deletion.archive, ArchiveCheck::Reading)
                 {
                     deletion.archive = match result {
-                        Ok(config) => ArchiveCheck::Read(config),
-                        Err(error) => ArchiveCheck::Failed(error),
+                        Ok((config, resolved)) => {
+                            if let Some(checkout) = resolved {
+                                deletion.path = Some(checkout.path);
+                                deletion.root = checkout.root;
+                            }
+                            ArchiveCheck::Read(config)
+                        }
+                        Err(error) => {
+                            // An unreadable kept checkout cannot safely skip
+                            // its archive and proceed to deletion.
+                            if kept {
+                                deletion.path = None;
+                            }
+                            ArchiveCheck::Failed(error)
+                        }
                     };
                     cx.notify();
                 }

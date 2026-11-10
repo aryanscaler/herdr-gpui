@@ -22,6 +22,7 @@ use crate::{
     teleport::{AgentKind, FreshOrigin, Host, HostRepositories, Place},
 };
 use sheprd_client::protocol::{AgentStatus, ClientShellSnapshot};
+use sheprd_remote::work;
 use std::{
     sync::{
         Arc,
@@ -40,8 +41,12 @@ pub(crate) struct Origin {
     pub(crate) endpoint_id: String,
     pub(crate) endpoint_label: String,
     pub(crate) host: Host,
-    /// The main checkout's workspace, which new worktrees are created through.
+    /// The main checkout's workspace, which new worktrees are created
+    /// through on Herdr 1; on Herdr 2, the workspace the app keeps for it.
     pub(crate) workspace_id: String,
+    /// On Herdr 2, the kept workspace's folder, which Git makes the lanes'
+    /// worktrees through; `None` on Herdr 1, whose daemon makes them.
+    pub(crate) checkout: Option<String>,
     /// The repository's Git common directory, for shipping its commit.
     pub(crate) repo_key: String,
     pub(crate) repo_label: String,
@@ -50,6 +55,23 @@ pub(crate) struct Origin {
 }
 
 impl Origin {
+    /// What makes the lanes' worktrees on the origin.
+    pub(crate) fn repository(&self) -> work::Repository {
+        match &self.checkout {
+            Some(checkout) => work::Repository::Herdr2 {
+                checkout: checkout.clone(),
+            },
+            None => work::Repository::Herdr1 {
+                workspace_id: self.workspace_id.clone(),
+            },
+        }
+    }
+
+    /// Whether the origin is a workspace the app keeps for Herdr 2.
+    pub(crate) fn kept(&self) -> bool {
+        self.checkout.is_some()
+    }
+
     fn fresh(&self) -> FreshOrigin {
         FreshOrigin {
             place: Place {
@@ -135,6 +157,24 @@ pub(super) enum Stage {
     Removing(usize),
 }
 
+/// The lane a fan-out kept, to follow once every other lane is gone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Kept {
+    /// Herdr 1's workspace for it.
+    Herdr1 { endpoint: String, workspace: String },
+    /// The checkout of a Herdr 2 lane, whose kept workspace is found by it.
+    Herdr2 { label: String, path: String },
+}
+
+/// A Herdr 2 lane's agent shell, for the window to show in a workspace it
+/// keeps for the lane's checkout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Shown {
+    pub(super) label: String,
+    pub(super) path: String,
+    pub(super) terminal: String,
+}
+
 pub(crate) struct FanOut {
     pub(super) origin: Origin,
     pub(super) stage: Stage,
@@ -167,6 +207,10 @@ pub(crate) struct FanOut {
     /// Agents asked for before the host's agents were known, as
     /// `sheprd fan-out --agent` does; picked once the lookup lands.
     wanted: Vec<(AgentKind, usize)>,
+    /// Herdr 2 agent shells the window has yet to show; see [`Self::take_kept`].
+    shown: Vec<Shown>,
+    /// Removed Herdr 2 lanes' folders whose kept workspaces have yet to close.
+    closed: Vec<String>,
 }
 
 impl Drop for FanOut {
@@ -241,6 +285,8 @@ impl FanOut {
             id: 0,
             restored: false,
             wanted: Vec::new(),
+            shown: Vec::new(),
+            closed: Vec::new(),
         };
         let host = fan_out.origin.host.clone();
         fan_out.probe(move |cancelled| Event::Installed(job::installed(&host, cancelled)));
@@ -298,9 +344,11 @@ impl FanOut {
         &mut self.hosts
     }
 
-    /// Whether lanes may go to other hosts at all.
+    /// Whether lanes may go to other hosts at all. A kept workspace's lanes
+    /// stay on this computer: other hosts are set up through a Herdr 1
+    /// workspace of the repository, which it has none of.
     pub(super) fn can_spread(&self) -> bool {
-        self.composing() && self.hosts.offers_choice()
+        self.composing() && self.hosts.offers_choice() && !self.origin.kept()
     }
 
     pub(super) fn toggle_spread(&mut self) -> bool {
@@ -329,7 +377,7 @@ impl FanOut {
     /// choices on top.
     pub(super) fn lane_hosts(&self) -> Vec<String> {
         let lanes = self.picks.total();
-        if !self.spread || !self.hosts.offers_choice() {
+        if !self.spread || !self.hosts.offers_choice() || self.origin.kept() {
             return vec![self.origin.endpoint_id.clone(); lanes];
         }
         let mut hosts = self.hosts.spread(lanes);
@@ -476,6 +524,7 @@ impl FanOut {
             });
         let request = Request {
             origin: self.origin.fresh(),
+            repository: self.origin.repository(),
             base: self.origin.base.clone(),
             prompt: self.prompt.clone(),
             lanes,
@@ -503,7 +552,7 @@ impl FanOut {
             .map(|lane| {
                 lane.checkout
                     .as_ref()
-                    .map(|c| (c.host.clone(), c.path.clone()))
+                    .map(|c| (c.host.clone(), c.path().to_owned()))
             })
             .collect()
     }
@@ -535,20 +584,26 @@ impl FanOut {
             return false;
         }
         self.stop_probe();
-        let doomed: Vec<(usize, Host, String)> = self
+        let doomed: Vec<_> = self
             .doomed(winner)
             .into_iter()
-            .filter_map(|(index, workspace)| {
+            .filter_map(|(index, worktree)| {
                 let host = self.lanes[index].checkout.as_ref()?.host.clone();
-                Some((index, host, workspace))
+                Some((index, host, worktree, self.lanes[index].lane.branch.clone()))
             })
             .collect();
         let (sender, cancelled) = (self.sender.clone(), self.work.clone());
         let (journal, id) = (self.journal.clone(), self.id);
+        let repo_key = self.origin.repo_key.clone();
         spawn(move || {
             let removed: Vec<_> = doomed
                 .into_iter()
-                .map(|(index, host, workspace)| (index, job::remove(&host, &workspace, &cancelled)))
+                .map(|(index, host, worktree, branch)| {
+                    (
+                        index,
+                        job::remove(&host, &worktree, &repo_key, &branch, &cancelled),
+                    )
+                })
                 .collect();
             // The journal follows the removals. Once all are gone the kept
             // lane is an ordinary workspace too, but a lane whose worktree
@@ -572,19 +627,30 @@ impl FanOut {
     }
 
     /// The lanes besides `winner` that have a checkout to remove, with
-    /// their workspaces.
-    pub(super) fn doomed(&self, winner: usize) -> Vec<(usize, String)> {
+    /// their worktrees.
+    pub(super) fn doomed(&self, winner: usize) -> Vec<(usize, work::Worktree)> {
         self.lanes
             .iter()
             .enumerate()
             .filter(|(index, _)| *index != winner)
-            .filter_map(|(index, lane)| Some((index, lane.checkout.as_ref()?.workspace_id.clone())))
+            .filter_map(|(index, lane)| Some((index, lane.checkout.as_ref()?.worktree.clone())))
             .collect()
     }
 
-    /// Apply finished work. Returns the kept lane's endpoint and workspace
-    /// once every other lane is gone.
-    pub(super) fn poll(&mut self) -> (bool, Option<(String, String)>) {
+    /// What the window does for the app's kept workspaces since it last
+    /// asked: Herdr 2 lanes whose agent's shell started, to show each in a
+    /// kept workspace of its own, and the folders of removed lanes, whose
+    /// kept workspaces close.
+    pub(super) fn take_kept(&mut self) -> (Vec<Shown>, Vec<String>) {
+        (
+            std::mem::take(&mut self.shown),
+            std::mem::take(&mut self.closed),
+        )
+    }
+
+    /// Apply finished work. Returns the kept lane's workspace once every
+    /// other lane is gone.
+    pub(super) fn poll(&mut self) -> (bool, Option<Kept>) {
         let mut changed = false;
         while let Ok(event) = self.events.try_recv() {
             changed = true;
@@ -608,10 +674,21 @@ impl FanOut {
                         Progress::SettingUp => LaneState::SettingUp,
                         Progress::CreatingWorktree => LaneState::CreatingWorktree,
                         Progress::Created(checkout) => {
-                            lane.checkout = Some(checkout);
+                            lane.checkout = Some(*checkout);
                             continue;
                         }
                         Progress::StartingAgent => LaneState::StartingAgent,
+                        Progress::Terminal(terminal) => {
+                            if let Some(checkout) = &mut lane.checkout {
+                                checkout.terminal = Some(terminal.clone());
+                                self.shown.push(Shown {
+                                    label: lane.lane.branch.clone(),
+                                    path: checkout.path().to_owned(),
+                                    terminal,
+                                });
+                            }
+                            continue;
+                        }
                         Progress::Prompting => LaneState::Prompting,
                         Progress::Running => LaneState::Running,
                         Progress::Failed(error) => {
@@ -668,7 +745,15 @@ impl FanOut {
                     let mut removed = Vec::new();
                     for (index, result) in results {
                         match result {
-                            Ok(()) => removed.push(index),
+                            Ok(()) => {
+                                let kept = self.lanes.get(index).and_then(|lane| {
+                                    lane.checkout
+                                        .as_ref()
+                                        .filter(|c| c.workspace_id().is_none())
+                                });
+                                self.closed.extend(kept.map(|c| c.path().to_owned()));
+                                removed.push(index);
+                            }
                             Err(error) => {
                                 tracing::warn!(%error, "fan-out removal");
                                 failures.push(error.localize());
@@ -676,12 +761,20 @@ impl FanOut {
                         }
                     }
                     if failures.is_empty() {
-                        let workspace = self.lanes.get(winner).and_then(|lane| {
-                            lane.checkout
-                                .as_ref()
-                                .map(|c| (c.endpoint_id.clone(), c.workspace_id.clone()))
+                        let kept = self.lanes.get(winner).and_then(|lane| {
+                            let checkout = lane.checkout.as_ref()?;
+                            Some(match checkout.workspace_id() {
+                                Some(workspace) => Kept::Herdr1 {
+                                    endpoint: checkout.endpoint_id.clone(),
+                                    workspace: workspace.to_owned(),
+                                },
+                                None => Kept::Herdr2 {
+                                    label: lane.lane.branch.clone(),
+                                    path: checkout.path().to_owned(),
+                                },
+                            })
                         });
-                        return (true, workspace);
+                        return (true, kept);
                     }
                     let mut index = 0;
                     let mut kept = winner;
@@ -707,7 +800,7 @@ impl FanOut {
     }
 }
 
-fn status_text(status: AgentStatus) -> String {
+pub(super) fn status_text(status: AgentStatus) -> String {
     match status {
         AgentStatus::Idle => fl!("fan-out-agent-idle"),
         AgentStatus::Working => fl!("fan-out-agent-working"),

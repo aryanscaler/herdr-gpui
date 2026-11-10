@@ -2,15 +2,21 @@
 //! the base commit. The repository is found on the destination (or cloned
 //! there, as Teleport does), the base commit is shipped when the destination
 //! lacks it, and the destination's own daemon creates the worktree from it.
+//! On a destination whose terminals herdr-core runs, Git makes it instead
+//! (see [`kept`]).
 
 use super::{
     error::{Error, Result, Step},
     git,
     host::Host,
     job::{self, HostRepositories, Keeping, Place, Repository, Source},
-    snapshot::WorktreeCreated,
 };
+use crate::work;
 use std::{collections::HashMap, io::Seek, sync::atomic::AtomicBool};
+
+mod kept;
+
+pub use kept::{dispatch_kept_workspace, dispatch_kept_worktree};
 
 /// The repository a dispatched worktree branches from, on its own host.
 #[derive(Debug, Clone)]
@@ -85,13 +91,34 @@ pub fn prepare(
         host: to.clone(),
         reference: None,
     };
-    if git::has_commit(to, &prepared.repository.key, commit, cancelled)? {
-        return Ok(prepared);
+    prepared.reference = ship(
+        origin,
+        to,
+        &prepared.repository.key,
+        commit,
+        report,
+        cancelled,
+    )?;
+    Ok(prepared)
+}
+
+/// Ship `commit` from the origin into the repository `key` on `to` when it
+/// lacks it. Answers the temporary reference that now holds it there, for
+/// the caller to drop once a branch keeps the commit reachable.
+fn ship(
+    origin: &Origin,
+    to: &Host,
+    key: &str,
+    commit: &str,
+    report: &mut impl FnMut(Step),
+    cancelled: &AtomicBool,
+) -> Result<Option<String>> {
+    if git::has_commit(to, key, commit, cancelled)? {
+        return Ok(None);
     }
     report(Step::Capture);
-    let key = prepared.repository.key.clone();
     // The branch name only matters for Teleport; tips are what is needed.
-    let tips = git::destination_branch(to, &key, "HEAD", cancelled)?.tips;
+    let tips = git::destination_branch(to, key, "HEAD", cancelled)?.tips;
     let reference = job::reference_name();
     let mut bundle = tempfile::tempfile().map_err(Error::LocalFile)?;
     git::bundle_commit(
@@ -107,11 +134,10 @@ pub fn prepare(
     report(Step::Transfer);
     let uploaded = git::upload(to, bundle, cancelled)?;
     report(Step::Fetch);
-    let fetched = git::fetch(to, &key, &uploaded, &reference, cancelled);
+    let fetched = git::fetch(to, key, &uploaded, &reference, cancelled);
     let _ = git::discard_upload(to, &uploaded, cancelled);
     fetched?;
-    prepared.reference = Some(reference);
-    Ok(prepared)
+    Ok(Some(reference))
 }
 
 /// What the new worktree is called. Either may be left to the daemon.
@@ -142,31 +168,30 @@ pub struct NewCheckout {
 }
 
 /// Create one worktree on `destination` from `commit`, through `prepared`'s
-/// workspace.
+/// workspace. Without a branch, the daemon names it.
 fn create_worktree(
     prepared: &Prepared,
     commit: &str,
     naming: &Naming,
     report: &mut impl FnMut(Step),
     cancelled: &AtomicBool,
-) -> Result<WorktreeCreated> {
+) -> Result<(String, String)> {
     report(Step::CreateWorktree);
-    let mut args = vec![
-        "worktree",
-        "create",
-        "--workspace",
+    let created = work::create_in_herdr1(
+        &prepared.host,
         &prepared.repository.workspace_id,
-        "--base",
+        naming.branch.as_deref(),
         commit,
-        "--no-focus",
-    ];
-    if let Some(branch) = &naming.branch {
-        args.extend(["--branch", branch]);
+        naming.label.as_deref(),
+        cancelled,
+    )?;
+    match created.opened {
+        work::Opened::Herdr1 { workspace_id, .. } => Ok((created.path, workspace_id)),
+        work::Opened::Herdr2 => Err(work::Error::Output {
+            step: work::Step::CreateWorktree,
+        }
+        .into()),
     }
-    if let Some(label) = &naming.label {
-        args.extend(["--label", label]);
-    }
-    prepared.host.herdr(Step::CreateWorktree, &args, cancelled)
 }
 
 /// The whole of a dispatched new worktree: resolve the base on the origin,
@@ -183,15 +208,15 @@ pub fn dispatch_worktree(
     let prepared = prepare(origin, destination, &commit, &mut report, cancelled)?;
     let created = create_worktree(&prepared, &commit, naming, &mut report, cancelled);
     prepared.finish(&AtomicBool::new(false));
-    let created = created?;
+    let (path, workspace_id) = created?;
     let key = &prepared.repository.key;
     let root = git::main_checkout(&destination.place.host, key, cancelled).ok();
     Ok(Created {
         endpoint_id: destination.place.endpoint_id.clone(),
-        workspace_id: created.workspace.workspace_id,
+        workspace_id,
         checkout: Some(NewCheckout {
             repo_key: key.clone(),
-            path: created.worktree.path,
+            path,
             root,
         }),
     })

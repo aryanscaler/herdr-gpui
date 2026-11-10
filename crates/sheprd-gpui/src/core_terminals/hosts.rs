@@ -110,6 +110,12 @@ impl CoreTerminals {
         self.infos_of(&self.tabs.get(&tab)?.host)?.get(terminal)
     }
 
+    /// What this computer's core reports of `terminal`, whichever tab
+    /// shows it.
+    pub(crate) fn local_info(&self, terminal: &TerminalId) -> Option<&TerminalInfo> {
+        self.infos_of(&Host::Local)?.get(terminal)
+    }
+
     /// Whether `tab` types into its terminals, on any host: a tab rather
     /// than a watch-only mirror.
     pub(crate) fn types_into(&self, tab: TabId) -> bool {

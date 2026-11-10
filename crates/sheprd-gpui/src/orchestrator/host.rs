@@ -381,6 +381,11 @@ impl SheprdWindow {
         let (live, branches) = self.live_agents();
         let look = self.look();
         let specs = self.repo_specs();
+        let local_terminals = if self.local_workspaces_use_core() {
+            super::Terminals::Herdr2
+        } else {
+            super::Terminals::Herdr1
+        };
         // Only the shown Pull requests or Issues section is on screen; the
         // bar's counts alone do not need a sync a minute.
         let shown_view = self
@@ -404,6 +409,7 @@ impl SheprdWindow {
                 view.poll(cx);
                 view.set_look(look.clone(), cx);
                 view.set_live(live.clone(), branches.clone(), cx);
+                view.set_local_terminals(local_terminals);
                 for (target, token, login) in accounts {
                     view.set_github(&target, token, login, cx);
                 }
@@ -528,6 +534,15 @@ impl SheprdWindow {
                     self.tell_orchestrator(id, super::Error::MenuOpen, cx);
                 }
             }
+            Event::OpenCoreRun {
+                path,
+                terminal,
+                label,
+            } => self.open_core_run(id, &label, path, terminal, window, cx),
+            // Removed from this computer, whichever host is shown now.
+            Event::CloseCoreRun { path } => {
+                self.close_local_kept_folder(&path, window, cx);
+            }
             Event::OpenWorkspace {
                 host,
                 session,
@@ -615,7 +630,7 @@ impl SheprdWindow {
             .orchestrator_repository(&request.workspace_id)
             .and_then(|(key, label)| {
                 let origin = self.dispatch_origin(&request.workspace_id, &key, &label)?;
-                let destination = self.dispatch_destination(endpoint)?;
+                let destination = self.herdr_1_destination(endpoint)?;
                 let target = self
                     .endpoints
                     .iter()
@@ -682,6 +697,53 @@ impl SheprdWindow {
             self.leave_activity_section(view, cx);
         } else {
             self.tell_orchestrator(view, super::Error::MenuOpen, cx);
+        }
+    }
+
+    /// Shows a Herdr 2 run's agent on this computer: the workspace the app
+    /// keeps at its checkout, else one kept now with the run's herdr-core
+    /// terminal as its tab, as the new worktree dialog lands its agent.
+    fn open_core_run(
+        &mut self,
+        view: ViewId,
+        label: &str,
+        path: std::path::PathBuf,
+        terminal: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Ok(terminal) = sheprd_backend::TerminalId::new(terminal) else {
+            self.tell_orchestrator(view, super::Error::NothingToOpen, cx);
+            return;
+        };
+        if self.selected_is_remote() {
+            let local = self
+                .core_host()
+                .map(|index| self.endpoints[index].id.clone());
+            if !local.is_some_and(|local| self.select_endpoint(&local, cx)) {
+                self.tell_orchestrator(view, super::Error::WorkspaceClosed, cx);
+                return;
+            }
+            self.refresh_core_session(cx);
+        }
+        let shown = match self.kept_workspace_at(&path) {
+            // The workspace may predate the agent, or the agent's tab may
+            // have moved: show the run's own terminal either way.
+            Some(id) => self.show_terminal_in_kept_workspace(&id, terminal, window, cx),
+            None => {
+                // The tab drives the terminal, as a Herdr 1 pane does its
+                // agent: closing it ends the agent, and so does a tab that
+                // could not open, which a flash then says.
+                let location = crate::browser::Location::core_terminal(
+                    crate::core_terminals::panes::Panes::single(terminal),
+                    false,
+                );
+                self.open_kept_workspace(Some(label), &path, location, window, cx)
+                    .is_some()
+            }
+        };
+        if shown {
+            self.leave_activity_section(view, cx);
         }
     }
 

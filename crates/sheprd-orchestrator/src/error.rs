@@ -100,6 +100,18 @@ pub enum Error {
     Teleport(#[source] sheprd_remote::teleport::Error),
     #[error("The pull request changed since you confirmed; look at it again before merging")]
     PullRequestChanged,
+    /// A worktree or agent of a Herdr 2 dispatch; a cancel is [`Self::Cancelled`].
+    #[error(transparent)]
+    Work(sheprd_remote::work::Error),
+}
+
+impl From<sheprd_remote::work::Error> for Error {
+    fn from(error: sheprd_remote::work::Error) -> Self {
+        match error {
+            sheprd_remote::work::Error::Cancelled => Self::Cancelled,
+            error => Self::Work(error),
+        }
+    }
 }
 
 /// `map_err` adapter naming the host script that failed.

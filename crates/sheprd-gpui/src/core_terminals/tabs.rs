@@ -296,6 +296,9 @@ impl SheprdWindow {
             })
             .collect::<Vec<_>>();
         self.poll_core_views(polled, window, cx);
+        // Archive scripts must consume their exit before an ended split's
+        // view is removed; the next window tick would see only a closed pane.
+        self.poll_kept_archives(cx);
         let mut ended = Vec::new();
         for ((tab, terminal), view) in views {
             let split = self

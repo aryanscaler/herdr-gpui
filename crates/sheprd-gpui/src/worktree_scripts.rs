@@ -11,15 +11,20 @@
 //! One script starts at a time. Its job is fenced by the selection epoch and
 //! connection generation it began under, like a menu action, so a reply from
 //! a replaced connection never opens a tab or types into one.
+//!
+//! A workspace the app keeps for Herdr 2 runs the same scripts in tabs of
+//! herdr-core terminals; see [`kept`].
 // i18n: migrated
 
 mod config;
 mod error;
+mod kept;
 mod launch;
 mod trust;
 
 pub(crate) use config::{Config, PATH as CONFIG_PATH, read as read_config};
 pub(crate) use error::Error;
+pub(crate) use kept::Kept;
 #[cfg(feature = "cloud")]
 pub(crate) use launch::SCRIPT_ENV;
 pub(crate) use launch::{Checkout, command_line, created_tab, main_checkout};
@@ -204,28 +209,38 @@ impl SheprdWindow {
         let Some(job) = &self.worktree_script else {
             return;
         };
-        let Some(checkout) = job.launch.checkout.as_ref().map(|c| c.path.clone()) else {
+        let Some(checkout) = job.launch.checkout.clone() else {
             return;
         };
         let target = self.endpoints[self.selected_endpoint]
             .connection
             .target
             .clone();
+        // Herdr 1 names a kept checkout's main checkout for its scripts;
+        // here Git does, as for the kept workspace's other worktree work.
+        let find_root = job.launch.kept() && checkout.root.is_none();
         let token = job.cancel.clone();
         let cancel = job.cancel.clone();
-        let read = cx
-            .background_executor()
-            .spawn(async move { config::read(&target, &checkout, &cancel) });
+        let read = cx.background_executor().spawn(async move {
+            let root = find_root
+                .then(|| kept_root(&checkout.path, &cancel))
+                .flatten();
+            (config::read(&target, &checkout.path, &cancel), root)
+        });
         cx.spawn(async move |this, cx| {
-            let result = read.await;
+            let (result, root) = read.await;
             this.update(cx, |this, cx| {
-                let current = this
+                let Some(job) = this
                     .worktree_script
-                    .as_ref()
-                    .is_some_and(|job| Arc::ptr_eq(&job.cancel, &token));
-                if current {
-                    this.worktree_scripts_read(result, cx);
+                    .as_mut()
+                    .filter(|job| Arc::ptr_eq(&job.cancel, &token))
+                else {
+                    return;
+                };
+                if let (Some(checkout), Some(root)) = (&mut job.launch.checkout, root) {
+                    checkout.root = Some(root);
                 }
+                this.worktree_scripts_read(result, cx);
             })
             .ok();
         })
@@ -237,6 +252,9 @@ impl SheprdWindow {
         result: crate::Result<Option<Config>>,
         cx: &mut Context<Self>,
     ) {
+        if !self.worktree_script_current() {
+            return self.fail_worktree_script(crate::Error::StaleConnection, cx);
+        }
         let Some(job) = &self.worktree_script else {
             return;
         };
@@ -281,7 +299,7 @@ impl SheprdWindow {
         };
         let grant = job.launch.grant(&config);
         if cx.default_global::<Trust>().trusts(&grant) {
-            return self.open_worktree_script_tab(&config);
+            return self.open_worktree_script_tab(&config, cx);
         }
         job.step = Step::Asking {
             config,
@@ -291,7 +309,14 @@ impl SheprdWindow {
         Ok(())
     }
 
-    fn open_worktree_script_tab(&mut self, config: &Config) -> crate::Result<()> {
+    fn open_worktree_script_tab(
+        &mut self,
+        config: &Config,
+        cx: &mut Context<Self>,
+    ) -> crate::Result<()> {
+        if !self.worktree_script_current() {
+            return Err(crate::Error::StaleConnection);
+        }
         let Some(job) = &mut self.worktree_script else {
             return Ok(());
         };
@@ -300,6 +325,11 @@ impl SheprdWindow {
         else {
             return Err(Error::Checkout.into());
         };
+        if job.launch.kept() {
+            let (launch, script) = (job.launch.clone(), script.to_owned());
+            self.worktree_script = None;
+            return self.open_kept_script_tab(&launch, &script, cx);
+        }
         let request = self.endpoints[self.selected_endpoint]
             .connection
             .request_script(
@@ -326,11 +356,16 @@ impl SheprdWindow {
 
     fn worktree_script_current(&self) -> bool {
         self.worktree_script.as_ref().is_some_and(|job| {
-            job.launch.endpoint
+            let endpoint = job.launch.endpoint
                 == (
                     self.selection_epoch,
                     self.endpoints[self.selected_endpoint].generation,
-                )
+                );
+            // The app keeps the workspace: no daemon has to answer for it.
+            if job.launch.kept() {
+                return endpoint && self.is_kept_workspace(&job.launch.workspace);
+            }
+            endpoint
                 && self.live.status.is_connected()
                 && self
                     .live
@@ -453,6 +488,19 @@ impl SheprdWindow {
         )
     }
 
+    /// The main checkout the script job in hand runs with, if any, for the
+    /// kept workspaces' tests, which need host scripts.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) fn worktree_script_root(&self) -> Option<&str> {
+        self.worktree_script
+            .as_ref()?
+            .launch
+            .checkout
+            .as_ref()?
+            .root
+            .as_deref()
+    }
+
     /// Ages an open trust question past its arming delay.
     #[cfg(test)]
     pub(crate) fn arm_worktree_script(&mut self) {
@@ -481,7 +529,7 @@ impl SheprdWindow {
         let (grant, config) = (launch.grant(config), config.clone());
         let opened = if self.worktree_script_current() {
             cx.default_global::<Trust>().grant(grant);
-            self.open_worktree_script_tab(&config)
+            self.open_worktree_script_tab(&config, cx)
         } else {
             Err(crate::Error::StaleConnection)
         };
@@ -506,7 +554,16 @@ impl SheprdWindow {
         if job.launch.kind != ScriptKind::Archive {
             return;
         }
-        let removed = if current {
+        let removed = if current && job.launch.kept() {
+            let launch = job.launch.clone();
+            match launch.checkout {
+                Some(checkout) => {
+                    self.remove_kept_checkout(launch.workspace, checkout.path, launch.force, cx);
+                    Ok(())
+                }
+                None => Err(Error::Checkout.into()),
+            }
+        } else if current {
             self.queue_worktree_removal(&job.launch.boot, &job.launch.workspace, job.launch.force)
         } else {
             Err(crate::Error::StaleConnection)
@@ -667,6 +724,35 @@ fn script_lines(script: &str) -> Vec<String> {
         .split('\n')
         .map(|line| line.chars().map(visible).collect())
         .collect()
+}
+
+/// The repository's main checkout, as Git lists it first, for a kept
+/// checkout's `HERDR_ROOT_PATH`. Blocking; `None` when Git cannot say.
+pub(crate) fn kept_root(checkout: &str, cancelled: &AtomicBool) -> Option<String> {
+    let host = sheprd_remote::teleport::Host::new(&sheprd_client::ConnectTarget::Local).ok()?;
+    let listed = sheprd_remote::work::list(&host, checkout, cancelled).ok()?;
+    listed
+        .into_iter()
+        .next()
+        .filter(|main| !main.bare)
+        .map(|main| main.path)
+}
+
+/// The whole checkout a kept folder belongs to, and the main checkout
+/// supplied to its scripts. Blocking, like reading the script itself.
+pub(crate) fn kept_script_checkout(
+    folder: &str,
+    cancelled: &AtomicBool,
+) -> crate::Result<Checkout> {
+    let path = crate::git::git(
+        folder,
+        &["rev-parse", "--show-toplevel"],
+        "locate worktree script checkout",
+        std::time::Instant::now() + std::time::Duration::from_secs(15),
+        &|| cancelled.load(Ordering::Acquire),
+    )?;
+    let root = kept_root(&path, cancelled);
+    Ok(Checkout { path, root })
 }
 
 #[cfg(test)]

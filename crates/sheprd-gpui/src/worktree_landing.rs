@@ -431,6 +431,7 @@ impl SheprdWindow {
             let agent = sheprd_remote::work::Agent {
                 kind,
                 name: &agent_name(kind),
+                model: None,
                 prompt: None,
             };
             let started = sheprd_remote::work::start_agent(

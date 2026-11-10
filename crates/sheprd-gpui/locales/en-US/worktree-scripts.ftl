@@ -16,6 +16,8 @@ worktree-scripts-not-started =
        *[archive] The archive script did not start: { $error }
     }
 worktree-scripts-remove-failed = Remove worktree: { $error }
+# A Herdr 2 workspace's archive script failed in its tab, which shows why.
+worktree-scripts-archive-failed = The archive script failed, so the worktree was kept. Its tab shows why.
 
 # The page that asks before a script runs.
 worktree-scripts-ask-setup = Run this worktree's setup script?

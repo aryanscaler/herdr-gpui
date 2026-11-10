@@ -316,6 +316,11 @@ impl CoreTerminalView {
         self.screen.ended.is_some()
     }
 
+    /// How the terminal's program ended, once it has.
+    pub(crate) fn exit(&self) -> Option<sheprd_backend::Exit> {
+        self.screen.ended
+    }
+
     /// The size the terminal was last given, in cells.
     /// Where the terminal's cells were last laid out, in the window.
     pub(crate) fn bounds(&self) -> Option<Bounds<Pixels>> {

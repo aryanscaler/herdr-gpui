@@ -83,11 +83,13 @@ Each row shows its branch, author, review state, checks as colored pills, diff s
 
 A new worktree is created from the main checkout's `HEAD` and the agent starts in it with the prompt. Its tab and pane are named with the issue or PR number and title. With more than one host connected, the dialog ranks hosts the way [Smart Dispatch](teleport.md#smart-dispatch) does; pick another host and the repository is set up there. Dispatching to another host needs a macOS or Linux client.
 
+On this computer, when [**Settings > Tabs > New terminals use Herdr 2**](terminals.md) is on, Git creates the worktree in the folder Herdr 1 would use, and the agent is typed into a Herdr 2 shell there with its model, then given the prompt once it is ready. The checkout gets no workspace until you open the run, which keeps one showing the agent's terminal. SSH hosts and other hosts still dispatch through Herdr 1.
+
 A pull request's **Review with agent** does the same on an `agent/review-…` branch with a read-only prompt: the agent verifies the pull request, reads its diff, and reports findings without writing to GitHub.
 
 ### Runs
 
-Runs have no list of their own. The Overview section shows agents and failed runs that need you, and an item's **Agent** page shows its runs, with their status from each host's live Herdr view. A run's card sends the agent messages, stops it, or removes its worktree; each of those asks first. Leaving the section leaves a started dispatch running.
+Runs have no list of their own. The Overview section shows agents and failed runs that need you, and an item's **Agent** page shows its runs, with their status from each host's live Herdr view (a Herdr 2 run shows the status it last recorded). A run's card sends the agent messages, stops it, or removes its worktree; each of those asks first. Leaving the section leaves a started dispatch running.
 
 The hash at the end of a branch name belongs to the item, so work is found without the database, such as on another machine: a workspace on that branch, or an `agent/…` branch no workspace shows, appears as the item's run. These runs open their workspace but have no controls.
 

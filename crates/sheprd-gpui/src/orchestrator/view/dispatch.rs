@@ -7,7 +7,7 @@ use crate::{
     config::{corners, mix},
     i18n::{Localize, fl},
     orchestrator::{
-        Action, DispatchRequest, Item, Notice, Provider, SourceKey,
+        Action, DispatchRequest, Item, Notice, Provider, SourceKey, Terminals,
         actions::valid_model,
         prompt::{self, MAX_EXTRA},
     },
@@ -291,9 +291,19 @@ impl OrchestratorView {
     fn submit_dispatch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // The dialog's item is in the active repository, which the dialog
         // made active when it opened.
-        let (snapshot, workspace_id) = match self.repos.get(self.active) {
-            Some(repo) => (&repo.snapshot, repo.request.workspace_id.clone()),
-            None => (&self.blank, String::new()),
+        let (snapshot, workspace_id, terminals) = match self.repos.get(self.active) {
+            Some(repo) => (
+                &repo.snapshot,
+                repo.request.workspace_id.clone(),
+                // herdr-core runs this machine's terminals, not an SSH host's
+                // yet: those stay on Herdr 1.
+                if repo.request.target.is_remote() {
+                    Terminals::Herdr1
+                } else {
+                    self.local_terminals
+                },
+            ),
+            None => (&self.blank, String::new(), Terminals::Herdr1),
         };
         let Some(dialog) = &mut self.dialog else {
             return;
@@ -357,6 +367,7 @@ impl OrchestratorView {
             workspace_id,
             base: None,
             elsewhere: None,
+            terminals,
         };
         match host {
             // The window knows the other host and sets the request up for it.
@@ -518,6 +529,9 @@ impl OrchestratorView {
                                     this.merge(method, &target, cx)
                                 }
                                 confirm => {
+                                    if let Confirm::Remove { run, .. } = &confirm {
+                                        this.follow_core_removal(run);
+                                    }
                                     if let Some(action) = confirm.action() {
                                         this.act(action);
                                     }

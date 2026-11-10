@@ -16,7 +16,7 @@ fn script_failures_keep_step_and_source() {
         "starting the agent failed: host script made no progress before its deadline"
     );
     assert!(matches!(
-        script(Step::Prompt)(sheprd_client::Error::ScriptCancelled),
+        script(Step::Compare)(sheprd_client::Error::ScriptCancelled),
         Error::Cancelled
     ));
 }

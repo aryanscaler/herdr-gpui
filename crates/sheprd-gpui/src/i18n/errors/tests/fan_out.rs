@@ -7,28 +7,13 @@ fn decode() -> serde_json::Error {
 
 #[test]
 fn every_fan_out_variant_has_a_message() {
-    let mut errors: Vec<Error> = [
-        Step::Detect,
-        Step::CreateWorktree,
-        Step::StartAgent,
-        Step::Prompt,
-        Step::Compare,
-        Step::Remove,
-    ]
-    .into_iter()
-    .flat_map(|step| {
-        [
-            Error::Script {
-                step,
-                source: sheprd_client::Error::ScriptCancelled,
-            },
-            Error::Decode {
-                step,
-                source: decode(),
-            },
-        ]
-    })
-    .collect();
+    let mut errors: Vec<Error> = [Step::Detect, Step::StartAgent, Step::Compare]
+        .into_iter()
+        .map(|step| Error::Script {
+            step,
+            source: sheprd_client::Error::ScriptCancelled,
+        })
+        .collect();
     errors.extend([
         Error::NoBase,
         Error::Dispatch(crate::teleport::Error::Cancelled),
@@ -45,6 +30,7 @@ fn every_fan_out_variant_has_a_message() {
         Error::JournalWrite(Box::new(crate::Error::StaleConnection)),
         Error::JournalFull,
         Error::JournalFieldTooLong,
+        Error::Work(Box::new(sheprd_remote::work::Error::Dirty)),
     ]);
     assert_localized(&errors);
 }

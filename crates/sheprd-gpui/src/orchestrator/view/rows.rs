@@ -6,7 +6,7 @@
 use super::tasks::TaskFilters;
 use crate::i18n::fl;
 use crate::orchestrator::{
-    Backend, CheckState, HerdrSession, Item, PrStatus, Provider, Review, Run, RunState,
+    Backend, CheckState, HerdrSession, Item, Pane, PrStatus, Provider, Review, Run, RunState,
 };
 use sheprd_client::protocol::AgentStatus;
 use std::{
@@ -167,12 +167,20 @@ impl Status {
 pub(crate) use sheprd_orchestrator::model::LiveAgent;
 
 /// The live agent a run's session names, if a connected host shows it.
+/// Live agents are Herdr 1's: a Herdr 2 run shows its recorded state.
 pub(crate) fn live_for<'a>(session: &HerdrSession, live: &'a [LiveAgent]) -> Option<&'a LiveAgent> {
+    let Pane::Herdr1 {
+        workspace_id,
+        pane_id,
+    } = &session.pane
+    else {
+        return None;
+    };
     live.iter().find(|agent| {
         agent.host == session.host
             && agent.session == session.session
-            && agent.pane_id == session.pane_id
-            && agent.workspace_id == session.workspace_id
+            && agent.pane_id == *pane_id
+            && agent.workspace_id == *workspace_id
     })
 }
 

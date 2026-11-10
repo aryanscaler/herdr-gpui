@@ -3,6 +3,10 @@
 //! reports through a channel the window drains on its tick. Closing the
 //! dialog does not stop it, since stopping halfway could leave a clone or a
 //! stray reference behind; only closing the window does.
+//!
+//! On a destination whose new workspaces the app keeps for Herdr 2 (this
+//! computer), herdr-core opens nothing: the job answers the folder made, and
+//! the window keeps the workspace that shows it.
 
 use crate::teleport::{self, Created, FreshOrigin, HostRepositories, Naming, Step};
 use std::sync::{
@@ -19,34 +23,113 @@ enum Event {
     /// The new machine, saved as a device.
     #[cfg(feature = "cloud")]
     Provisioned(crate::cloud::SavedDevice),
-    Done(crate::Result<Created>),
+    Done(crate::Result<Dispatched>),
+}
+
+/// What a dispatch made.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Dispatched {
+    /// Herdr 1's new workspace on the destination.
+    Herdr1(Created),
+    /// A folder on the destination `endpoint_id`, for the window to keep a
+    /// Herdr 2 workspace at, named `label` unless it is its folder's.
+    Kept {
+        endpoint_id: String,
+        path: String,
+        label: Option<String>,
+        /// A new worktree, for its setup script; a workspace has none.
+        checkout: Option<teleport::NewCheckout>,
+    },
 }
 
 /// What a dispatch makes once its destination is ready.
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Then {
-    Worktree { base: String, naming: Naming },
-    Workspace { label: Option<String> },
+    Worktree {
+        base: String,
+        naming: Naming,
+    },
+    Workspace {
+        label: Option<String>,
+    },
+    /// A worktree on a destination whose workspaces the app keeps: Git needs
+    /// the branch named, so an empty name becomes one Herdr 1 would propose.
+    KeptWorktree {
+        base: String,
+        branch: String,
+        label: Option<String>,
+    },
+    /// The repository's main checkout there, as a kept workspace.
+    KeptWorkspace {
+        label: Option<String>,
+    },
 }
 
 impl Then {
+    /// The same ask, for a destination whose workspaces the app keeps.
+    pub(crate) fn kept(self) -> Self {
+        match self {
+            Self::Worktree { base, naming } => Self::KeptWorktree {
+                base,
+                branch: naming
+                    .branch
+                    .unwrap_or_else(crate::worktree::proposed_branch),
+                label: naming.label,
+            },
+            Self::Workspace { label } => Self::KeptWorkspace { label },
+            kept => kept,
+        }
+    }
+
     fn run(
         &self,
         origin: &FreshOrigin,
         destination: &HostRepositories,
         report: &mut dyn FnMut(Step),
         cancelled: &AtomicBool,
-    ) -> crate::Result<Created> {
+    ) -> crate::Result<Dispatched> {
+        let kept = |path, label: &Option<String>, checkout| Dispatched::Kept {
+            endpoint_id: destination.place.endpoint_id.clone(),
+            path,
+            label: label.clone(),
+            checkout,
+        };
         Ok(match self {
-            Self::Worktree { base, naming } => {
-                teleport::dispatch_worktree(origin, destination, base, naming, report, cancelled)?
-            }
-            Self::Workspace { label } => teleport::dispatch_workspace(
+            Self::Worktree { base, naming } => Dispatched::Herdr1(teleport::dispatch_worktree(
+                origin,
+                destination,
+                base,
+                naming,
+                report,
+                cancelled,
+            )?),
+            Self::Workspace { label } => Dispatched::Herdr1(teleport::dispatch_workspace(
                 origin,
                 destination,
                 label.as_deref(),
                 report,
                 cancelled,
-            )?,
+            )?),
+            Self::KeptWorktree {
+                base,
+                branch,
+                label,
+            } => {
+                let created = teleport::dispatch_kept_worktree(
+                    origin,
+                    destination,
+                    base,
+                    branch,
+                    report,
+                    cancelled,
+                )?;
+                kept(created.path.clone(), label, Some(created))
+            }
+            Self::KeptWorkspace { label } => kept(
+                teleport::dispatch_kept_workspace(origin, destination, report, cancelled)?,
+                label,
+                None,
+            ),
         })
     }
 }
@@ -76,7 +159,9 @@ impl Job {
     fn spawn(
         host: String,
         repo: String,
-        work: impl FnOnce(&mpsc::Sender<Event>, &AtomicBool) -> crate::Result<Created> + Send + 'static,
+        work: impl FnOnce(&mpsc::Sender<Event>, &AtomicBool) -> crate::Result<Dispatched>
+        + Send
+        + 'static,
     ) -> Self {
         let (sender, events) = mpsc::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -104,7 +189,7 @@ impl Job {
     }
 
     /// Make `then` on `destination`.
-    fn on_host(origin: FreshOrigin, destination: HostRepositories, then: Then) -> Self {
+    pub(crate) fn on_host(origin: FreshOrigin, destination: HostRepositories, then: Then) -> Self {
         Self::spawn(
             destination.place.label.clone(),
             origin.repo_label.clone(),
@@ -115,25 +200,6 @@ impl Job {
                 then.run(&origin, &destination, &mut report, cancelled)
             },
         )
-    }
-
-    /// Create a worktree of `origin`'s repository from `base` on `destination`.
-    pub(crate) fn worktree(
-        origin: FreshOrigin,
-        destination: HostRepositories,
-        base: String,
-        naming: Naming,
-    ) -> Self {
-        Self::on_host(origin, destination, Then::Worktree { base, naming })
-    }
-
-    /// Open `origin`'s repository as a new workspace on `destination`.
-    pub(crate) fn workspace(
-        origin: FreshOrigin,
-        destination: HostRepositories,
-        label: Option<String>,
-    ) -> Self {
-        Self::on_host(origin, destination, Then::Workspace { label })
     }
 
     /// Have `provider` make a new machine, then make `then` there. The
@@ -200,6 +266,25 @@ impl Job {
         ))
     }
 
+    /// A job already done with `result`, for tests that land a dispatch
+    /// without running its scripts. Only POSIX clients dispatch.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) fn finished(host: &str, repo: &str, result: crate::Result<Dispatched>) -> Self {
+        let (sender, events) = mpsc::channel();
+        let _ = sender.send(Event::Done(result));
+        Self {
+            host: host.to_owned(),
+            repo: repo.to_owned(),
+            step: None,
+            #[cfg(feature = "cloud")]
+            provision: None,
+            #[cfg(feature = "cloud")]
+            provisioned: None,
+            events,
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
     /// The new machine, once, for the window to run its setup script.
     #[cfg(feature = "cloud")]
     pub(crate) fn take_provisioned(&mut self) -> Option<crate::cloud::SavedDevice> {
@@ -208,7 +293,7 @@ impl Job {
 
     /// Take reported steps. Returns whether the status changed, and the
     /// outcome once, with its failure as display text.
-    pub(crate) fn poll(&mut self) -> (bool, Option<Result<Created, String>>) {
+    pub(crate) fn poll(&mut self) -> (bool, Option<Result<Dispatched, String>>) {
         let mut changed = false;
         while let Ok(event) = self.events.try_recv() {
             changed = true;

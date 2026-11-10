@@ -98,6 +98,10 @@ pub(crate) struct Landing {
     endpoint: String,
     /// The pull request or issue note the new checkout gets.
     note: Option<crate::menu::worktree_source::Note>,
+    /// The setup script a new checkout runs once its workspace is kept, as
+    /// Herdr 1 runs one in a new worktree's tab; its folder is set once Git
+    /// made it.
+    setup: Option<Box<crate::worktree_scripts::Launch>>,
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
@@ -112,6 +116,7 @@ impl Landing {
             repo: None,
             endpoint: String::new(),
             note: None,
+            setup: None,
         }
     }
 }
@@ -266,6 +271,10 @@ impl SheprdWindow {
             note: matches!(ask, Ask::Create { .. })
                 .then(|| self.worktree_note())
                 .flatten(),
+            setup: matches!(ask, Ask::Create { .. })
+                .then(|| self.kept_setup_launch())
+                .flatten()
+                .map(Box::new),
         };
         let work = cx
             .background_executor()
@@ -344,6 +353,13 @@ impl SheprdWindow {
             if let Some(note) = landing.note {
                 crate::menu::worktree_source::write_note(note, path.clone(), cx);
             }
+            if let Some(mut setup) = landing.setup {
+                setup.checkout = Some(crate::worktree_scripts::Checkout {
+                    path: path.clone(),
+                    root: None,
+                });
+                self.queue_kept_setup(*setup);
+            }
             if let Some(repo) = &landing.repo {
                 let endpoint = &landing.endpoint;
                 crate::dispatch::History::update(cx, |history| history.record(repo, endpoint));
@@ -356,6 +372,43 @@ impl SheprdWindow {
             self.collapsed_repos_mut().remove(group);
         }
         self.land_kept(landing.chosen, landing.label, path.into(), window, cx);
+    }
+
+    /// A script of the kept workspace the menu is for, run in a tab of the
+    /// kept workspace `workspace` names (empty until a new checkout's opens),
+    /// in `checkout` when known. `None` outside a Git checkout.
+    pub(in crate::menu) fn kept_script_launch(
+        &self,
+        kind: crate::worktree_scripts::ScriptKind,
+        workspace: String,
+        checkout: Option<String>,
+    ) -> Option<crate::worktree_scripts::Launch> {
+        let target = self.menu.target.as_ref()?;
+        let tree = target.worktree.as_ref()?;
+        Some(crate::worktree_scripts::Launch {
+            kind,
+            endpoint: self.menu.endpoint_target,
+            endpoint_id: self.endpoints[self.selected_endpoint].id.clone(),
+            boot: String::new(),
+            workspace,
+            repo: tree.label.clone(),
+            repo_key: tree.key.clone(),
+            checkout: checkout.map(|path| crate::worktree_scripts::Checkout { path, root: None }),
+            force: false,
+            requested: true,
+        })
+    }
+
+    /// The setup a new checkout of the menu's kept repository runs: quiet
+    /// when the repository has none, as after Herdr 1 makes one.
+    fn kept_setup_launch(&self) -> Option<crate::worktree_scripts::Launch> {
+        let mut launch = self.kept_script_launch(
+            crate::worktree_scripts::ScriptKind::Setup,
+            String::new(),
+            None,
+        )?;
+        launch.requested = false;
+        Some(launch)
     }
 
     /// Opens the delete dialog of a kept linked checkout: its folder is the
@@ -394,13 +447,57 @@ impl SheprdWindow {
             return;
         };
         let force = deletion.force;
-        let scope = crate::browser::scope(&self.endpoints[self.selected_endpoint]);
         let request = format!("kept-{}", uuid::Uuid::new_v4().simple());
         deletion.pending = Some(request.clone());
         self.menu.error = None;
+        self.remove_kept_checkout_for(request, workspace, path, force, None, cx);
+    }
+
+    /// Removes the kept linked checkout at `path` off the UI thread, as no
+    /// dialog asked, such as once its archive script succeeded or its pull
+    /// request merged; the next tick closes its kept `workspace`, or keeps
+    /// it and says why.
+    pub(crate) fn remove_kept_checkout(
+        &mut self,
+        workspace: String,
+        path: String,
+        force: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let request = format!("kept-{}", uuid::Uuid::new_v4().simple());
+        self.remove_kept_checkout_for(request, workspace, path, force, None, cx);
+    }
+
+    pub(crate) fn remove_merged_kept_checkout(
+        &mut self,
+        workspace: String,
+        path: String,
+        candidate: crate::merged_cleanup::Candidate,
+        cx: &mut Context<Self>,
+    ) {
+        let request = format!("kept-{}", uuid::Uuid::new_v4().simple());
+        self.remove_kept_checkout_for(request, workspace, path, false, Some(candidate), cx);
+    }
+
+    fn remove_kept_checkout_for(
+        &mut self,
+        request: String,
+        workspace: String,
+        path: String,
+        force: bool,
+        merged: Option<crate::merged_cleanup::Candidate>,
+        cx: &mut Context<Self>,
+    ) {
+        // Kept for this computer, whichever host is shown when it finishes.
+        let index = self.core_host().unwrap_or(self.selected_endpoint);
+        let scope = crate::browser::scope(&self.endpoints[index]);
         let removed = cx.background_executor().spawn(async move {
             let host = this_computer()?;
-            work::remove(&host, &path, force, &AtomicBool::new(false)).map_err(crate::Error::from)
+            let cancelled = AtomicBool::new(false);
+            if let Some(candidate) = merged {
+                crate::merged_cleanup::verify_kept_removal(&candidate, &path, &cancelled)?;
+            }
+            work::remove(&host, &path, force, &cancelled).map_err(crate::Error::from)
         });
         cx.spawn(async move |this, cx| {
             let result = removed.await;

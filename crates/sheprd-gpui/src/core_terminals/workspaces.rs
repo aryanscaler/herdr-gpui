@@ -197,6 +197,78 @@ impl SheprdWindow {
             .map(|workspace| workspace.id.clone())
     }
 
+    /// This computer's scope, whose workspaces the app keeps, whichever
+    /// host is shown.
+    pub(crate) fn local_kept_scope(&self) -> Option<Scope> {
+        self.core_host().map(|index| scope(&self.endpoints[index]))
+    }
+
+    /// The workspace kept for `scope` whose folder is `cwd`, whichever host
+    /// is shown.
+    pub(crate) fn kept_workspace_in(&self, scope: &Scope, cwd: &Path, cx: &App) -> Option<String> {
+        cx.try_global::<Store>()?
+            .kept_workspaces(scope)
+            .find(|workspace| !workspace.cwd.is_empty() && Path::new(&workspace.cwd) == cwd)
+            .map(|workspace| workspace.id.clone())
+    }
+
+    /// Closes the workspace this computer keeps at `cwd`, without showing
+    /// this computer; whether there was one.
+    pub(crate) fn close_local_kept_folder(
+        &mut self,
+        cwd: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(scope) = self.local_kept_scope() else {
+            return false;
+        };
+        let Some(id) = self.kept_workspace_in(&scope, cwd, cx) else {
+            return false;
+        };
+        self.close_kept_workspace_in(&scope, &id, window, cx);
+        true
+    }
+
+    /// Keeps a new workspace on this computer for a checkout at `cwd` whose
+    /// first tab shows `location`, leaving whatever is in front, and which
+    /// host is shown, as they are, as Herdr 1 opens a fan-out lane's
+    /// workspace without focusing it. Answers its ID, or `None`, with a
+    /// flash, when it could not be kept or its tab not opened, which ends
+    /// the terminals `location` drives.
+    pub(crate) fn open_kept_workspace_behind(
+        &mut self,
+        label: &str,
+        cwd: &Path,
+        location: Location,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
+        let kept = self.local_kept_scope().and_then(|scope| {
+            Some((
+                self.keep_workspace_in(&scope, Some(label), Some(cwd), cx)?,
+                scope,
+            ))
+        });
+        let Some((id, scope)) = kept else {
+            self.end_location(&Host::Local, &location);
+            return None;
+        };
+        let shown = location.clone();
+        let tab = Store::update(cx, |store| {
+            store.open(scope.clone(), &id, Some(shown), None)
+        });
+        if tab.is_none() {
+            Store::update(cx, |store| store.forget_kept(&scope, &id));
+            self.refresh_core_session(cx);
+            self.end_location(&Host::Local, &location);
+            self.show_flash(Flash::warning(fl!("core-terminals-too-many-tabs")), cx);
+            return None;
+        }
+        self.sync_core_views(cx);
+        cx.notify();
+        Some(id)
+    }
+
     /// Keeps a new workspace and brings it to the front, named for `label`,
     /// else its folder.
     pub(super) fn keep_new_workspace(
@@ -205,25 +277,47 @@ impl SheprdWindow {
         cwd: Option<&Path>,
         cx: &mut Context<Self>,
     ) -> Option<String> {
-        let scope = scope_of(self);
-        if self.core_terminals.lacks_core(&Host::of(&scope)) {
+        let id = self.keep_workspace(label, cwd, cx)?;
+        self.focus_kept_workspace(&id, cx);
+        Some(id)
+    }
+
+    /// Keeps a new workspace on the selected host, named for `label`, else
+    /// its folder, without bringing it to the front.
+    fn keep_workspace(
+        &mut self,
+        label: Option<&str>,
+        cwd: Option<&Path>,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
+        if self.core_terminals.lacks_core(&Host::of(&scope_of(self))) {
             self.show_flash(
                 Flash::warning(fl!("core-terminals-workspaces-need-core")),
                 cx,
             );
             return None;
         }
+        self.keep_workspace_in(&scope_of(self), label, cwd, cx)
+    }
+
+    /// Keeps a new workspace for `scope`, named for `label`, else its folder.
+    fn keep_workspace_in(
+        &mut self,
+        scope: &Scope,
+        label: Option<&str>,
+        cwd: Option<&Path>,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
         let folder = cwd.map(|cwd| cwd.display().to_string());
         let (label, custom) = kept_label(label, cwd);
         let kept = Store::update(cx, |store| {
-            store.keep_workspace(&scope, &label, folder.as_deref().unwrap_or(""), custom)
+            store.keep_workspace(scope, &label, folder.as_deref().unwrap_or(""), custom)
         });
         let Some(id) = kept else {
             self.show_flash(Flash::warning(fl!("core-workspaces-too-many")), cx);
             return None;
         };
         self.refresh_core_session(cx);
-        self.focus_kept_workspace(&id, cx);
         Some(id)
     }
 
@@ -425,6 +519,6 @@ pub(crate) fn kept_label(label: Option<&str>, cwd: Option<&Path>) -> (String, bo
     (label, custom)
 }
 
-fn scope_of(window: &SheprdWindow) -> Scope {
+pub(super) fn scope_of(window: &SheprdWindow) -> Scope {
     scope(&window.endpoints[window.selected_endpoint])
 }

@@ -34,7 +34,9 @@ it lists Herdr 2 work beside Herdr 1's.
 | Window title | Yes |
 | Tab strip | Herdr 1's tabs only while its workspace is in front (`herdr_workspace_in_front`) |
 | Palette Go To and jump list | Kept workspaces added beside Herdr 1's rows |
-| Workspace menu | Kept workspaces: rename, close, a note once Git names the checkout, and new and deleted worktrees, which the app makes with Git (`sheprd_remote::work`) |
+| Workspace menu | Kept workspaces: rename, close, a note once Git names the checkout, new and deleted worktrees, which the app makes with Git (`sheprd_remote::work`), fan-out, and worktree scripts, which run in herdr-core tabs (`worktree_scripts::kept`) |
+| Fan-out, smart dispatch, orchestrator | Kept workspaces on this computer: Git makes the worktree and the agent starts in a herdr-core shell (`sheprd_remote::work`); the app keeps a workspace for each checkout |
+| Merged cleanup | Kept linked checkouts whose pull request merged (`merged_cleanup::kept`) |
 | Git status, pull request prefetch, worktree rule, notes | Kept workspaces whose folder Git names (`core_terminals::checkouts`) |
 | Agent checkpoints | Yes: `sheprd_vcs::checkpoint::Checkpoints::observe` takes a `Session`; Herdr 2's is watched as its own endpoint |
 | Mods state: workspaces, agents, focus | Yes |

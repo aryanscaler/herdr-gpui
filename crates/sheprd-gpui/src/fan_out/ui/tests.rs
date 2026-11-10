@@ -24,19 +24,25 @@ fn left_behind(path: &std::path::Path, endpoint_id: &str) -> Journal {
         repo_key: "/tmp/repo/.git".into(),
         repo_label: "repo".into(),
         base: "HEAD".into(),
+        checkout: None,
     };
     let mut picks = Picks::default();
     picks.add(crate::teleport::AgentKind::Claude);
     let mut record = Record::new(1, &origin, "fix the bug", &plan::lanes(&picks, 7));
     record.advance(&Report::Lane(
         0,
-        Progress::Created(Checkout {
+        Progress::Created(Box::new(Checkout {
             endpoint_id: endpoint_id.to_owned(),
             host,
-            workspace_id: "w4".into(),
-            path: "/tmp/lane".into(),
-            pane_id: "p4".into(),
-        }),
+            worktree: sheprd_remote::work::Worktree {
+                path: "/tmp/lane".into(),
+                opened: sheprd_remote::work::Opened::Herdr1 {
+                    workspace_id: "w4".into(),
+                    pane_id: "p4".into(),
+                },
+            },
+            terminal: None,
+        })),
     ));
     Journal::at(Some(path.to_owned()))
         .begin(record)

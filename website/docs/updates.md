@@ -59,7 +59,7 @@ An app installed from the `.dmg` is replaced in place. It must be owned by you, 
 
 ### Linux packages
 
-For a `.deb`, `.rpm` or Arch package, the updater finds which package manager owns the app, downloads the matching signed package, and installs it through APT, DNF or pacman. You authorize it in a PolicyKit prompt; the app never asks for your password itself. This needs `pkexec` and your desktop's PolicyKit authentication agent. Once started, a package install cannot be cancelled. Choose **Restart** when it finishes.
+For a `.deb`, `.rpm` or Arch package, the updater finds which package manager owns the app, downloads the matching signed package, and installs it through APT, DNF, zypper or pacman. You authorize it in a PolicyKit prompt; the app never asks for your password itself. This needs `pkexec` and your desktop's PolicyKit authentication agent. Once started, a package install cannot be cancelled. Choose **Restart** when it finishes.
 
 Builds that report "Package-managed installations cannot self-update" are older; upgrade the package by hand once to get in-app updates.
 

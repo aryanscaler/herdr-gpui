@@ -84,8 +84,22 @@ pub struct Agent<'a> {
     pub kind: AgentKind,
     /// Herdr 1's name for it, unique on its host.
     pub name: &'a str,
+    /// Passed to the agent as `--model`; one [`valid_model`] refuses is left
+    /// out, so it cannot become another option.
+    pub model: Option<&'a str>,
     /// Sent once it says it is ready.
     pub prompt: Option<&'a str>,
+}
+
+/// Whether `model` is a name an agent's `--model` could take: no spaces,
+/// controls, or leading dash, so it cannot become another option.
+pub fn valid_model(model: &str) -> bool {
+    !model.is_empty()
+        && model.len() <= 128
+        && !model.starts_with('-')
+        && model
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':' | '@'))
 }
 
 /// Where a started agent runs.
@@ -131,38 +145,14 @@ pub fn create(
     cancelled: &AtomicBool,
 ) -> Result<Worktree> {
     match repository {
-        Repository::Herdr1 { workspace_id } => {
-            let mut args = vec![
-                "worktree",
-                "create",
-                "--workspace",
-                workspace_id,
-                "--branch",
-                new.branch,
-                "--base",
-                new.base,
-                "--no-focus",
-            ];
-            if let Some(label) = new.label {
-                args.extend(["--label", label]);
-            }
-            let output = host
-                .capture(&Host::herdr_line(&args), cancelled)
-                .map_err(script(Step::CreateWorktree))?;
-            let created = serde_json::from_slice::<Envelope<WorktreeCreated>>(&output)
-                .map_err(|source| Error::Decode {
-                    step: Step::CreateWorktree,
-                    source,
-                })?
-                .result;
-            Ok(Worktree {
-                path: created.worktree.path,
-                opened: Opened::Herdr1 {
-                    workspace_id: created.workspace.workspace_id,
-                    pane_id: created.root_pane.pane_id,
-                },
-            })
-        }
+        Repository::Herdr1 { workspace_id } => create_in_herdr1(
+            host,
+            workspace_id,
+            Some(new.branch),
+            new.base,
+            new.label,
+            cancelled,
+        ),
         Repository::Herdr2 { checkout } => {
             let common = host
                 .capture(&common_dir_line(checkout), cancelled)
@@ -186,6 +176,43 @@ pub fn create(
     }
 }
 
+/// A new worktree through Herdr 1's workspace `workspace_id`, as
+/// [`create`] makes one, except that without a `branch` Herdr 1's daemon
+/// names it, as smart dispatch leaves it to when the dialog's name is empty.
+pub fn create_in_herdr1(
+    host: &Host,
+    workspace_id: &str,
+    branch: Option<&str>,
+    base: &str,
+    label: Option<&str>,
+    cancelled: &AtomicBool,
+) -> Result<Worktree> {
+    let mut args = vec!["worktree", "create", "--workspace", workspace_id];
+    if let Some(branch) = branch {
+        args.extend(["--branch", branch]);
+    }
+    args.extend(["--base", base, "--no-focus"]);
+    if let Some(label) = label {
+        args.extend(["--label", label]);
+    }
+    let output = host
+        .capture(&Host::herdr_line(&args), cancelled)
+        .map_err(script(Step::CreateWorktree))?;
+    let created = serde_json::from_slice::<Envelope<WorktreeCreated>>(&output)
+        .map_err(|source| Error::Decode {
+            step: Step::CreateWorktree,
+            source,
+        })?
+        .result;
+    Ok(Worktree {
+        path: created.worktree.path,
+        opened: Opened::Herdr1 {
+            workspace_id: created.workspace.workspace_id,
+            pane_id: created.root_pane.pane_id,
+        },
+    })
+}
+
 /// Starts `agent` in `worktree`'s first pane, or a new herdr-core shell in
 /// its folder, and sends it its prompt once it is ready. An agent that
 /// started but did not take its prompt is [`Error::Unprompted`], which
@@ -196,9 +223,10 @@ pub fn start_agent(
     agent: &Agent<'_>,
     cancelled: &AtomicBool,
 ) -> Result<Started> {
+    let model = agent.model.filter(|model| valid_model(model));
     let started = match &worktree.opened {
         Opened::Herdr1 { pane_id, .. } => {
-            let line = Host::herdr_line(&[
+            let mut args = vec![
                 "agent",
                 "start",
                 agent.name,
@@ -208,8 +236,12 @@ pub fn start_agent(
                 pane_id,
                 "--timeout",
                 AGENT_START_TIMEOUT_MS,
-            ]);
-            host.capture(&line, cancelled)
+            ];
+            // Herdr 1 passes what follows `--` to the agent's own command.
+            if let Some(model) = model {
+                args.extend(["--", "--model", model]);
+            }
+            host.capture(&Host::herdr_line(&args), cancelled)
                 .map_err(script(Step::StartAgent))?;
             Started::Herdr1 {
                 pane_id: pane_id.clone(),
@@ -217,9 +249,14 @@ pub fn start_agent(
         }
         Opened::Herdr2 => {
             let terminal = start_shell(host, &worktree.path, cancelled)?;
-            let program = agent
-                .kind
-                .start_argv(None)
+            let mut argv = agent.kind.start_argv(None);
+            // `--model NAME` goes to every kind, as Herdr 1's `agent start
+            // -- --model` passes it; an agent whose command has no such
+            // option says so in its shell, which stays open.
+            if let Some(model) = model {
+                argv.extend(["--model".to_owned(), model.to_owned()]);
+            }
+            let program = argv
                 .iter()
                 .map(|arg| shell_quote(arg))
                 .collect::<Vec<_>>()
@@ -283,6 +320,23 @@ pub fn list(host: &Host, checkout: &str, cancelled: &AtomicBool) -> Result<Vec<C
     );
     let output = host.capture(&line, cancelled).map_err(script(Step::List))?;
     Ok(parse_list(&String::from_utf8_lossy(&output)))
+}
+
+/// Removes `worktree` with whatever opened it, discarding its uncommitted
+/// changes and keeping its branch, so committed work stays reachable:
+/// Herdr 1's daemon removes its workspace with it, and on Herdr 2 Git
+/// removes the checkout, leaving the app to close the workspace it keeps.
+pub fn discard(host: &Host, worktree: &Worktree, cancelled: &AtomicBool) -> Result<()> {
+    match &worktree.opened {
+        Opened::Herdr1 { workspace_id, .. } => host
+            .capture(
+                &Host::herdr_line(&["worktree", "remove", "--workspace", workspace_id, "--force"]),
+                cancelled,
+            )
+            .map(drop)
+            .map_err(script(Step::Remove)),
+        Opened::Herdr2 => remove(host, &worktree.path, true, cancelled),
+    }
 }
 
 /// Removes the linked checkout at `path`, keeping its branch so committed

@@ -19,6 +19,7 @@ pub(super) fn items(
     local: bool,
     checkout: bool,
     checkpoints: bool,
+    fan_out: Option<Label>,
 ) -> Vec<(WorkspaceMenuAction, Label)> {
     let mut items = vec![if target.muted {
         (WorkspaceMenuAction::Unmute, Label::UNMUTE)
@@ -34,6 +35,9 @@ pub(super) fn items(
             WorkspaceMenuAction::Dialog(WorkspaceAction::NewWorktree),
             Label::NEW_WORKTREE,
         ));
+    }
+    if let Some(label) = fan_out.filter(|_| git) {
+        items.push((WorkspaceMenuAction::FanOut, label));
     }
     items.extend([
         (
@@ -53,6 +57,21 @@ pub(super) fn items(
             WorkspaceMenuAction::Dialog(WorkspaceAction::Note),
             Label::NOTE,
         ));
+    }
+    // As for Herdr 1: a file is read only once asked, so every Git checkout
+    // offers its scripts and one without them says so.
+    if git && target.worktree.is_some() {
+        use crate::worktree_scripts::ScriptKind;
+        items.push((
+            WorkspaceMenuAction::Script(ScriptKind::Run),
+            Label::RUN_SCRIPT,
+        ));
+        if target.can_delete() {
+            items.push((
+                WorkspaceMenuAction::Script(ScriptKind::Setup),
+                Label::RUN_SETUP_SCRIPT,
+            ));
+        }
     }
     if git && target.can_delete() {
         items.push((
@@ -172,15 +191,36 @@ impl SheprdWindow {
                 return;
             }
             WorkspaceAction::DeleteWorktree => {
-                if self
+                let Some(deletion) = self
                     .menu
                     .deletion
                     .as_ref()
-                    .is_some_and(super::super::state::Deletion::ready)
-                {
+                    .filter(|deletion| deletion.ready() && deletion.pending.is_none())
+                else {
+                    return;
+                };
+                // With an archive script, the checkout is removed once that
+                // script's tab succeeds, never before it runs.
+                let archive = deletion.archive.script().cloned().and_then(|config| {
+                    let kind = crate::worktree_scripts::ScriptKind::Archive;
+                    let mut launch =
+                        self.kept_script_launch(kind, id.clone(), deletion.path.clone())?;
+                    launch.force = deletion.force;
+                    // Read from Git with the script, as Herdr 1 names it.
+                    if let Some(checkout) = &mut launch.checkout {
+                        checkout.root.clone_from(&deletion.root);
+                    }
+                    Some((launch, config))
+                });
+                let Some((launch, config)) = archive else {
                     self.remove_kept_worktree(cx);
+                    return;
+                };
+                if let Err(error) = self.start_archive_script(launch, config, cx) {
+                    self.menu.error = Some(error.localize());
+                    cx.notify();
+                    return;
                 }
-                return;
             }
             _ => return,
         }

@@ -653,6 +653,7 @@ impl SheprdWindow {
                 !self.selected_is_remote(),
                 self.note_checkout().is_some(),
                 self.checkpoint_checkout().is_some(),
+                self.fan_out_item(),
             );
             items.extend(self.teleport_items());
             return items;
@@ -823,22 +824,21 @@ impl SheprdWindow {
             | WorkspaceAction::OpenWorktree => None,
         };
         self.menu.page = Some(Page::Dialog(action));
-        // Another host's checkouts come through Herdr 1; a kept workspace's
-        // dialog makes them here.
-        let kept = target.keeper == sheprd_session::Keeper::App;
-        self.menu.dispatch = (matches!(
+        // A kept workspace's dialog makes its checkouts here with Git, and
+        // another host's through that host's Herdr, as Herdr 1's does.
+        self.menu.dispatch = matches!(
             action,
             WorkspaceAction::NewWorktree | WorkspaceAction::NewWorkspace
-        ) && !kept)
-            .then(|| self.menu.dispatch_repo())
-            .flatten()
-            .and_then(|repo| {
-                crate::dispatch::Picker::opened(
-                    &self.endpoints[self.selected_endpoint].id,
-                    self.dispatch_candidates(&repo, cx),
-                    self.dispatch_sandboxes(),
-                )
-            });
+        )
+        .then(|| self.menu.dispatch_repo())
+        .flatten()
+        .and_then(|repo| {
+            crate::dispatch::Picker::opened(
+                &self.endpoints[self.selected_endpoint].id,
+                self.dispatch_candidates(&repo, cx),
+                self.dispatch_sandboxes(),
+            )
+        });
         self.menu.pr.clear();
         self.menu.pr_connection = None;
         self.menu.error = None;

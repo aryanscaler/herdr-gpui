@@ -44,6 +44,36 @@ pub(crate) struct Checkout {
     pub(crate) root: Option<String>,
 }
 
+/// The variables a script's shell is given: the script and its paths.
+pub(crate) fn env(checkout: &Checkout, script: &str) -> Vec<(String, String)> {
+    let mut env = vec![
+        (SCRIPT_ENV.to_owned(), script.to_owned()),
+        (WORKTREE_ENV.to_owned(), checkout.path.clone()),
+    ];
+    if let Some(root) = &checkout.root {
+        env.push((ROOT_ENV.to_owned(), root.clone()));
+    }
+    env
+}
+
+/// The program a script's herdr-core tab runs, which has no shell to type
+/// into first. Setup and run leave the user's shell open on the output,
+/// as Herdr 1's tab does; an archive ends with its script, so the app sees
+/// whether it succeeded before it removes the checkout itself.
+pub(crate) fn core_argv(kind: ScriptKind) -> Vec<String> {
+    let line = match kind {
+        ScriptKind::Setup | ScriptKind::Run => {
+            r#"sh -ec 'eval "$HERDR_WORKTREE_SCRIPT"'; exec "${SHELL:-/bin/sh}""#
+        }
+        ScriptKind::Archive => r#"eval "$HERDR_WORKTREE_SCRIPT""#,
+    };
+    let shell = match kind {
+        ScriptKind::Setup | ScriptKind::Run => "-c",
+        ScriptKind::Archive => "-ec",
+    };
+    ["/bin/sh", shell, line].map(str::to_owned).to_vec()
+}
+
 /// The `tab.create` a script runs in, labelled after its kind.
 pub(crate) fn tab_params(
     workspace: &str,
@@ -51,12 +81,10 @@ pub(crate) fn tab_params(
     kind: ScriptKind,
     script: &str,
 ) -> Value {
-    let mut env = serde_json::Map::new();
-    env.insert(SCRIPT_ENV.into(), script.into());
-    env.insert(WORKTREE_ENV.into(), checkout.path.as_str().into());
-    if let Some(root) = &checkout.root {
-        env.insert(ROOT_ENV.into(), root.as_str().into());
-    }
+    let env: serde_json::Map<String, Value> = env(checkout, script)
+        .into_iter()
+        .map(|(key, value)| (key, value.into()))
+        .collect();
     json!({
         "workspace_id": workspace,
         "cwd": checkout.path,

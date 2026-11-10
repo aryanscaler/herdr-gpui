@@ -1,6 +1,7 @@
 #!/bin/sh
 # Installs the latest stable Sheprd release on Linux through the system
-# package manager (APT, DNF or pacman), served at https://sheprd.org/install.sh:
+# package manager (APT, DNF, zypper or pacman), served at
+# https://sheprd.org/install.sh:
 #
 #   curl -fsSL https://sheprd.org/install.sh | sh
 #
@@ -30,15 +31,24 @@ case $(uname -m) in
   *) fail "no Linux package for $(uname -m); see https://github.com/$repo#from-source" ;;
 esac
 
+# The package manager on PATH, not a distribution name, decides the format.
 if command -v apt-get >/dev/null 2>&1; then
-  ext=deb
+  manager=apt
 elif command -v dnf >/dev/null 2>&1; then
-  ext=rpm
+  manager=dnf
+elif command -v zypper >/dev/null 2>&1; then
+  manager=zypper
 elif command -v pacman >/dev/null 2>&1; then
-  ext=pkg.tar.zst
+  manager=pacman
 else
-  fail "no APT, DNF or pacman found; download a tarball from https://github.com/$repo/releases or use Nix: nix run github:$repo"
+  fail "no APT, DNF, zypper or pacman found; download a tarball from https://github.com/$repo/releases or use Nix: nix run github:$repo"
 fi
+
+case $manager in
+  apt) ext=deb ;;
+  dnf | zypper) ext=rpm ;;
+  pacman) ext=pkg.tar.zst ;;
+esac
 
 command -v curl >/dev/null 2>&1 || fail 'curl is required'
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is required'
@@ -73,10 +83,13 @@ fi
 chmod 755 "$tmp"
 chmod 644 "$tmp/$file"
 
-case $ext in
-  deb) $sudo apt-get install -y "$tmp/$file" ;;
-  rpm) $sudo dnf install -y "$tmp/$file" ;;
-  pkg.tar.zst) $sudo pacman -U --noconfirm "$tmp/$file" ;;
+case $manager in
+  apt) $sudo apt-get install -y "$tmp/$file" ;;
+  dnf) $sudo dnf install -y "$tmp/$file" ;;
+  # The release RPM is unsigned, which zypper refuses even in non-interactive
+  # mode; the verified checksum above is what authenticates these bytes.
+  zypper) $sudo zypper install -y --allow-unsigned-rpm "$tmp/$file" ;;
+  pacman) $sudo pacman -U --noconfirm "$tmp/$file" ;;
 esac
 
 printf 'Installed Sheprd %s. Start it from your applications menu or run: sheprd\n' "$version"

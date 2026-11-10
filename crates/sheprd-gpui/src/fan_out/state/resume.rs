@@ -6,10 +6,7 @@
 use super::{FanOut, LaneState, LaneView, Origin, Stage, job, reporter, spawn, write_later};
 use crate::{
     dispatch::Picker,
-    fan_out::{
-        job::Checkout,
-        journal::{Checkpoint, Journal, Record, Resume},
-    },
+    fan_out::journal::{Checkpoint, Journal, Record, Resume},
     teleport::Host,
 };
 use std::{
@@ -55,6 +52,7 @@ impl FanOut {
             repo_key: saved.repo_key.clone(),
             repo_label: saved.repo_label.clone(),
             base: saved.base.clone(),
+            checkout: saved.checkout.clone(),
         };
         // Lanes keep their journal order, which removals index by.
         let lanes = record
@@ -63,13 +61,7 @@ impl FanOut {
             .map(|saved| {
                 let lane = saved.lane()?;
                 let checkout = saved.checkout.as_ref().and_then(|checkout| {
-                    Some(Checkout {
-                        endpoint_id: checkout.endpoint_id.clone(),
-                        host: same(&host, &checkout.endpoint_id, &checkout.host)?,
-                        workspace_id: checkout.workspace_id.clone(),
-                        path: checkout.path.clone(),
-                        pane_id: checkout.pane_id.clone(),
-                    })
+                    Some(checkout.checkout(same(&host, &checkout.endpoint_id, &checkout.host)?))
                 });
                 let state = match (&saved.checkout, &checkout, saved.step) {
                     (Some(lost), None, _) => LaneState::Failed(crate::i18n::fl!(
@@ -117,6 +109,8 @@ impl FanOut {
             id: record.id,
             restored: true,
             wanted: Vec::new(),
+            shown: Vec::new(),
+            closed: Vec::new(),
         })
     }
 
@@ -136,13 +130,21 @@ impl FanOut {
             return None;
         }
         let lane = self.lanes.get(index)?;
-        lane.checkout.as_ref()?;
-        match lane.state {
+        let checkout = lane.checkout.as_ref()?;
+        let from = match lane.state {
             LaneState::Interrupted(_) | LaneState::Failed(_) => {
-                self.journal.step(self.id, index)?.resume()
+                self.journal.step(self.id, index)?.resume()?
             }
-            _ => None,
+            _ => return None,
+        };
+        // StartingAgent is saved before launching. A missing terminal can
+        // mean the app died after the agent started but before saving its
+        // address. Never interpret that uncertainty as permission to start
+        // another agent: the user can keep the checkout and inspect it.
+        if from == Resume::Prompt && checkout.started().is_none() {
+            return None;
         }
+        Some(from)
     }
 
     /// Finish interrupted lane `index`, as the user asked: start its agent

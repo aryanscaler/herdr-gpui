@@ -36,8 +36,8 @@ pub use location::{Repository, database_path};
 #[cfg(any(test, feature = "test-support"))]
 pub use model::Workspace;
 pub use model::{
-    Activity, Backend, Checkpoint, HerdrSession, Item, ItemKey, Owner, Provider, PullRequest, Run,
-    RunState, SourceKey,
+    Activity, Backend, Checkpoint, HerdrSession, Item, ItemKey, Owner, Pane, Provider, PullRequest,
+    Run, RunState, SourceKey, Terminals,
 };
 pub use naming::LiveBranch;
 pub use prompt::nonce;

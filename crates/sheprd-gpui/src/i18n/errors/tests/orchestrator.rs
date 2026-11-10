@@ -94,6 +94,7 @@ fn every_variant_has_a_message() {
         Error::HostCannotTake,
         Error::Teleport(sheprd_remote::teleport::Error::UnsupportedHost),
         Error::PullRequestChanged,
+        Error::Work(sheprd_remote::work::Error::Dirty),
     ];
     for operation in STEPS {
         errors.extend([

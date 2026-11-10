@@ -36,6 +36,12 @@ pub const PROGRAM: &str = if cfg!(windows) {
 };
 /// How much of a failed command's own message is kept.
 const STDERR_LIMIT: usize = 512;
+/// How often, and how far apart, a step that waits on the one before it is
+/// tried: launchd finishes a `bootout` of a running daemon after the command
+/// returns, and a `bootstrap` sent before then fails with an I/O error and
+/// leaves no service at all. Five seconds bounds the wait.
+const SETTLE_ATTEMPTS: u32 = 20;
+const SETTLE_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// What the service runs: the daemon, its state, and the settings it serves
 /// with.
@@ -123,6 +129,9 @@ pub struct Step {
     /// Whether its failure fails the whole change. Unloading something not
     /// loaded fails, and is fine.
     pub required: bool,
+    /// Whether a failure is tried again for a bounded time, while the
+    /// manager still finishes the step before it.
+    pub settles: bool,
 }
 
 fn step<const N: usize>(program: &'static str, args: [&str; N], required: bool) -> Step {
@@ -130,6 +139,7 @@ fn step<const N: usize>(program: &'static str, args: [&str; N], required: bool) 
         program,
         args: args.into_iter().map(OsString::from).collect(),
         required,
+        settles: false,
     }
 }
 
@@ -218,6 +228,7 @@ impl Manager {
                         program: "launchctl",
                         args: vec!["bootstrap".into(), domain.into(), file.into()],
                         required: true,
+                        settles: true,
                     },
                 ]
             }
@@ -239,6 +250,7 @@ impl Manager {
                         "/F".into(),
                     ],
                     required: true,
+                    settles: false,
                 },
                 step("schtasks", ["/Run", "/TN", TASK], true),
             ],
@@ -257,6 +269,7 @@ impl Manager {
                         program: "launchctl",
                         args: vec!["bootstrap".into(), domain.clone().into(), file.into()],
                         required: false,
+                        settles: false,
                     },
                     step(
                         "launchctl",
@@ -267,6 +280,33 @@ impl Manager {
             }
             Self::Systemd => vec![step("systemctl", ["--user", "start", UNIT], true)],
             Self::ScheduledTask { .. } => vec![step("schtasks", ["/Run", "/TN", TASK], true)],
+        }
+    }
+
+    /// Restarts the daemon under a definition that did not change, as after
+    /// an update replaced the binary beside the app. launchd restarts the
+    /// loaded job in place (`kickstart -k`) rather than unloading it, so the
+    /// service is never left out of launchd; one not loaded is loaded first.
+    pub fn reload(&self, file: &Path) -> Vec<Step> {
+        match self {
+            Self::LaunchAgent { uid } => {
+                let domain = format!("gui/{uid}");
+                vec![
+                    // Fails when already loaded, which is what kickstart wants.
+                    Step {
+                        program: "launchctl",
+                        args: vec!["bootstrap".into(), domain.clone().into(), file.into()],
+                        required: false,
+                        settles: false,
+                    },
+                    step(
+                        "launchctl",
+                        ["kickstart", "-k", &format!("{domain}/{LABEL}")],
+                        true,
+                    ),
+                ]
+            }
+            Self::Systemd | Self::ScheduledTask { .. } => self.load(file),
         }
     }
 
@@ -377,7 +417,7 @@ fn reconcile_with_core(
                 .as_ref()
                 .is_some_and(|version| *version != status.version) =>
         {
-            for step in host.manager.load(&host.file) {
+            for step in host.manager.reload(&host.file) {
                 run(&step)?;
             }
             Ok(Outcome::Started)
@@ -403,12 +443,17 @@ pub fn restart(
     if !config.enabled {
         return Ok(Outcome::Unchanged);
     }
-    write_definition(
+    let wrote = write_definition(
         config,
         host,
         sheprd_core_client::Endpoint::resolve(sheprd_client::login_env::var),
     )?;
-    for step in host.manager.load(&host.file) {
+    let steps = if wrote {
+        host.manager.load(&host.file)
+    } else {
+        host.manager.reload(&host.file)
+    };
+    for step in steps {
         run(&step)?;
     }
     Ok(Outcome::Started)
@@ -441,8 +486,39 @@ fn write_definition(
     Ok(true)
 }
 
-/// Runs one manager command through `sheprd_client::new_command`.
+/// Runs one manager command through `sheprd_client::new_command`; a step
+/// that settles is tried again, a bounded number of times, while it fails.
 pub fn run(step: &Step) -> Result<()> {
+    settle(
+        step,
+        SETTLE_ATTEMPTS,
+        || run_once(step),
+        || std::thread::sleep(SETTLE_DELAY),
+    )
+}
+
+/// Tries `once` up to `attempts` times when `step` settles, waiting between
+/// tries; any other step is tried once. The last failure is returned.
+fn settle(
+    step: &Step,
+    attempts: u32,
+    mut once: impl FnMut() -> Result<()>,
+    mut wait: impl FnMut(),
+) -> Result<()> {
+    let attempts = if step.settles { attempts.max(1) } else { 1 };
+    let mut tried = 1;
+    loop {
+        match once() {
+            Err(Error::Service { .. }) if tried < attempts => {
+                tried += 1;
+                wait();
+            }
+            result => return result,
+        }
+    }
+}
+
+fn run_once(step: &Step) -> Result<()> {
     let output = sheprd_client::new_command(step.program)
         .args(&step.args)
         .stdin(std::process::Stdio::null())

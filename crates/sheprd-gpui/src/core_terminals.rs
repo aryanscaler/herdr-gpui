@@ -33,6 +33,7 @@ pub(crate) mod moves;
 pub(crate) mod mutes;
 mod phone;
 mod processes;
+mod programs;
 mod requests;
 mod screen;
 mod selection;

@@ -6,7 +6,7 @@
 
 use super::{
     Checkpoint, Error, HerdrSession, Item, ItemKey, Owner, Provider, Result, Run, SourceKey,
-    model::{Activity, PullRequest, Workspace},
+    model::{Activity, Pane, PullRequest, Workspace},
     review::PrStatus,
 };
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -350,8 +350,8 @@ impl Store {
 
     pub fn sessions(&self) -> Result<Vec<HerdrSession>> {
         let mut statement = self.connection.prepare(
-            "SELECT run_id, host, session, workspace_id, pane_id, agent_name, updated_at \
-             FROM herdr_sessions",
+            "SELECT run_id, host, session, workspace_id, pane_id, terminal, agent_name, \
+             updated_at FROM herdr_sessions",
         )?;
         let rows = statement.query_map([], |row| Ok(session_from_row(row)))?;
         rows.map(|row| row?).collect()
@@ -428,19 +428,29 @@ impl Store {
         )?;
         match session {
             Some(session) => {
+                // A Herdr 2 session leaves Herdr 1's columns empty, which
+                // they cannot be null for, and names its terminal instead.
+                let (workspace_id, pane_id, terminal) = match &session.pane {
+                    Pane::Herdr1 {
+                        workspace_id,
+                        pane_id,
+                    } => (workspace_id.as_str(), pane_id.as_str(), None),
+                    Pane::Herdr2 { terminal } => ("", "", Some(terminal.as_str())),
+                };
                 transaction.execute(
                     "INSERT INTO herdr_sessions (run_id, host, session, workspace_id, pane_id, \
-                     agent_name, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+                     terminal, agent_name, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
                      ON CONFLICT(run_id) DO UPDATE SET host = excluded.host, \
                      session = excluded.session, workspace_id = excluded.workspace_id, \
-                     pane_id = excluded.pane_id, agent_name = excluded.agent_name, \
-                     updated_at = excluded.updated_at",
+                     pane_id = excluded.pane_id, terminal = excluded.terminal, \
+                     agent_name = excluded.agent_name, updated_at = excluded.updated_at",
                     params![
                         run.id,
                         session.host,
                         session.session,
-                        session.workspace_id,
-                        session.pane_id,
+                        workspace_id,
+                        pane_id,
+                        terminal,
                         session.agent_name,
                         time(session.updated_at),
                     ],
@@ -559,6 +569,12 @@ fn migrate(connection: &mut Connection) -> Result<Access> {
             )?;
         }
         transaction.execute(HERDR_SESSIONS_V1, [])?;
+    }
+    // Added without a new version: older builds name their columns, so
+    // they read and write sessions as before, and see a Herdr 2 session as
+    // one whose Herdr 1 pane is gone.
+    if !has_column(&transaction, "herdr_sessions", "terminal")? {
+        transaction.execute("ALTER TABLE herdr_sessions ADD COLUMN terminal TEXT", [])?;
     }
     if version < 2 {
         transaction.execute(PULL_REQUEST_STATUS_V2, [])?;
@@ -697,8 +713,13 @@ fn session_from_row(row: &Row<'_>) -> Result<HerdrSession> {
         run_id: row.get("run_id")?,
         host: row.get("host")?,
         session: row.get("session")?,
-        workspace_id: row.get("workspace_id")?,
-        pane_id: row.get("pane_id")?,
+        pane: match row.get::<_, Option<String>>("terminal")? {
+            Some(terminal) => Pane::Herdr2 { terminal },
+            None => Pane::Herdr1 {
+                workspace_id: row.get("workspace_id")?,
+                pane_id: row.get("pane_id")?,
+            },
+        },
         agent_name: row.get("agent_name")?,
         updated_at: parse_time("updated_at", row.get("updated_at")?)?,
     })

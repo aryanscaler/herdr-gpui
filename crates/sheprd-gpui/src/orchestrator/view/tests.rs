@@ -1,7 +1,7 @@
 use super::rows::*;
 use crate::orchestrator::{
-    Activity, Backend, HerdrSession, Item, ItemKey, Owner, Provider, Run, RunState, SourceKey,
-    Workspace,
+    Activity, Backend, HerdrSession, Item, ItemKey, Owner, Pane, Provider, Run, RunState,
+    SourceKey, Workspace,
 };
 use chrono::{DateTime, Utc};
 use sheprd_client::protocol::AgentStatus;
@@ -12,6 +12,7 @@ mod browse_pages;
 mod clicks;
 mod conversation;
 mod conversation_list;
+mod core_runs;
 mod dialog;
 mod empty;
 mod en_xa;
@@ -113,8 +114,10 @@ fn session(run: &Run, pane: &str) -> HerdrSession {
         run_id: run.id.clone(),
         host: None,
         session: None,
-        workspace_id: format!("w-{}", run.id),
-        pane_id: pane.into(),
+        pane: Pane::Herdr1 {
+            workspace_id: format!("w-{}", run.id),
+            pane_id: pane.into(),
+        },
         agent_name: format!("herdr-gpui-{}", run.id),
         updated_at: run.started_at,
     }

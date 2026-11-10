@@ -16,18 +16,22 @@ BASE = "repos/sheprd-labs/sheprd/actions/runs"
 
 
 def run(run_id, number=42, event="pull_request", status="in_progress"):
-    return {"id": run_id, "event": event, "status": status,
+    return {"id": run_id, "event": event, "status": status, "head_sha": f"sha-{run_id}",
             "pull_requests": [] if number is None else [{"number": number}]}
 
 
 class CancelMergedPr(unittest.TestCase):
-    def execute(self, pages=None, failure_status=None):
+    def execute(self, pages=None, failure_status=None, commits=None):
         cancelled = []
 
         def api(command, *, text):
             self.assertTrue(text)
             self.assertEqual(command[:2], ["gh", "api"])
             path = command[2]
+            if "/commits/" in path:
+                self.assertEqual(command[3:], ["--paginate", "--slurp"])
+                sha = path.split("/commits/", 1)[1].split("/", 1)[0]
+                return json.dumps((commits or {}).get(sha, [[]]))
             if "?" in path:
                 self.assertTrue(path.startswith(f"{BASE}?event=pull_request&status="))
                 self.assertIn("&per_page=100", path)
@@ -63,6 +67,16 @@ class CancelMergedPr(unittest.TestCase):
 
     def test_no_matching_runs_is_successful(self):
         self.assertEqual(self.execute(), [])
+
+    def test_missing_pr_association_is_resolved_from_commit_across_pages(self):
+        pages = {"queued": [{"workflow_runs": [
+            run(1, number=None), run(2, number=None), run(3, number=None),
+        ]}]}
+        commits = {
+            "sha-1": [[{"number": 99}], [{"number": 42}]],
+            "sha-2": [[{"number": 99}]],
+        }
+        self.assertEqual(self.execute(pages, commits=commits), [1])
 
     def test_completion_race_is_harmless(self):
         pages = {"in_progress": [{"workflow_runs": [run(1)]}]}

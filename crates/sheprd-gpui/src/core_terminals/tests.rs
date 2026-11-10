@@ -30,6 +30,7 @@ mod pane_keys;
 mod paste;
 mod phone;
 mod processes;
+mod programs;
 mod quote;
 mod refresh;
 mod remote_workspaces;

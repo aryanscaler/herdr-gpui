@@ -11,6 +11,8 @@ use std::{
 mod agent_name;
 #[cfg(unix)]
 mod bead_dispatch;
+#[cfg(unix)]
+mod herdr2;
 mod parent;
 mod remove;
 mod startup;
@@ -149,6 +151,7 @@ fn request() -> DispatchRequest {
         workspace_id: "w1".into(),
         base: None,
         elsewhere: None,
+        terminals: Terminals::Herdr1,
     }
 }
 
@@ -202,9 +205,13 @@ fn dispatch_creates_the_worktree_starts_the_agent_and_records_the_run() {
     );
     let session = store.sessions().unwrap().remove(0);
     assert_eq!(
-        (session.pane_id.as_str(), session.agent_name.as_str()),
-        ("p9", name)
+        session.pane,
+        Pane::Herdr1 {
+            workspace_id: "w9".into(),
+            pane_id: "p9".into()
+        }
     );
+    assert_eq!(session.agent_name, name);
     assert_eq!(session.host, None);
 }
 

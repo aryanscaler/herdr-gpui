@@ -313,10 +313,35 @@ pub struct HerdrSession {
     pub host: Option<String>,
     /// The Herdr `--session` name, `None` for the default session.
     pub session: Option<String>,
-    pub workspace_id: String,
-    pub pane_id: String,
+    pub pane: Pane,
     pub agent_name: String,
     pub updated_at: DateTime<Utc>,
+}
+
+/// The terminal a run's agent is in, by the Herdr that runs it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Pane {
+    /// Herdr 1's pane, in the workspace made for the run's worktree.
+    Herdr1 {
+        workspace_id: String,
+        pane_id: String,
+    },
+    /// herdr-core's terminal, a shell in the run's worktree the agent was
+    /// typed into. herdr-core keeps no workspaces: the app keeps the one
+    /// that shows it.
+    Herdr2 { terminal: String },
+}
+
+/// Which Herdr a dispatch starts its worktree and agent through, on the
+/// repository's own host.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Terminals {
+    /// `herdr worktree create` and `herdr agent start`.
+    #[default]
+    Herdr1,
+    /// Git for the worktree, in the folder Herdr 1 would use, and the agent
+    /// typed into a herdr-core shell there (`sheprd_remote::work`).
+    Herdr2,
 }
 
 /// An agent Herdr shows on one of the client's connected hosts.

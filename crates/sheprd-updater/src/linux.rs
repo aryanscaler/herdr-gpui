@@ -155,6 +155,55 @@ fn validate_offer(package: &Package, offer: &release::Offer) -> Result<()> {
     Ok(())
 }
 
+/// Which RPM installer this system has. The signed manifest chooses the asset;
+/// nothing in a request chooses this, and both programs are fixed root-owned
+/// paths that are never resolved through `PATH`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RpmManager {
+    Dnf,
+    Zypper,
+}
+
+impl RpmManager {
+    /// DNF keeps priority, so every RPM distribution that updates today is
+    /// unchanged; openSUSE ships only zypper. With neither installed, DNF is
+    /// named so the failed spawn reports the program an RPM system expects.
+    fn resolve(dnf: bool, zypper: bool) -> Self {
+        if dnf || !zypper {
+            Self::Dnf
+        } else {
+            Self::Zypper
+        }
+    }
+
+    fn detect() -> Self {
+        Self::resolve(
+            Path::new(Self::Dnf.program()).is_file(),
+            Path::new(Self::Zypper.program()).is_file(),
+        )
+    }
+
+    fn program(self) -> &'static str {
+        match self {
+            Self::Dnf => "/usr/bin/dnf",
+            Self::Zypper => "/usr/bin/zypper",
+        }
+    }
+
+    fn arguments(self) -> &'static [&'static str] {
+        match self {
+            // dnf5 rejects "--"; the path is always absolute, so it cannot be
+            // parsed as an option.
+            Self::Dnf => &["install", "--assumeyes"],
+            // zypper stops on an unsigned local RPM even non-interactively, and
+            // published RPMs are unsigned. The signed manifest and the asset's
+            // verified length and SHA-256, checked before this runs, are what
+            // authenticate these bytes.
+            Self::Zypper => &["install", "-y", "--allow-unsigned-rpm"],
+        }
+    }
+}
+
 /// Only the privileged helper calls this, with a protected, verified copy.
 fn install_command(format: Format, path: &Path) -> Command {
     let mut command = match format {
@@ -164,10 +213,9 @@ fn install_command(format: Format, path: &Path) -> Command {
             command
         }
         Format::Rpm => {
-            // dnf5 rejects "--"; the path is always absolute, so it cannot
-            // be parsed as an option.
-            let mut command = sheprd_client::new_command("/usr/bin/dnf");
-            command.args(["install", "--assumeyes"]);
+            let manager = RpmManager::detect();
+            let mut command = sheprd_client::new_command(manager.program());
+            command.args(manager.arguments());
             command
         }
         Format::Arch => {

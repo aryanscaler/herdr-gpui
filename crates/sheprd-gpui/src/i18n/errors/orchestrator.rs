@@ -82,6 +82,7 @@ impl Localize for Error {
             Self::HostCannotTake => fl!("error-orchestrator-host-cannot-take"),
             Self::Teleport(error) => fl!("error-orchestrator-teleport", error = error.localize()),
             Self::PullRequestChanged => fl!("error-orchestrator-pull-request-changed"),
+            Self::Work(error) => error.localize(),
         }
     }
 }

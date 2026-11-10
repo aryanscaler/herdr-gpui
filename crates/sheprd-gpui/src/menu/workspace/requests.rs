@@ -378,6 +378,17 @@ impl SheprdWindow {
             .as_ref()
             .is_some_and(|target| target.keeper == sheprd_session::Keeper::App)
         {
+            // Sent to another host, a kept workspace's new worktree is a
+            // dispatch, as a Herdr 1 workspace's is.
+            if let Some(target) = self.dispatch_choice(action) {
+                let name = self.worktree_name(cx);
+                match self.submit_dispatch(action, &target, name) {
+                    Ok(()) => self.local_error = None,
+                    Err(error) => self.menu.error = Some(error.to_string()),
+                }
+                cx.notify();
+                return;
+            }
             self.submit_kept_workspace_dialog(action, window, cx);
             return;
         }

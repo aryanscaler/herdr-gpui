@@ -324,7 +324,7 @@ impl SheprdWindow {
                 return Ok(None);
             }
             let destination = self
-                .dispatch_destination(&device.endpoint_id)
+                .herdr_1_destination(&device.endpoint_id)
                 .ok_or(crate::Error::StaleConnection)?;
             Ok::<_, crate::Error>(Some(Carry::review(
                 origin,

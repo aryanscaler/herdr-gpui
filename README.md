@@ -162,7 +162,7 @@ Then install the latest stable release:
 | Platform | Command |
 | --- | --- |
 | macOS | `brew install sheprd-labs/tap/sheprd` |
-| Linux (APT, DNF or pacman) | `curl -fsSL https://sheprd.org/install.sh \| sh` |
+| Linux (APT, DNF, zypper or pacman) | `curl -fsSL https://sheprd.org/install.sh \| sh` |
 | Windows (PowerShell) | `irm https://sheprd.org/install.ps1 \| iex` |
 | iPhone and iPad (beta) | Join on TestFlight: [sheprd.org/testflight](https://sheprd.org/testflight/) |
 
@@ -209,7 +209,8 @@ and Homebrew takes it back at its next upgrade.
 
 Each release publishes x86_64 and ARM64 builds as a `.deb`, an `.rpm`, an Arch
 Linux package, and a plain tarball, all containing the same executable. They need
-glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40, current Arch, or later).
+glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40, current Arch, openSUSE
+Tumbleweed or Leap 16, or later).
 The install script picks the package for your architecture and package manager,
 checks it against the release's published SHA-256, and installs it with `sudo`:
 
@@ -225,6 +226,8 @@ download the file for your architecture from
 sudo apt install ./Sheprd-VERSION-x86_64-unknown-linux-gnu.deb      # Debian, Ubuntu
 sudo dnf install ./Sheprd-VERSION-x86_64-unknown-linux-gnu.rpm      # Fedora
 sudo pacman -U Sheprd-VERSION-x86_64-unknown-linux-gnu.pkg.tar.zst  # Arch Linux
+# openSUSE: the release RPM is unsigned, which zypper stops on without the flag
+sudo zypper install --allow-unsigned-rpm ./Sheprd-VERSION-x86_64-unknown-linux-gnu.rpm
 ```
 
 The internal package name remains `herdr-gpui`; packages provide the canonical
@@ -238,7 +241,8 @@ return to its workspace. On Arch Linux, install `vulkan-radeon` for AMD or
 `vulkan-intel` for Intel. **App Updates** detects which
 package manager owns the installed executable, downloads the matching `.deb`,
 `.rpm`, or Arch package, verifies its signed release metadata and checksum, then
-installs it through APT, DNF, or pacman with a PolicyKit authentication prompt.
+installs it through APT, DNF, zypper, or pacman with a PolicyKit authentication
+prompt. An `.rpm` goes to DNF where the host has it and to zypper on openSUSE.
 The authorized helper verifies and installs a protected root-owned copy.
 Choose **Restart** after installation; daemon and terminal sessions stay running.
 This requires `pkexec` and your desktop's PolicyKit authentication agent. Older

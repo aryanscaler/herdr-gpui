@@ -4,7 +4,8 @@
 //! same dialog its menu's "Delete worktree checkout" opens.
 //!
 //! Only this machine's daemon is cleaned up, since the checkout is verified
-//! with local Git before anything is sent. The request is `worktree.remove`
+//! with local Git before anything is sent. Workspaces the app keeps for
+//! Herdr 2 on this computer are cleaned up the same way; see [`kept`]. The request is `worktree.remove`
 //! without force, so the daemon itself refuses a checkout that gained
 //! uncommitted files after the check; nothing here ever retries with force.
 
@@ -91,16 +92,24 @@ pub(crate) fn decide(
     workspace: &ClientShellWorkspace,
     focused: bool,
 ) -> Result<Action, Skip> {
+    decide_status(candidate, report, workspace.agent_status, focused)
+}
+
+/// [`decide`] for a workspace whose agents' most pressing state is
+/// `status`, as a kept workspace reports it.
+pub(crate) fn decide_status(
+    candidate: &Candidate,
+    report: &Report,
+    status: AgentStatus,
+    focused: bool,
+) -> Result<Action, Skip> {
     if report.dirty {
         return Err(Skip::Dirty);
     }
     if candidate.head.is_empty() || !report.head.eq_ignore_ascii_case(&candidate.head) {
         return Err(Skip::HeadMoved);
     }
-    if matches!(
-        workspace.agent_status,
-        AgentStatus::Working | AgentStatus::Blocked
-    ) {
+    if matches!(status, AgentStatus::Working | AgentStatus::Blocked) {
         return Err(Skip::AgentBusy);
     }
     if focused {
@@ -184,6 +193,24 @@ pub(crate) struct Cleanup {
     removing: Option<(Candidate, String)>,
     ledger: Ledger,
     next_scan: Option<Instant>,
+    /// Kept workspaces' cleanup, which no daemon connection fences.
+    kept: kept::Kept,
+}
+
+/// Revalidate the exact folder immediately before background removal.
+/// Cached workspace metadata must never authorize deleting another branch.
+pub(crate) fn verify_kept_removal(
+    candidate: &Candidate,
+    path: &str,
+    cancelled: &AtomicBool,
+) -> crate::Result<()> {
+    if candidate.input.checkout.as_deref() != Some(path) {
+        return Err(crate::Error::StaleWorkspace);
+    }
+    let report = probe(&candidate.input, cancelled)?;
+    decide_status(candidate, &report, AgentStatus::Idle, false)
+        .map(|_| ())
+        .map_err(|_| crate::Error::StaleWorkspace)
 }
 
 /// Read the checkout's head, status, and archive script. Blocking: call only
@@ -192,6 +219,16 @@ fn probe(input: &Input, cancelled: &AtomicBool) -> crate::Result<Report> {
     let deadline = Instant::now() + PROBE_DEADLINE;
     let stop = || cancelled.load(Ordering::Relaxed);
     let checkout = local_checkout(input, deadline, &stop)?;
+    // A kept workspace may start below the checkout root. Git removal
+    // removes the whole tree, so inspect that root's scripts too, after
+    // local_checkout has verified the saved folder's repository and branch.
+    let checkout = crate::git::git(
+        &checkout,
+        &["rev-parse", "--show-toplevel"],
+        "locate checkout root",
+        deadline,
+        &stop,
+    )?;
     let head = crate::git::git(
         &checkout,
         &["rev-parse", "--verify", "HEAD"],
@@ -238,6 +275,7 @@ impl SheprdWindow {
             }
             return;
         }
+        self.update_kept_merged_cleanup(window, cx);
         let scope = self.live.snapshot.as_ref().map(|snapshot| {
             (
                 self.selection_epoch,
@@ -253,6 +291,7 @@ impl SheprdWindow {
             // and a reply from a replaced connection is not this removal's.
             self.merged_cleanup = Cleanup {
                 scope: scope.filter(|_| active),
+                kept: std::mem::take(&mut self.merged_cleanup.kept),
                 ..Cleanup::default()
             };
             if !active {
@@ -429,6 +468,8 @@ impl SheprdWindow {
         }
     }
 }
+
+mod kept;
 
 #[cfg(test)]
 mod tests;

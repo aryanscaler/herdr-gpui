@@ -1,6 +1,7 @@
 //! Submitting a new worktree or workspace dialog whose host picker chose
 //! another host, or a new machine: the work runs as a dispatch job instead of
-//! a daemon request.
+//! a daemon request. A kept workspace (Herdr 2) on this computer sends its
+//! new worktree to another host the same way.
 
 use super::chosen_label;
 use crate::{
@@ -63,15 +64,15 @@ impl SheprdWindow {
                 .map_or_else(|| endpoint_id.to_owned(), |e| e.label.clone());
             return Err(crate::dispatch::Error::HostUnavailable(label).into());
         };
-        let job = match self.dispatch_then(action, name)? {
-            crate::dispatch::Then::Worktree { base, naming } => {
-                Job::worktree(origin, destination, base, naming)
-            }
-            crate::dispatch::Then::Workspace { label } => {
-                Job::workspace(origin, destination, label)
-            }
+        let then = self.dispatch_then(action, name)?;
+        // This computer, keeping its new workspaces for Herdr 2, gets a
+        // checkout Git makes rather than one of Herdr 1's workspaces.
+        let then = if self.dispatch_keeps(endpoint_id) {
+            then.kept()
+        } else {
+            then
         };
-        self.dispatch_job = Some(job);
+        self.dispatch_job = Some(Job::on_host(origin, destination, then));
         self.menu.error = None;
         Ok(())
     }

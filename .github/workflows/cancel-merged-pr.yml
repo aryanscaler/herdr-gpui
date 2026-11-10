@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: write
+      pull-requests: read
     steps:
       - name: Cancel unfinished runs belonging to the merged PR
         env:
@@ -33,9 +34,11 @@ jobs:
                   ["gh", "api", path, *args], text=True,
               )
 
-          base = f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs"
+          repository = f"repos/{os.environ['GITHUB_REPOSITORY']}"
+          base = f"{repository}/actions/runs"
           number = int(os.environ["PR_NUMBER"])
           runs = set()
+          commits = {}
           # Collect all pages before cancelling: changing the result set during
           # pagination could otherwise skip runs. Include runs awaiting runners.
           for status in ("queued", "in_progress", "waiting", "pending", "requested"):
@@ -45,8 +48,22 @@ jobs:
               ))
               for page in pages:
                   for run in page["workflow_runs"]:
-                      if (run["event"] == "pull_request" and run["status"] != "completed"
-                              and any(pr["number"] == number for pr in run["pull_requests"])):
+                      if run["event"] != "pull_request" or run["status"] == "completed":
+                          continue
+                      prs = run["pull_requests"]
+                      # GitHub can omit this association after a PR is merged.
+                      # Resolve its commit rather than guessing from a branch name.
+                      if not prs:
+                          sha = run["head_sha"]
+                          if sha not in commits:
+                              commits[sha] = [
+                                  pr for page in json.loads(api(
+                                      f"{repository}/commits/{sha}/pulls?per_page=100",
+                                      "--paginate", "--slurp",
+                                  )) for pr in page
+                              ]
+                          prs = commits[sha]
+                      if any(pr["number"] == number for pr in prs):
                           runs.add(run["id"])
 
           for run_id in sorted(runs):

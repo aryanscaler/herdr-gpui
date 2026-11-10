@@ -197,6 +197,7 @@ esac"#,
     let agent = Agent {
         kind: AgentKind::Claude,
         name: "claude-1",
+        model: None,
         prompt: Some("fix it"),
     };
     let started = start_agent(&fixture.host(), &worktree, &agent, &never()).unwrap();
@@ -234,6 +235,7 @@ esac"#,
     let agent = Agent {
         kind: AgentKind::Codex,
         name: "codex-1",
+        model: None,
         prompt: Some("go"),
     };
     let error = start_agent(&fixture.host(), &worktree, &agent, &never()).unwrap_err();
@@ -278,6 +280,7 @@ esac"#,
     let agent = Agent {
         kind: AgentKind::Claude,
         name: "claude-2",
+        model: None,
         prompt: Some("-hello"),
     };
     let (worktree, started) = start(&fixture.host(), &repository, &new, &agent, &never()).unwrap();
@@ -354,6 +357,7 @@ esac"#,
     let agent = Agent {
         kind: AgentKind::Claude,
         name: "claude-3",
+        model: None,
         prompt: None,
     };
     let error = start_agent(&fixture.host(), &worktree, &agent, &never()).unwrap_err();
@@ -385,3 +389,6 @@ fn a_checkout_is_removed_from_any_of_its_folders() {
     remove(&host, &inner.display().to_string(), false, &never()).unwrap();
     assert!(!Path::new(&created.path).exists());
 }
+
+mod discard;
+mod model;

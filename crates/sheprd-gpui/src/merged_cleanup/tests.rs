@@ -247,4 +247,6 @@ fn the_probe_reads_a_linked_checkouts_head_status_and_archive_script() {
     assert!(probe(&input, &AtomicBool::new(true)).is_err());
 }
 
+mod kept;
+mod kept_identity;
 mod window;

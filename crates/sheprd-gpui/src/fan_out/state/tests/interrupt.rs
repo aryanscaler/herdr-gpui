@@ -40,7 +40,7 @@ fn lane(progress: Progress) -> Report {
 fn steps(through: usize) -> Vec<Report> {
     let all = vec![
         lane(Progress::CreatingWorktree),
-        lane(Progress::Created(checkout(0))),
+        lane(Progress::Created(Box::new(checkout(0)))),
         lane(Progress::StartingAgent),
         lane(Progress::Prompting),
         lane(Progress::Running),
@@ -104,7 +104,7 @@ fn interrupted_after_creating_the_worktree_offers_to_start_the_agent() {
     assert_eq!(lane.state, LaneState::Interrupted(Checkpoint::Created));
     assert_eq!(lane.checkout, Some(checkout(0)));
     assert_eq!(fan_out.resumable(0), Some(Resume::Start));
-    assert_eq!(fan_out.doomed(1), vec![(0, "w0".to_owned())]);
+    assert_eq!(fan_out.doomed(1), vec![(0, checkout(0).worktree)]);
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn an_unkept_prompt_cannot_be_resent() {
     let lanes = plan::lanes(&launched().picks, 7);
     let mut record = Record::new(ID, &origin(), "go", &lanes);
     record.prompt = None;
-    record.advance(&Report::Lane(0, Progress::Created(checkout(0))));
+    record.advance(&Report::Lane(0, Progress::Created(Box::new(checkout(0)))));
     let fan_out = FanOut::restore(record, journal, |_| Some(origin().host)).unwrap();
     assert_eq!(fan_out.resumable(0), None);
     assert!(fan_out.error.as_deref().unwrap().contains("too long"));
@@ -202,7 +202,7 @@ fn forgetting_leaves_the_worktrees_and_drops_the_record() {
     let journal = Journal::default();
     let lanes = plan::lanes(&launched().picks, 7);
     let mut record = Record::new(ID, &origin(), "go", &lanes);
-    record.advance(&Report::Lane(0, Progress::Created(checkout(0))));
+    record.advance(&Report::Lane(0, Progress::Created(Box::new(checkout(0)))));
     let _ = journal.begin(record.clone());
     let mut fan_out = FanOut::restore(record, journal.clone(), |_| Some(origin().host)).unwrap();
     assert!(fan_out.forget());
@@ -256,8 +256,8 @@ fn keeping_a_lane_keeps_the_record_of_a_worktree_no_host_can_remove() {
     let journal = Journal::default();
     let lanes = plan::lanes(&launched().picks, 7)[..2].to_vec();
     let mut record = Record::new(ID, &origin(), "go", &lanes);
-    record.advance(&Report::Lane(0, Progress::Created(checkout(0))));
-    record.advance(&Report::Lane(1, Progress::Created(checkout(1))));
+    record.advance(&Report::Lane(0, Progress::Created(Box::new(checkout(0)))));
+    record.advance(&Report::Lane(1, Progress::Created(Box::new(checkout(1)))));
     record.lanes[0].checkout.as_mut().unwrap().endpoint_id = "gone".into();
     let _ = journal.begin(record.clone());
     let host = |endpoint: &str| (endpoint == "local").then(|| origin().host);
@@ -272,7 +272,13 @@ fn keeping_a_lane_keeps_the_record_of_a_worktree_no_host_can_remove() {
     send(&fan_out, event);
     assert_eq!(
         fan_out.poll(),
-        (true, Some(("local".to_owned(), "w1".to_owned())))
+        (
+            true,
+            Some(Kept::Herdr1 {
+                endpoint: "local".to_owned(),
+                workspace: "w1".to_owned()
+            })
+        )
     );
     let records = journal.records();
     assert_eq!(records.len(), 1, "the unreachable worktree is remembered");
@@ -288,7 +294,7 @@ fn keeping_a_lane_once_every_other_is_removed_forgets_the_fan_out() {
     let journal = Journal::default();
     let lanes = plan::lanes(&launched().picks, 7)[..1].to_vec();
     let mut record = Record::new(ID, &origin(), "go", &lanes);
-    record.advance(&Report::Lane(0, Progress::Created(checkout(0))));
+    record.advance(&Report::Lane(0, Progress::Created(Box::new(checkout(0)))));
     let _ = journal.begin(record.clone());
     let mut fan_out = FanOut::restore(record, journal.clone(), |_| Some(origin().host)).unwrap();
     fan_out.stage = Stage::Confirm(0);
@@ -300,7 +306,10 @@ fn keeping_a_lane_once_every_other_is_removed_forgets_the_fan_out() {
     send(&fan_out, event);
     assert_eq!(
         fan_out.poll().1,
-        Some(("local".to_owned(), "w0".to_owned()))
+        Some(Kept::Herdr1 {
+            endpoint: "local".to_owned(),
+            workspace: "w0".to_owned()
+        })
     );
     assert!(journal.records().is_empty());
 }
@@ -314,7 +323,7 @@ fn a_step_that_cannot_be_saved_stops_its_lane_before_its_script() {
     std::fs::write(&blocker, b"").unwrap();
     let lanes = plan::lanes(&launched().picks, 7)[..1].to_vec();
     let mut record = Record::new(ID, &origin(), "go", &lanes);
-    record.advance(&Report::Lane(0, Progress::Created(checkout(0))));
+    record.advance(&Report::Lane(0, Progress::Created(Box::new(checkout(0)))));
     assert!(journal.begin(record).unwrap().unwrap().write().is_err());
     let (sender, events) = mpsc::channel();
     let fan_out_journal = journal.clone();

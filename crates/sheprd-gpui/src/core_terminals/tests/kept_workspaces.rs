@@ -259,3 +259,6 @@ fn a_local_project_opens_in_herdr_2_while_another_host_is_shown(cx: &mut TestApp
         })
     });
 }
+
+mod behind;
+mod run_terminal;

@@ -107,7 +107,7 @@ elif name == "curl":
 elif name == "sha256sum":
     digest, filename = Path(args[-1]).read_text().split()
     sys.exit(hashlib.sha256(Path(filename).read_bytes()).hexdigest() != digest)
-elif name in ("apt-get", "dnf", "pacman"):
+elif name in ("apt-get", "dnf", "pacman", "zypper"):
     assert Path(args[-1]).read_bytes() == b"isolated package fixture"
 else:
     raise AssertionError(name)
@@ -128,9 +128,11 @@ class LinuxInstallerTests(unittest.TestCase):
             # No real package manager, sudo, daemon, network or user config is
             # reachable through PATH. Only temporary-file utilities are real.
             for command in ("mktemp", "rm", "chmod"):
-                (bin_dir / command).symlink_to(shutil.which(command))
+                real = shutil.which(command)
+                assert real is not None, command
+                (bin_dir / command).symlink_to(real)
             log = base / "log"
-            result = subprocess.run(["/bin/sh", str(SITE / "install.sh")],
+            result = subprocess.run(["/bin/sh", str(SITE / "install.sh")], check=False,
                                     env={"PATH": str(bin_dir), "LOG": str(log),
                                          "ARCH": arch, "CORRUPT": "1" if corrupt else "",
                                          "TMPDIR": str(base)},
@@ -139,7 +141,8 @@ class LinuxInstallerTests(unittest.TestCase):
             return result, calls
 
     def test_new_release_assets_install_through_each_package_manager(self):
-        for manager, suffix in (("apt-get", "deb"), ("dnf", "rpm"), ("pacman", "pkg.tar.zst")):
+        for manager, suffix in (("apt-get", "deb"), ("dnf", "rpm"),
+                                ("pacman", "pkg.tar.zst"), ("zypper", "rpm")):
             for arch in ("x86_64", "aarch64"):
                 with self.subTest(manager=manager, arch=arch):
                     result, calls = self.run_installer(manager, arch)
@@ -151,6 +154,15 @@ class LinuxInstallerTests(unittest.TestCase):
                     urls = [c[-1] for c in calls if c[0] == "curl"]
                     self.assertIn(f"https://github.com/sheprd-labs/sheprd/releases/download/v20261103.1/{asset}", urls)
                     self.assertIn("run: sheprd", result.stdout)
+
+    def test_zypper_takes_the_unsigned_release_rpm(self):
+        # zypper stops on an unsigned local RPM even non-interactively, and the
+        # published RPM is unsigned; the script's SHA-256 check is what
+        # authenticates those bytes, so the flag only skips a prompt.
+        result, calls = self.run_installer("zypper")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        install = next(call for call in calls if call[0] == "zypper")
+        self.assertEqual(install[1:-1], ["install", "-y", "--allow-unsigned-rpm"])
 
     def test_checksum_failure_never_runs_the_package_manager(self):
         result, calls = self.run_installer("apt-get", corrupt=True)

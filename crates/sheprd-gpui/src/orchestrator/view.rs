@@ -9,6 +9,7 @@
 
 mod browse;
 mod conversation;
+mod core_removal;
 mod detail;
 mod dispatch;
 mod hosts;
@@ -66,6 +67,18 @@ pub(crate) enum Event {
     OpenRun {
         endpoint: usize,
         pane_id: String,
+    },
+    /// Show a Herdr 2 run's agent: the workspace the app keeps at its
+    /// checkout on this machine, kept with `terminal` as its tab when none is.
+    OpenCoreRun {
+        path: std::path::PathBuf,
+        terminal: String,
+        label: String,
+    },
+    /// Close the workspace the app keeps at `path` on this machine: a
+    /// removed Herdr 2 run's checkout.
+    CloseCoreRun {
+        path: std::path::PathBuf,
     },
     /// Show a run's Herdr workspace on the host it is on: `None` for this
     /// machine, else an SSH destination.
@@ -237,6 +250,11 @@ pub(crate) struct OrchestratorView {
     merge_open: bool,
     /// Hosts a dispatch could go to, while the dialog is open.
     hosts: Arc<Vec<crate::dispatch::Candidate>>,
+    /// Which Herdr starts a dispatch on this machine.
+    local_terminals: super::Terminals,
+    /// Herdr 2 runs being removed here, by ID, with their checkouts, whose
+    /// kept workspaces close once the worker forgot the run.
+    core_removals: Vec<(String, std::path::PathBuf)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -310,6 +328,8 @@ impl OrchestratorView {
             avatars: conversation::Avatars::default(),
             merge_open: false,
             hosts: Arc::default(),
+            local_terminals: super::Terminals::default(),
+            core_removals: Vec::new(),
             _subscriptions: vec![subscription],
         }
     }
@@ -386,6 +406,7 @@ impl OrchestratorView {
             self.reconcile_agents();
             self.refresh_rows();
             self.follow_pull_request();
+            self.close_removed_core_runs(cx);
             changed = true;
         }
         if self.pr.poll() {
@@ -473,6 +494,12 @@ impl OrchestratorView {
         }
         self.hosts = Arc::new(hosts);
         cx.notify();
+    }
+
+    /// Which Herdr starts a dispatch on this machine: Herdr 2 when the
+    /// window's workspaces here use herdr-core.
+    pub(crate) fn set_local_terminals(&mut self, terminals: super::Terminals) {
+        self.local_terminals = terminals;
     }
 
     /// The banner's text, for tests outside the view.
@@ -747,6 +774,10 @@ impl OrchestratorView {
             });
             return;
         }
+        if let Some(event) = core_run(&runs, run) {
+            cx.emit(event);
+            return;
+        }
         let workspace = self.snapshot().runs.get(run).and_then(|run| {
             run.workspace.as_ref().filter(|workspace| {
                 workspace.backend == super::Backend::Herdr && !workspace.id.is_empty()
@@ -914,4 +945,22 @@ impl Render for OrchestratorView {
             .child(body)
             .children(overlay)
     }
+}
+
+/// The event showing run `run` when Herdr 2 runs its agent on this machine:
+/// its checkout and the herdr-core terminal its session records.
+fn core_run(runs: &Runs<'_>, run: usize) -> Option<Event> {
+    let session = runs.session(run)?;
+    let super::Pane::Herdr2 { terminal } = &session.pane else {
+        return None;
+    };
+    let workspace = runs.runs.get(run)?.workspace.as_ref()?;
+    if session.host.is_some() {
+        return None;
+    }
+    Some(Event::OpenCoreRun {
+        path: workspace.path.clone()?,
+        terminal: terminal.clone(),
+        label: workspace.branch.clone(),
+    })
 }

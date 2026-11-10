@@ -178,3 +178,5 @@ fn an_origin_names_its_repository_as_teleport_resolves_it() {
     assert_eq!(source.branch, None);
     assert_eq!(source.custom_label, None);
 }
+
+mod dispatch;

@@ -48,7 +48,7 @@ Tab and Shift-Tab move between the fields; Ctrl-Tab and Ctrl-Shift-Tab step thro
 
 If the dialog cannot open, for example because the workspace is not a Git repository, its main checkout is not open, or it has a detached `HEAD`, a short message says why.
 
-Herdr 2 (herdr-core) keeps no worktrees, so in a workspace Sheprd keeps for Herdr 2 terminals, Sheprd runs Git itself: **New worktree** adds the checkout in the folder Herdr 1 would use (`~/.herdr/worktrees/<repository>/<branch>`) and opens it as a new workspace, and **Delete worktree checkout** removes the checkout and closes its workspace, keeping the branch. The dialog's **Existing** tab lists the repository's checkouts no workspace has open. Worktree scripts do not run there yet.
+Herdr 2 (herdr-core) keeps no worktrees, so in a workspace Sheprd keeps for Herdr 2 terminals, Sheprd runs Git itself: **New worktree** adds the checkout in the folder Herdr 1 would use (`~/.herdr/worktrees/<repository>/<branch>`) and opens it as a new workspace, and **Delete worktree checkout** removes the checkout and closes its workspace, keeping the branch. The dialog's **Existing** tab lists the repository's checkouts no workspace has open.
 
 **Open worktree...** lists the repository's existing checkouts. Type to filter by branch, label or path, then press Enter or click a row to open it.
 
@@ -83,7 +83,7 @@ Every key is optional; an unknown key is reported as an error. The file is read 
 - **run** starts from **Run script** in the menu of any Git checkout.
 - **archive** runs when you confirm **Delete worktree checkout**. The checkout is removed only if the script succeeds; if it fails, its tab stays open on the output and the checkout stays.
 
-Each script runs in a new tab named `setup`, `run` or `archive` in the checkout's workspace, with `sh -e`, so it stops at the first failing command. It runs in the checkout, with `HERDR_WORKTREE_PATH` set to the checkout and `HERDR_ROOT_PATH` to the repository's main checkout. On a remote host the script is read and run on that host, which needs `sh`. WSL distributions are not supported yet.
+Each script runs in a new tab named `setup`, `run` or `archive` in the checkout's workspace, with `sh -e`, so it stops at the first failing command. In a workspace Sheprd keeps for Herdr 2 terminals, the scripts run the same way in a Herdr 2 tab: setup and run leave your shell open on the output, and the archive tab ends with its script, after which Sheprd removes the checkout and closes the workspace only if the script succeeded. It runs in the checkout, with `HERDR_WORKTREE_PATH` set to the checkout and `HERDR_ROOT_PATH` to the repository's main checkout. On a remote host the script is read and run on that host, which needs `sh`. WSL distributions are not supported yet.
 
 ### Trusting a script
 
@@ -137,7 +137,7 @@ apply_to = ["sidebar", "terminal"]
 
 To clean up automatically, set `remove_merged_worktrees = true` (**Settings > General > Remove worktrees of merged PRs**). Once a linked worktree's GitHub pull request is merged, Sheprd removes its checkout and closes its workspace, without asking. It is off by default and acts only when:
 
-- the worktree is on this machine's daemon
+- the worktree is on this machine's daemon, or in a workspace Sheprd keeps for Herdr 2 terminals on this machine
 - the checkout has no uncommitted or untracked files and sits exactly at the pull request's merged head commit
 - no agent in it is working or waiting on a prompt
 
