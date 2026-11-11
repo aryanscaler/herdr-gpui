@@ -414,6 +414,61 @@ impl SheprdWindow {
         true
     }
 
+    /// Moves `workspace` before `target`, or after it with `after`, as
+    /// dropping its row there does: the same units, and the same move a drag
+    /// of the window's own row sends, to whichever keeps the order. For a
+    /// host's rows, which run the drag themselves. Only on the selected
+    /// device, as a drag is; a target that is not one of the row's places
+    /// (another group's worktree) moves nothing.
+    pub(super) fn move_workspace_to(
+        &mut self,
+        workspace: &str,
+        target: &str,
+        after: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.menu.page.is_some() {
+            return;
+        }
+        let found = {
+            let sessions = self.sessions(self.selected_endpoint);
+            sessions
+                .each()
+                .find(|session| session.workspace(workspace).is_some())
+                .and_then(|session| {
+                    let keeper = session
+                        .workspace(workspace)
+                        .map_or(Keeper::Herdr1, |workspace| workspace.keeper);
+                    landing(&session.workspaces, workspace, target, after)
+                        .map(|request| (keeper, request))
+                })
+        };
+        let Some((keeper, request)) = found else {
+            return;
+        };
+        if keeper == Keeper::App {
+            self.drop_kept_workspace(workspace, &request, cx);
+            return;
+        }
+        if !self.live.status.is_connected() {
+            return;
+        }
+        let connection = &self.endpoints[self.selected_endpoint].connection;
+        let (Some(handle), Some(snapshot), Some(session)) =
+            (&connection.handle, &self.live.snapshot, self.live.session())
+        else {
+            return;
+        };
+        let reorder = request.reorder(&session.workspaces, self.live.supports_workspace_move);
+        if let Err(error) = handle.reorder_workspaces(&snapshot.boot_id, &reorder) {
+            self.local_error = Some(fl!(
+                "sidebar-workspace-move-not-sent",
+                error = error.to_string()
+            ));
+            cx.notify();
+        }
+    }
+
     /// Moves a kept workspace where it was dropped. The app keeps the order,
     /// so it lands at once and no preview waits on an answer.
     fn drop_kept_workspace(
@@ -450,6 +505,21 @@ impl SheprdWindow {
         cx.notify();
         true
     }
+}
+
+/// The move that dropping `workspace` before `target` (after it with
+/// `after`) makes: `None` when `target` is not one of its places, or when it
+/// would land where it is.
+pub(super) fn landing(
+    workspaces: &[Workspace],
+    workspace: &str,
+    target: &str,
+    after: bool,
+) -> Option<MoveBlock> {
+    let plan = Plan::new(workspaces, workspace)?;
+    let index = workspaces.iter().position(|w| w.id == target)?;
+    let unit = plan.unit_of(index)?;
+    plan.request(workspaces, unit + usize::from(after))
 }
 
 /// Resolves the pointer to a gap, from each unit's rows and the move for every

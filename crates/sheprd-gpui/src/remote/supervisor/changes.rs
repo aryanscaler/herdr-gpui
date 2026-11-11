@@ -14,8 +14,8 @@
 //! questions wait here.
 
 use super::*;
-use crate::SheprdWindow;
 use crate::remote::changes::Sources;
+use crate::window::main_window::MainWindow;
 use sheprd_remote_control::control::{
     changes::{Ask, AskId},
     layout,
@@ -158,10 +158,7 @@ fn change_layout(cx: &mut App, ask: &layout::Ask) -> Option<layout::Answer> {
     if !ask.valid() {
         return Some(layout::Answer::Failed(layout::Failure::Refused));
     }
-    for handle in cx.windows() {
-        let Some(window) = handle.downcast::<SheprdWindow>() else {
-            continue;
-        };
+    for window in MainWindow::all(cx) {
         let made = window.update(cx, |this, window, cx| this.phone_layout(ask, window, cx));
         if let Ok(Some(answer)) = made {
             return answer;

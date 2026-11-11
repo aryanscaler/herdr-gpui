@@ -1,0 +1,5 @@
+# The machine's load, shared as `app.sheprd_load` on its own, so that its
+# ticks run only the views that show it. Rust in src/main.rs.
+interval = 60.0
+kind     = "native"
+start    = "always"

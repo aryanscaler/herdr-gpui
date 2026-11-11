@@ -13,6 +13,7 @@ mod api;
 mod assets;
 pub(crate) mod attention;
 mod fragments;
+mod github;
 mod hosts;
 mod indicators;
 mod kept;
@@ -83,6 +84,7 @@ pub(crate) struct State {
     /// Streams open per device.
     pub(crate) connected: Mutex<HashMap<DeviceId, usize>>,
     pub(crate) fingerprint: String,
+    pub(crate) github: crate::native::changes::github::Reader,
     pub(crate) hub: Arc<Hub>,
     /// How much this computer lets Live Activities say.
     pub(crate) live_activities: crate::app::config::ActivityDetail,
@@ -175,6 +177,8 @@ pub(crate) fn router(state: Shared) -> Router {
         .route("/computers", get(assets::shell))
         .route("/new", get(assets::shell))
         .route("/new-chat", get(assets::shell))
+        .route("/checks/{workspace}", get(assets::shell))
+        .route("/checks/{workspace}/{job}", get(assets::shell))
         .route("/pair", get(assets::shell))
         .route("/settings", get(assets::shell))
         .route("/term/{pane}", get(assets::shell))
@@ -278,6 +282,8 @@ pub(crate) fn router(state: Shared) -> Router {
         .route("/f/new", get(fragments::new_workspace))
         .route("/f/new-chat", get(fragments::new_chat))
         .route("/f/settings", get(fragments::settings))
+        .route("/f/checks/{workspace}", get(github::checks))
+        .route("/f/checks/{workspace}/{job}", get(github::log))
         .route("/f/term/{pane}", get(terminal::fragment))
         .route("/f/term/{pane}/history", get(terminal::history))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))

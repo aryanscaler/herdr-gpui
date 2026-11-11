@@ -24,11 +24,17 @@ impl Error {
     pub(crate) fn status(&self) -> StatusCode {
         match self {
             Self::Busy => StatusCode::TOO_MANY_REQUESTS,
+            Self::Failed(Failure::RateLimited | Failure::GitHubPending) => {
+                StatusCode::TOO_MANY_REQUESTS
+            }
+            Self::Failed(Failure::GitHubSignIn | Failure::GitHubScope) => StatusCode::CONFLICT,
             Self::Failed(Failure::Gone | Failure::NoFile) => StatusCode::NOT_FOUND,
             Self::Failed(
                 Failure::LogTooLong | Failure::NoBase | Failure::NoLog | Failure::NoRepository,
             ) => StatusCode::CONFLICT,
-            Self::Failed(Failure::Unreadable) => StatusCode::BAD_GATEWAY,
+            Self::Failed(Failure::Unreadable | Failure::GitHubUnavailable) => {
+                StatusCode::BAD_GATEWAY
+            }
             Self::Layout(layout::Failure::Busy) => StatusCode::TOO_MANY_REQUESTS,
             Self::Layout(layout::Failure::Gone) => StatusCode::NOT_FOUND,
             Self::Layout(layout::Failure::Watching) => StatusCode::CONFLICT,

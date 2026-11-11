@@ -83,6 +83,7 @@ fn the_daemon_runs_with_every_setting_as_an_argument() {
         },
         device_idle_days: 9,
         enabled: true,
+        github_cli: false,
         keep_running: false,
         live_activities: Default::default(),
         notifications: Privacy::Excerpt,
@@ -497,6 +498,7 @@ fn a_failed_load_is_reported_with_its_cause() {
     assert!(std::error::Error::source(&error).is_some());
 }
 
+mod github;
 mod release;
 mod restart;
 mod update;

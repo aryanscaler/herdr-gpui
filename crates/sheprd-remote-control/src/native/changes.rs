@@ -5,6 +5,7 @@
 //! ([`local`]), so a Herdr 2 workspace, or one on a host, still answers.
 
 mod error;
+pub(crate) mod github;
 mod local;
 mod mailbox;
 
@@ -46,14 +47,24 @@ pub(crate) struct DiffQuery {
 /// Answers `wanted` about `workspace`: Sheprd's answer while it is open
 /// and lists the workspace, else Git's. A workspace this daemon does not
 /// list is refused here, so only ones the phone could see are read.
-async fn ask(state: &Shared, workspace: String, wanted: Wanted) -> Result<Answer, ApiError> {
-    let (boot, cwd) = {
+pub(crate) async fn ask(
+    state: &Shared,
+    workspace: String,
+    wanted: Wanted,
+) -> Result<Answer, ApiError> {
+    let (boot, cwd, branch) = {
         let layout = state.hub.layout();
         let listed = layout.workspace(&workspace).ok_or(ApiError::NotFound)?;
-        (layout.boot.clone(), listed.cwd.clone())
+        (
+            layout.boot.clone(),
+            listed.cwd.clone(),
+            listed.branch.clone(),
+        )
     };
-    if state.changes.open() {
-        match ask_sheprd(state, boot, workspace, wanted.clone()).await {
+    if state.changes.open()
+        && !(state.github.enabled() && matches!(wanted, Wanted::Checks | Wanted::CheckLog { .. }))
+    {
+        match ask_sheprd(state, boot.clone(), workspace.clone(), wanted.clone()).await {
             // Closed meanwhile, or a workspace it does not keep.
             Err(Error::NoDesktop | Error::Failed(Failure::Gone)) => {}
             // It quit while the question waited.
@@ -63,6 +74,22 @@ async fn ask(state: &Shared, workspace: String, wanted: Wanted) -> Result<Answer
     }
     if cwd.is_empty() {
         return Err(Error::Failed(Failure::NoRepository).into());
+    }
+    if matches!(wanted, Wanted::Checks | Wanted::CheckLog { .. }) {
+        let worker = state.clone();
+        let folder = cwd.clone();
+        let answer = tokio::task::spawn_blocking(move || worker.github.answer(&folder, &wanted))
+            .await
+            .map_err(|_| Error::Failed(Failure::Unreadable))?;
+        let current = state.hub.layout();
+        if current.boot != boot
+            || current
+                .workspace(&workspace)
+                .is_none_or(|now| now.cwd != cwd || now.branch != branch)
+        {
+            return Err(Error::Failed(Failure::Gone).into());
+        }
+        return answer.map_err(|failure| Error::Failed(failure).into());
     }
     let answer =
         tokio::task::spawn_blocking(move || local::answer(std::path::Path::new(&cwd), &wanted))

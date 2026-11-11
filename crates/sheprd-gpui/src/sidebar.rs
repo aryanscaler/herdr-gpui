@@ -9,6 +9,7 @@ mod animated;
 mod cell;
 mod device_drag;
 mod host_row;
+pub(crate) mod hosted;
 mod hover;
 mod layout;
 mod layouts;
@@ -39,7 +40,7 @@ pub(crate) mod layout_tests;
 pub(crate) mod native_tests;
 
 pub(crate) use {
-    activity::{Activity, ActivityPanel, BUTTON as BAR_BUTTON, ICON as BAR_ICON},
+    activity::{Activity, ActivityPanel, BAR_WIDTH, BUTTON as BAR_BUTTON, ICON as BAR_ICON},
     agents::{Indicators, agent_name, pane_name, state_label, status_indicator, status_text},
     device_drag::DeviceDrag,
     hover::{HoverMenu, HoverRest},

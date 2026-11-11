@@ -28,7 +28,7 @@ const SIDEBAR_GLYPH_WIDTH: f32 = 18.;
 const SIDEBAR_TOGGLE_INSET: f32 = (SIDEBAR_TOGGLE_SIZE - SIDEBAR_GLYPH_WIDTH) / 2.;
 
 /// Native chrome the window draws above its body; popups must clear it.
-pub(super) const HEIGHT: f32 = 34.;
+pub(crate) const HEIGHT: f32 = 34.;
 
 /// The narrowest window whose header keeps Back and Forward. Below it they
 /// give way, so the account and window controls stay reachable; the keys and

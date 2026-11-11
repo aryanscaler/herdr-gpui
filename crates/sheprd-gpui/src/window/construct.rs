@@ -30,6 +30,8 @@ impl SheprdWindow {
         } else {
             target
         };
+        // Found by what looks for main windows, whatever the window's root.
+        super::main_window::MainWindow::register(window, cx);
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         // Created by the first window; each later one shares its PR answers.
@@ -209,6 +211,7 @@ impl SheprdWindow {
             git_anchor: Default::default(),
             gui_config_diagnostic,
             held_keys: Default::default(),
+            hosted: false,
             hover: None,
             hover_menu: None,
             hovered_terminal_link: false,

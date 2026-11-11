@@ -9,6 +9,7 @@
 use super::{
     Event, GitLabRead, LiveAgent, LiveBranch, Look, OrchestratorView, RepoSpec, Request, Timing,
 };
+use crate::window::main_window::MainWindow;
 use crate::{
     NavigationTarget, SheprdWindow,
     browser::{OrchestratorRepo, WebUrl},
@@ -253,9 +254,8 @@ impl SheprdWindow {
     /// without its window, as a spawned task's update is, since GPUI panics
     /// reading that view.
     pub(crate) fn all_orchestrator_gitlab_hosts(cx: &App) -> Vec<GitLabRead> {
-        cx.windows()
+        MainWindow::all(cx)
             .into_iter()
-            .filter_map(|handle| handle.downcast::<SheprdWindow>())
             .filter_map(|handle| handle.read(cx).ok())
             .flat_map(|window| window.orchestrator_gitlab_hosts(cx))
             .collect()
@@ -292,9 +292,8 @@ impl SheprdWindow {
     /// [`Self::orchestrator_azure_organizations`] over every main window,
     /// with the same caveats as [`Self::all_orchestrator_gitlab_hosts`].
     pub(crate) fn all_orchestrator_azure_organizations(cx: &App) -> Vec<String> {
-        cx.windows()
+        MainWindow::all(cx)
             .into_iter()
-            .filter_map(|handle| handle.downcast::<SheprdWindow>())
             .filter_map(|handle| handle.read(cx).ok())
             .flat_map(|window| window.orchestrator_azure_organizations(cx))
             .collect()
@@ -306,11 +305,7 @@ impl SheprdWindow {
     /// workers. Like [`Self::all_orchestrator_gitlab_hosts`], it runs
     /// outside any window's update.
     pub(crate) fn refresh_all_orchestrators(cx: &mut App) {
-        let windows: Vec<_> = cx
-            .windows()
-            .into_iter()
-            .filter_map(|handle| handle.downcast::<SheprdWindow>())
-            .collect();
+        let windows: Vec<_> = MainWindow::all(cx).into_iter().collect();
         for handle in windows {
             let _ = handle.update(cx, |window, _, cx| {
                 for orchestrator in window.orchestrators.values() {

@@ -1,6 +1,7 @@
 //! Search-only samples and explicit app-wide theme intents. Disk work stays off the UI thread.
 // i18n: migrated
 use super::SettingsWindow;
+use crate::window::main_window::MainWindow;
 use crate::{
     config::{Config, Theme, ThemeName},
     contrast::Contrast,
@@ -476,14 +477,10 @@ impl SettingsWindow {
             return;
         }
         // A main picker at its commit boundary must reconcile before we replace it.
-        if cx.windows().into_iter().any(|window| {
+        if MainWindow::all(cx).into_iter().any(|window| {
             window
-                .downcast::<crate::SheprdWindow>()
-                .is_some_and(|window| {
-                    window
-                        .read(cx)
-                        .is_ok_and(|view| view.theme_save_in_flight())
-                })
+                .read(cx)
+                .is_ok_and(|view| view.theme_save_in_flight())
         }) {
             if self.theme_waiting {
                 return;
@@ -535,24 +532,22 @@ impl SettingsWindow {
     }
 
     pub(super) fn broadcast_theme(&mut self, cx: &mut Context<Self>) {
-        for handle in cx.windows() {
-            if let Some(handle) = handle.downcast::<crate::SheprdWindow>() {
-                let _ = handle.update(cx, |view, window, cx| {
-                    if view.theme_save_in_flight() {
-                        return;
-                    }
-                    if view.menu.page == Some(crate::menu::Page::Themes) {
-                        view.dismiss_menu(window, cx);
-                    }
-                    view.config.theme = self.config.theme.clone();
-                    view.config.contrast = self.config.contrast;
-                    view.theme = self.theme.clone();
-                    if !theme_pending(cx) {
-                        view.settings.shared = self.shared.clone();
-                    }
-                    cx.notify();
-                });
-            }
+        for handle in MainWindow::all(cx) {
+            let _ = handle.update(cx, |view, window, cx| {
+                if view.theme_save_in_flight() {
+                    return;
+                }
+                if view.menu.page == Some(crate::menu::Page::Themes) {
+                    view.dismiss_menu(window, cx);
+                }
+                view.config.theme = self.config.theme.clone();
+                view.config.contrast = self.config.contrast;
+                view.theme = self.theme.clone();
+                if !theme_pending(cx) {
+                    view.settings.shared = self.shared.clone();
+                }
+                cx.notify();
+            });
         }
         let mut appearance = cx
             .try_global::<crate::app::InitialAppearance>()
@@ -753,16 +748,14 @@ impl SettingsWindow {
             apply_theme_draft(&mut config, &mut theme, cx);
             theme
         });
-        for handle in cx.windows() {
-            if let Some(handle) = handle.downcast::<crate::SheprdWindow>() {
-                let _ = handle.update(cx, |view, _, cx| {
-                    if view.theme_save_in_flight() {
-                        return;
-                    }
-                    view.theme = theme.clone();
-                    cx.notify();
-                });
-            }
+        for handle in MainWindow::all(cx) {
+            let _ = handle.update(cx, |view, _, cx| {
+                if view.theme_save_in_flight() {
+                    return;
+                }
+                view.theme = theme.clone();
+                cx.notify();
+            });
         }
     }
 

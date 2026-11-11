@@ -148,6 +148,7 @@ fn remote_edits_write_what_loading_reads() -> anyhow::Result<()> {
             certificate: files,
             device_idle_days: 90,
             enabled: true,
+            github_cli: false,
             keep_running: false,
             live_activities: ActivityDetail::Generic,
             notifications: Privacy::Excerpt,

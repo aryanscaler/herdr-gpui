@@ -1,7 +1,7 @@
 use gpui::{AssetSource, SharedString};
 use std::borrow::Cow;
 
-pub(super) struct Icons;
+pub(crate) struct Icons;
 
 /// Declares each agent mark once: its variant, Herdr's canonical
 /// `agent_label` identity, and the embedded asset named after that identity.

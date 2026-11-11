@@ -21,9 +21,11 @@ use super::{
     snapshot::{Pane, PaneStatus, ProcessInfo, SessionKind},
 };
 use crate::protocol::{AgentStatus, ClientShellAgent, ClientShellSnapshot};
+use serde::Deserialize;
 use sheprd_chat_protocol::{Agent, EndpointId, TOKEN, restore};
 use std::{
-    path::Path,
+    io,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
@@ -174,6 +176,40 @@ pub fn session(pane: &Pane, agent: Agent) -> Result<String, Error> {
         .ok_or(Error::NoSession(agent))
 }
 
+/// What Claude Code writes about one running CLI.
+#[derive(Deserialize)]
+struct ClaudeRecord {
+    pid: u32,
+    #[serde(rename = "sessionId")]
+    session_id: String,
+}
+
+/// Where Claude Code records the CLI with process ID `pid`, under the
+/// user's home `home` on the machine it runs on.
+pub fn claude_record(home: &Path, pid: u32) -> PathBuf {
+    home.join(".claude")
+        .join("sessions")
+        .join(format!("{pid}.json"))
+}
+
+/// The session `agent`, running as process `pid`, records of itself, from
+/// what `read` finds under `home`. Only Claude Code keeps such a record, in
+/// `~/.claude/sessions/<pid>.json`, whatever terminal runs it; a record of
+/// another process, or a session no line can carry, is none.
+pub fn recorded_session(
+    agent: Agent,
+    pid: u32,
+    home: &Path,
+    read: impl FnOnce(&Path) -> io::Result<String>,
+) -> Option<String> {
+    if agent != Agent::Claude {
+        return None;
+    }
+    let record: ClaudeRecord = serde_json::from_str(&read(&claude_record(home, pid)).ok()?).ok()?;
+    (record.pid == pid && restore::session_id_is_plain(&record.session_id))
+        .then_some(record.session_id)
+}
+
 /// Whether the pane's shell, rather than a job it started, has the terminal.
 pub fn shell_in_front(info: &ProcessInfo) -> bool {
     info.foreground_process_group_id.is_some() && info.foreground_process_group_id == info.shell_pid
@@ -182,10 +218,25 @@ pub fn shell_in_front(info: &ProcessInfo) -> bool {
 /// What `info` says the pane's agent runs as, and the conversation to
 /// continue. Claude's flags ride along, as the model the terminal agent was
 /// started with; the other agents run a server with flags of its own.
-pub fn resume(pane: &Pane, info: &ProcessInfo, agent: Agent) -> Result<Resume, Error> {
-    let session = session(pane, agent)?;
+///
+/// The session is the one Herdr's integration reported for the pane, or,
+/// without one, what `recorded` finds the agent's process recorded of
+/// itself (`recorded_session`): moving an agent is Sheprd's, and needs no
+/// integration where the agent keeps its own record.
+pub fn resume(
+    pane: &Pane,
+    info: &ProcessInfo,
+    agent: Agent,
+    recorded: impl FnOnce(u32) -> Option<String>,
+) -> Result<Resume, Error> {
     let processes = agent_processes(agent, info).unwrap_or_default();
-    let process = processes.first().ok_or(Error::NotRunning(agent))?;
+    let reported = session(pane, agent);
+    let Some(process) = processes.first() else {
+        // As before: no session is the reason given first.
+        reported?;
+        return Err(Error::NotRunning(agent));
+    };
+    let session = reported.or_else(|error| recorded(process.pid).ok_or(error))?;
     let cwd = process
         .cwd
         .clone()

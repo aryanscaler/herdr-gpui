@@ -11,6 +11,9 @@ public struct Home: Codable, Hashable, Sendable {
     public var api: Int?
     public var computer: String
     public var fingerprint: String
+    /// Standalone GitHub reads explicitly enabled on this computer.
+    /// Absence means an older daemon; it does not imply support.
+    public var github: Bool?
     /// Whether the computer's Herdr daemon is reachable.
     public var connected: Bool
     /// Permission requests waiting across its chats: the badge.

@@ -99,6 +99,9 @@ impl Plan {
                 config.live_activities.name().into(),
             ]);
         }
+        if config.github_cli {
+            args.push("--github-cli".into());
+        }
         if let Some(socket) = &self.herdr_socket {
             args.extend(["--herdr-socket".into(), socket.clone().into()]);
         }

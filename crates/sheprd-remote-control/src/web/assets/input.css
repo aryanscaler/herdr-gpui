@@ -4,6 +4,7 @@
 @import "tailwindcss";
 @source "../render";
 @source "../render.rs";
+@source "../github.rs";
 @source "./app.js";
 @source "./shell.html";
 

@@ -6,7 +6,7 @@ use super::*;
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_in_a_removed_worktree_is_left_running() {
     let dir = tempfile::tempdir().unwrap();
-    let requests = serve_in(dir.path(), "idle", "/sheprd-no-such-worktree-9df4");
+    let requests = serve_in(dir.path(), "idle", "/sheprd-no-such-worktree-9df4", true);
     let hub = hub(
         layout(Agent::Claude),
         Some(dir.path().join("h-client.sock")),

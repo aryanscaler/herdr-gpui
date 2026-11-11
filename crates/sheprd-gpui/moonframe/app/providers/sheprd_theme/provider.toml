@@ -1,0 +1,5 @@
+# Sheprd's colors, shared as `app.sheprd_theme` on their own, so that the
+# views that only need colors run only when the theme changes. Rust in src/main.rs.
+interval = 60.0
+kind     = "native"
+start    = "always"

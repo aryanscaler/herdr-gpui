@@ -6,6 +6,7 @@
 //! rather than remembering that the host had none.
 
 use super::{Host, Start};
+use crate::window::main_window::MainWindow;
 use crate::{
     SheprdWindow,
     i18n::{Localize, fl},
@@ -132,14 +133,12 @@ impl SheprdWindow {
             if installed {
                 let this = this.entity_id();
                 cx.update(|cx| {
-                    for handle in cx.windows() {
-                        if let Some(handle) = handle.downcast::<SheprdWindow>() {
-                            let _ = handle.update(cx, |view, _, cx| {
-                                if cx.entity_id() != this {
-                                    view.core_installed(&host);
-                                }
-                            });
-                        }
+                    for handle in MainWindow::all(cx) {
+                        let _ = handle.update(cx, |view, _, cx| {
+                            if cx.entity_id() != this {
+                                view.core_installed(&host);
+                            }
+                        });
                     }
                 });
             }

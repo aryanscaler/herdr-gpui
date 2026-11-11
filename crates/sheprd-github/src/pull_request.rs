@@ -17,7 +17,7 @@ mod tests;
 pub use {
     cache::Cache,
     error::Error,
-    fetch::{local_checkout, run, run_bytes},
+    fetch::{fetch, local_checkout, run, run_bytes},
     lookup::Lookup,
     model::{
         CheckDetail, Input, MergeMethod, Origin, Outcome, PullRequest, ReviewDecision, Standing,

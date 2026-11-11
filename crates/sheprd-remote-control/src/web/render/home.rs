@@ -117,6 +117,7 @@ pub(crate) fn home(lists: &Lists<'_>) -> Markup {
                             }
                         }
                         (lists.pr_badge(workspace))
+                        (nav(&format!("/checks/{}", urlencode(&workspace.id)), "text-[13px] px-1", html! { "Checks" }))
                         (nav(&format!("/new-chat?workspace={}", urlencode(&workspace.id)), "text-[17px] px-1", html! { span class="grid" aria-label="New chat" { (icons::plus_circle(20)) } }))
                         button type="button" class="grid px-1 transition" x-bind:class="openClass" x-on:click="toggle" aria-label="Collapse" { (icons::chevron_down(18)) }
                     }

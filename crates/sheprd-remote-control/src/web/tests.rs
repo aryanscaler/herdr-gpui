@@ -20,6 +20,7 @@ mod convert;
 #[cfg(unix)]
 mod echo;
 mod empty_core;
+mod github;
 mod handoff;
 mod hosts;
 mod indicators;
@@ -75,6 +76,7 @@ pub(crate) fn state_with(dir: &std::path::Path, hub: Arc<Hub>) -> Shared {
         computer: "Studio".into(),
         connected: Mutex::new(HashMap::new()),
         fingerprint: authority.fingerprint().to_owned(),
+        github: Default::default(),
         authority: Some(authority),
         hub,
         live_activities: crate::app::config::ActivityDetail::default(),

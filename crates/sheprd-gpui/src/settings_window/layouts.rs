@@ -2,6 +2,7 @@
 // i18n: migrated
 use super::SettingsWindow;
 use crate::config::{Config, LayoutMode};
+use crate::window::main_window::MainWindow;
 use gpui::{App, Context, Global};
 
 #[derive(Default)]
@@ -63,13 +64,11 @@ impl SettingsWindow {
     }
 
     pub(super) fn broadcast_layout(&self, cx: &mut Context<Self>) {
-        for handle in cx.windows() {
-            if let Some(handle) = handle.downcast::<crate::SheprdWindow>() {
-                let _ = handle.update(cx, |view, _, cx| {
-                    view.config.layout.mode = self.config.layout.mode;
-                    cx.notify();
-                });
-            }
+        for handle in MainWindow::all(cx) {
+            let _ = handle.update(cx, |view, _, cx| {
+                view.config.layout.mode = self.config.layout.mode;
+                cx.notify();
+            });
         }
         let mut appearance = cx
             .try_global::<crate::app::InitialAppearance>()

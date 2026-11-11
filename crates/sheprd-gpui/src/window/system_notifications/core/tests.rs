@@ -52,7 +52,7 @@ fn posted(system: bool, finished: bool, kind: SemanticNotificationKind) -> Vec<S
             view.config.notifications.enabled = !system;
             view.config.notifications.system = system;
             view.config.notifications.finished = finished;
-            view.post_core_notification(handle, &terminal, kind, cx);
+            view.post_core_notification(MainWindow::Root(handle), &terminal, kind, cx);
         });
     });
     cx.run_until_parked();
@@ -88,7 +88,12 @@ fn a_click_on_a_herdr_2_notification_is_routed_to_its_window() {
         view.update(cx, |view, cx| {
             view.config.notifications.enabled = false;
             view.config.notifications.system = true;
-            view.post_core_notification(handle, &terminal, SemanticNotificationKind::Finished, cx);
+            view.post_core_notification(
+                MainWindow::Root(handle),
+                &terminal,
+                SemanticNotificationKind::Finished,
+                cx,
+            );
         });
     });
     // The click goes to the agent's terminal, not a Herdr 1 notice.
@@ -145,7 +150,7 @@ fn a_banner_names_the_agent_another_window_holds() {
             view.config.notifications.enabled = false;
             view.config.notifications.system = true;
             view.post_core_notification(
-                handle,
+                MainWindow::Root(handle),
                 &terminal,
                 SemanticNotificationKind::NeedsAttention,
                 cx,

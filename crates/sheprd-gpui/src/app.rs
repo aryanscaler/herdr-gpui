@@ -16,6 +16,10 @@ use anyhow::Result;
 use gpui::{prelude::*, *};
 use sheprd_client::ConnectTarget;
 
+mod stores;
+
+pub(crate) use stores::Stores;
+
 /// The first frame must not use default density while disk settings load.
 /// Load before the UI event loop; later windows reuse the last validated pair.
 #[derive(Clone, Default)]
@@ -55,13 +59,13 @@ pub(crate) fn light_appearance(cx: &App) -> bool {
 /// Startup reads settings before the event loop, when the system appearance
 /// is not yet known, so a theme that follows it has both sides resolved and
 /// the first frame picks one without any disk work on the UI thread.
-struct StartupAppearance {
+pub(crate) struct StartupAppearance {
     dark: InitialAppearance,
     light: Option<Theme>,
 }
 
 impl StartupAppearance {
-    fn load(load: impl FnOnce() -> crate::Result<Config>) -> Self {
+    pub(crate) fn load(load: impl FnOnce() -> crate::Result<Config>) -> Self {
         let dark = InitialAppearance::load(load, false);
         let light = (dark.error.is_none()
             && crate::config::ThemeName::follows_system(&dark.config.theme))
@@ -74,7 +78,7 @@ impl StartupAppearance {
         Self { dark, light }
     }
 
-    fn select(self, light: bool) -> InitialAppearance {
+    pub(crate) fn select(self, light: bool) -> InitialAppearance {
         match self.light {
             Some(theme) if light => InitialAppearance { theme, ..self.dark },
             _ => self.dark,
@@ -151,6 +155,58 @@ fn open_window_placed(
     )
 }
 
+/// What every run of the app sets up once its stores and first-frame
+/// appearance are installed, whichever window shows it: the app's own, or a
+/// host's (see [`crate::embed`]), so the two never differ in what they answer
+/// or show. `personal` is false for the native test modes, which answer no
+/// agents and start nothing of the user's.
+pub(crate) fn install_services(personal: bool, cx: &mut App) {
+    // Only the user's own app answers agents; native test modes stay private.
+    if personal {
+        crate::control::install(cx);
+        crate::window::system_notifications::install(cx);
+        // Nor do they start VS Code.
+        crate::code_server::Launcher::install(cx);
+        crate::code_server::Hosts::install(cx);
+        crate::px0::Launcher::install(cx);
+        crate::px0::Hosts::install(cx);
+        // Nor do they install or ask the remote control service.
+        crate::remote::Supervisor::install(cx);
+        crate::device_tags::DeviceTags::install(cx);
+        crate::text_shortcuts::Store::install(cx);
+        #[cfg(feature = "cloud")]
+        crate::cloud::install_idle_checks(cx);
+        // Nor do they follow the user's saved SSH host choices.
+        let ssh = cx.global::<InitialAppearance>().config.ssh.clone();
+        crate::config::ssh_hosts::install(&ssh, cx);
+    }
+    let language = cx.global::<InitialAppearance>().config.language.clone();
+    crate::i18n::install(&language, cx);
+    app_icon::install();
+    #[cfg(target_os = "macos")]
+    crate::accessibility::window_focus::install();
+    crate::caffeine::install(cx);
+    crate::endpoint::watch_network();
+    #[cfg(any(target_os = "macos", windows))]
+    crate::app_badge::install(cx);
+    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.on_action(|_: &Hide, cx| cx.hide());
+    cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
+    cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
+    cx.on_action(|_: &ShowLogs, cx| log_window::open(cx));
+    cx.on_action(|action: &crate::actions::TogglePseudoLocale, cx| {
+        crate::i18n::toggle_pseudo(action.pseudo, cx);
+    });
+    cx.on_action(|_: &crate::actions::ToggleSlowAnimations, cx| {
+        crate::motion::set_slow(!crate::motion::is_slow());
+        // The menu shows the switch checked while it is on.
+        menus::install(cx);
+        cx.refresh_windows();
+    });
+    bind_keys(cx);
+    menus::install(cx);
+}
+
 /// The app's one sound worker. Each window holds its own connection and the
 /// daemon sends every notification to each of them, so a worker per window
 /// played one notification once per open window.
@@ -158,7 +214,7 @@ struct SharedSound(std::rc::Rc<crate::sound::Service>);
 
 impl Global for SharedSound {}
 
-fn shared_sound(cx: &mut App) -> std::rc::Rc<crate::sound::Service> {
+pub(crate) fn shared_sound(cx: &mut App) -> std::rc::Rc<crate::sound::Service> {
     if let Some(shared) = cx.try_global::<SharedSound>() {
         return shared.0.clone();
     }
@@ -208,42 +264,65 @@ pub(crate) fn open_additional_window_then(
     });
 }
 
-pub(crate) fn run() -> std::process::ExitCode {
-    use cli::{LaunchMode, LaunchOptions};
-    let mut args: Vec<_> = std::env::args_os().skip(1).collect();
+/// The private entry points the app starts itself as (the clipboard reader,
+/// the updater's helper, restarts, setup and exec relays), run before
+/// anything else reads the command line. Every executable that is the app,
+/// the Moonframe build's included, must run them first: the app starts
+/// `current_exe()` with these arguments and waits for its answer.
+pub(crate) fn run_helpers(args: &mut Vec<std::ffi::OsString>) -> Option<std::process::ExitCode> {
     #[cfg(target_os = "macos")]
-    if let Some(exit) = crate::window::run_clipboard_helper(&args) {
-        return exit;
+    if let Some(exit) = crate::window::run_clipboard_helper(args) {
+        return Some(exit);
     }
-    if let Some(exit) = updater::run_helper(&args) {
-        return exit;
+    if let Some(exit) = updater::run_helper(args) {
+        return Some(exit);
     }
     // Restart Manager restarts this executable itself; see `restart_manager`.
-    if let Some(exit) = crate::restart_manager::hand_off(&mut args) {
-        return exit;
+    if let Some(exit) = crate::restart_manager::hand_off(args) {
+        return Some(exit);
     }
     #[cfg(unix)]
-    if let Some(exit) = crate::setup_relay::run_helper(&args) {
-        return exit;
+    if let Some(exit) = crate::setup_relay::run_helper(args) {
+        return Some(exit);
     }
     // The exec relays below read their provider's table, so they need the
     // loader too; setting it reads nothing yet.
     sheprd_remote::config::set_loader(Config::load_remote);
     #[cfg(feature = "azure")]
-    if let Some(exit) = crate::azure::sandbox::relay::run_helper(&args) {
-        return exit;
+    if let Some(exit) = crate::azure::sandbox::relay::run_helper(args) {
+        return Some(exit);
     }
     #[cfg(feature = "boxd")]
-    if let Some(exit) = crate::boxd::relay::run_helper(&args) {
-        return exit;
+    if let Some(exit) = crate::boxd::relay::run_helper(args) {
+        return Some(exit);
     }
     #[cfg(feature = "sprites")]
-    if let Some(exit) = crate::sprites::relay::run_helper(&args) {
-        return exit;
+    if let Some(exit) = crate::sprites::relay::run_helper(args) {
+        return Some(exit);
     }
     #[cfg(feature = "opensandbox")]
-    if let Some(exit) = crate::opensandbox::relay::run_helper(&args) {
+    if let Some(exit) = crate::opensandbox::relay::run_helper(args) {
+        return Some(exit);
+    }
+    None
+}
+
+pub(crate) fn run() -> std::process::ExitCode {
+    use cli::{LaunchMode, LaunchOptions};
+    let mut args: Vec<_> = std::env::args_os().skip(1).collect();
+    if let Some(exit) = run_helpers(&mut args) {
         return exit;
+    }
+    // A build with the `moonframe` feature opens the Luau window on a plain
+    // launch; everything else stays the app's own.
+    #[cfg(feature = "moonframe")]
+    if crate::luau_window::wanted(&args) {
+        // Windows reopens it after an update or a restart, as the app's
+        // own window; a `--check` of the layout is no launch.
+        if args.is_empty() {
+            crate::restart_manager::register();
+        }
+        return crate::luau_window::run();
     }
     // A control command asked for JSON gets its usage errors as JSON too.
     let json_errors = cli::control::wants_json(&args);
@@ -381,165 +460,17 @@ pub(crate) fn run() -> std::process::ExitCode {
         }
     };
     let failed = startup_failed.clone();
-    let window_state = (mode == LaunchMode::Normal).then(crate::window_state::WindowState::load);
-    // Fixtures never ask about, or touch, agent configuration.
-    let agent_skill = if mode == LaunchMode::Normal {
-        crate::agent_skill::AgentSkill::load()
-    } else {
-        crate::agent_skill::AgentSkill::default()
-    };
-    // Fixtures start with no tabs and never write the file.
-    let browser_tabs = if mode == LaunchMode::Normal {
-        crate::browser::Store::load()
-    } else {
-        crate::browser::Store::default()
-    };
-    // Nor with usage Keychain grants, so a fixture never makes macOS ask.
-    let keychain_grants = if mode == LaunchMode::Normal {
-        crate::usage::KeychainGrants::load()
-    } else {
-        crate::usage::KeychainGrants::default()
-    };
-    // Nor with saved editor groups, which they would overwrite.
-    let group_layouts = if mode == LaunchMode::Normal {
-        crate::browser::Layouts::load()
-    } else {
-        crate::browser::Layouts::default()
-    };
-    // Nor with the user's worktree notes, which they would overwrite.
-    let worktree_notes = if mode == LaunchMode::Normal {
-        crate::worktree_notes::Notes::load()
-    } else {
-        crate::worktree_notes::Notes::default()
-    };
-    // Nor with the files the user marked viewed in reviews.
-    let review_viewed = if mode == LaunchMode::Normal {
-        crate::review::Viewed::load()
-    } else {
-        crate::review::Viewed::default()
-    };
-    // Nor with what the user snoozed, settled, or pinned in the Overview.
-    let overview_marks = if mode == LaunchMode::Normal {
-        crate::overview::Marks::load()
-    } else {
-        crate::overview::Marks::default()
-    };
-    // Nor with which workspaces and tabs the user muted.
-    let mut notification_mutes = if mode == LaunchMode::Normal {
-        crate::notification_mutes::Mutes::load()
-    } else {
-        crate::notification_mutes::Mutes::default()
-    };
-    // A closed Herdr 2 tab's ID can come back on a new tab after a restart:
-    // its mute goes first.
-    notification_mutes.forget_closed_tabs(|scope, id| {
-        browser_tabs
-            .tabs()
-            .any(|tab| tab.scope.as_str() == scope && tab.id.to_string() == id)
-    });
-    // Nor with the user's jump list, which they would replace.
-    #[cfg(windows)]
-    let jump_list = (mode == LaunchMode::Normal).then(crate::jump_list::JumpList::load);
-    // Nor with which palette rows the user chooses.
-    let palette_frecency = if mode == LaunchMode::Normal {
-        crate::palette::Frecency::load()
-    } else {
-        crate::palette::Frecency::default()
-    };
-    // Nor with where the user's worktrees went.
-    let dispatch_history = if mode == LaunchMode::Normal {
-        crate::dispatch::History::load()
-    } else {
-        crate::dispatch::History::default()
-    };
-    // Nor with where the user's new worktrees land.
-    let worktree_landing = if mode == LaunchMode::Normal {
-        crate::worktree_landing::Remembered::load()
-    } else {
-        crate::worktree_landing::Remembered::default()
-    };
-    // Nor with the user's fan-outs, which they would restore or forget.
-    let fan_out_journal = if mode == LaunchMode::Normal {
-        crate::fan_out::Journal::load()
-    } else {
-        crate::fan_out::Journal::default()
-    };
-    // Whether the launcher is installed is read once here, never while a window opens.
-    let taskbar = crate::taskbar::Taskbar::load();
+    let stores = Stores::load(mode == LaunchMode::Normal);
     crate::composition::application(appearance.dark.config.backdrop.translucent())
         .with_assets(icons::Icons)
         .run(move |cx| {
-            let window_count = window_state.as_ref().map_or(1, |state| state.count());
-            if let Some(state) = window_state {
-                state.install(cx);
-            }
-            browser_tabs.install(cx);
-            group_layouts.install(cx);
-            worktree_notes.install(cx);
-            review_viewed.install(cx);
-            overview_marks.install(cx);
-            notification_mutes.install(cx);
-            palette_frecency.install(cx);
-            dispatch_history.install(cx);
-            worktree_landing.install(cx);
-            fan_out_journal.install(cx);
-            agent_skill.install_global(cx);
-            keychain_grants.install(cx);
-            taskbar.install(cx);
-            #[cfg(windows)]
-            if let Some(jump_list) = jump_list {
-                jump_list.install(cx);
-            }
+            let window_count = stores.window_count();
+            stores.install(cx);
             if let Some(link) = pending_link {
                 crate::link::follow::defer(link, cx);
             }
-            // Only the user's own app answers agents; native test modes stay private.
-            if mode == LaunchMode::Normal {
-                crate::control::install(cx);
-                crate::window::system_notifications::install(cx);
-                // Nor do they start VS Code.
-                crate::code_server::Launcher::install(cx);
-                crate::code_server::Hosts::install(cx);
-                crate::px0::Launcher::install(cx);
-                crate::px0::Hosts::install(cx);
-                // Nor do they install or ask the remote control service.
-                crate::remote::Supervisor::install(cx);
-                crate::device_tags::DeviceTags::install(cx);
-                crate::text_shortcuts::Store::install(cx);
-                #[cfg(feature = "cloud")]
-                crate::cloud::install_idle_checks(cx);
-            }
             cx.set_global(appearance.select(light_appearance(cx)));
-            // Only the user's own app follows their saved SSH host choices.
-            if mode == LaunchMode::Normal {
-                let ssh = cx.global::<InitialAppearance>().config.ssh.clone();
-                crate::config::ssh_hosts::install(&ssh, cx);
-            }
-            let language = cx.global::<InitialAppearance>().config.language.clone();
-            crate::i18n::install(&language, cx);
-            app_icon::install();
-            #[cfg(target_os = "macos")]
-            crate::accessibility::window_focus::install();
-            crate::caffeine::install(cx);
-            crate::endpoint::watch_network();
-            #[cfg(any(target_os = "macos", windows))]
-            crate::app_badge::install(cx);
-            cx.on_action(|_: &Quit, cx| cx.quit());
-            cx.on_action(|_: &Hide, cx| cx.hide());
-            cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
-            cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
-            cx.on_action(|_: &ShowLogs, cx| log_window::open(cx));
-            cx.on_action(|action: &crate::actions::TogglePseudoLocale, cx| {
-                crate::i18n::toggle_pseudo(action.pseudo, cx);
-            });
-            cx.on_action(|_: &crate::actions::ToggleSlowAnimations, cx| {
-                crate::motion::set_slow(!crate::motion::is_slow());
-                // The menu shows the switch checked while it is on.
-                menus::install(cx);
-                cx.refresh_windows();
-            });
-            bind_keys(cx);
-            menus::install(cx);
+            install_services(mode == LaunchMode::Normal, cx);
             cx.on_window_closed(move |cx, _| {
                 if cx.windows().is_empty() {
                     #[cfg(feature = "integration-test")]

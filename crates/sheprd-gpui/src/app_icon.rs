@@ -7,6 +7,20 @@ pub(super) const PNG: &[u8] = if env!("HERDR_BUILD_WORKTREE").as_bytes()[0] == b
     include_bytes!("../../../assets/icons/sheprd-icon.png")
 };
 
+/// A host's own icon, as a 1024px PNG and a multi-resolution ICNS, in place of
+/// Sheprd's: the Moonframe build shows its own. Set once, before startup.
+static HOST: std::sync::OnceLock<(&'static [u8], &'static [u8])> = std::sync::OnceLock::new();
+
+/// Makes `png` and `icns` the app's icon, for the Dock and the About box.
+pub(crate) fn set_host(png: &'static [u8], icns: &'static [u8]) {
+    let _ = HOST.set((png, icns));
+}
+
+/// The About box's image: the host's icon, else Sheprd's.
+pub(crate) fn png() -> &'static [u8] {
+    HOST.get().map_or(PNG, |(png, _)| png)
+}
+
 // AppKit selects a directly rendered representation for the Dock's size and
 // backing scale, rather than downsampling the About box's single large PNG.
 #[cfg(target_os = "macos")]
@@ -32,7 +46,8 @@ pub fn install() {
     {
         return;
     }
-    let Some(image) = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(ICNS)) else {
+    let icns = HOST.get().map_or(ICNS, |(_, icns)| icns);
+    let Some(image) = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(icns)) else {
         tracing::error!("Unable to decode the embedded Sheprd icon");
         return;
     };

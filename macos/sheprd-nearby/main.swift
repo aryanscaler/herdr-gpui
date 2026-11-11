@@ -44,10 +44,8 @@ func emit(_ message: [String: Any]) {
     FileHandle.standardOutput.write(data + Data("\n".utf8))
 }
 
-/// Peripheral callbacks arrive on the main queue (`queue: nil`); the
-/// preconcurrency conformance checks that at run time.
 @MainActor
-final class Nearby: NSObject, @preconcurrency CBPeripheralManagerDelegate {
+final class Nearby: NSObject {
     private var manager: CBPeripheralManager!
     private let pair = CBMutableCharacteristic(type: CBUUID(string: IDs.pair), properties: [.write, .notify], value: nil, permissions: [.writeable])
     private let presence = CBMutableCharacteristic(type: CBUUID(string: IDs.presence), properties: [.write, .notify], value: nil, permissions: [.writeable])
@@ -218,10 +216,21 @@ final class Nearby: NSObject, @preconcurrency CBPeripheralManagerDelegate {
     }
 }
 
+// Peripheral callbacks arrive on the main queue (`queue: nil`). Swift 6
+// checks that at run time; Nix's pinned Swift 5.10 uses the same queue contract.
+#if compiler(>=6.0)
+extension Nearby: @preconcurrency CBPeripheralManagerDelegate {}
+#else
+extension Nearby: CBPeripheralManagerDelegate {}
+#endif
+
 let bluetooth = !CommandLine.arguments.contains("--no-bluetooth")
-let nearby = Nearby()
-let bonjour = Bonjour()
-if bluetooth { nearby.start() }
+// Top-level code runs on the main thread, but Swift 5 does not infer its actor.
+let (nearby, bonjour) = MainActor.assumeIsolated {
+    let nearby = Nearby()
+    if bluetooth { nearby.start() }
+    return (nearby, Bonjour())
+}
 
 // Commands from Sheprd, one JSON object per line, read off the main
 // thread and applied on it. End of input means Sheprd went away.

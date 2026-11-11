@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use super::*;
+use gpui::WindowHandle;
 use sheprd_client::protocol::ClientShellPane;
 
 /// A snapshot whose workspace `w0` was opened in `root`.

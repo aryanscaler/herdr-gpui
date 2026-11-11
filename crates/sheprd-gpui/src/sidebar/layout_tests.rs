@@ -602,6 +602,7 @@ pub(crate) fn fixture_window(window: &mut Window, cx: &mut Context<SheprdWindow>
     SheprdWindow {
         _terminal_focus: terminal_focus,
         chrome_region: None,
+        hosted: false,
         chats: Default::default(),
         sound: Default::default(),
         bell: Default::default(),

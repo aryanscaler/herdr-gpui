@@ -37,6 +37,10 @@ impl SidebarView {
         }
     }
 
+    pub(crate) fn indicators(&self) -> Indicators {
+        self.indicators
+    }
+
     pub(crate) fn set_indicators(&mut self, indicators: Indicators, cx: &mut Context<Self>) {
         if self.indicators != indicators {
             self.indicators = indicators;

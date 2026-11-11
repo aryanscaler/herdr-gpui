@@ -7,6 +7,7 @@
 
 use super::{SettingsWindow, on_value, ui};
 use crate::direction::Logical;
+use crate::window::main_window::MainWindow;
 use crate::{
     config::{
         preferences::Preference,
@@ -712,10 +713,7 @@ impl SettingsWindow {
             return;
         };
         let target = source.entity_id();
-        for handle in cx.windows() {
-            let Some(handle) = handle.downcast::<crate::SheprdWindow>() else {
-                continue;
-            };
+        for handle in MainWindow::all(cx) {
             let _ = handle.update(cx, |view, window, cx| {
                 if cx.entity_id() != target {
                     return;

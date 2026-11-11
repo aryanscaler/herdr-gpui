@@ -3,6 +3,7 @@
 //! workspace, so the window first switches to the caller's, and the tab
 //! opens once a snapshot says the switch landed.
 use super::{busy, closed};
+use crate::window::main_window::MainWindow;
 use crate::{
     SheprdWindow,
     browser::{Location, OrchestratorRepo, ReviewCheckout, Store},
@@ -15,7 +16,7 @@ use crate::{
     },
     editor::EditorTarget,
 };
-use gpui::{App, Context, Window, WindowHandle};
+use gpui::{App, Context, Window};
 use std::{path::Path, time::Duration};
 
 /// The longest path a request may name.
@@ -48,7 +49,7 @@ fn editor_target(path: &str, line: Option<u32>) -> Result<EditorTarget, Response
 
 /// The window, endpoint, and workspace a request's tab goes to.
 struct Destination {
-    handle: WindowHandle<SheprdWindow>,
+    handle: MainWindow,
     endpoint: usize,
     workspace: String,
 }

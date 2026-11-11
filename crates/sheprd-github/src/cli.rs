@@ -21,7 +21,9 @@ const OUTPUT_LIMIT: usize = 16 * 1024;
 
 /// The GitHub CLI's token for github.com. Blocks on a subprocess: call it
 /// from a background worker.
-pub(super) fn token() -> Result<SecretString> {
+/// Call only after the user explicitly chose this host's GitHub CLI sign-in.
+/// The credential stays in memory; callers must never forward it to a client.
+pub fn token() -> Result<SecretString> {
     let mut command = sheprd_client::new_command("gh");
     // An app opened from the Dock or a desktop launcher has a minimal PATH.
     sheprd_client::login_env::apply(&mut command);

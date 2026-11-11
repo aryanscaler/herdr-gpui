@@ -1,5 +1,6 @@
 //! `status`, `app`, `window`, `ui`, and `run`.
 use super::{in_free_window, in_window, main_windows, window_for};
+use crate::window::main_window::MainWindow;
 use crate::{
     SheprdWindow,
     constants::APP_VERSION,
@@ -91,8 +92,9 @@ pub(super) fn status(_: &Caller, cx: &mut App) -> Response {
 
 /// Brings `handle`'s window forward. Deferred: activating a window updates
 /// it, which cannot happen inside another update.
-fn activate(handle: gpui::WindowHandle<SheprdWindow>, cx: &mut App) {
+fn activate(handle: &MainWindow, cx: &mut App) {
     cx.activate(true);
+    let handle = handle.clone();
     cx.defer(move |cx| {
         let _ = handle.update(cx, |_, window, _| window.activate_window());
     });
@@ -102,7 +104,7 @@ pub(super) fn app(call: Call<AppOp>, cx: &mut App) -> Response {
     match call.op {
         AppOp::Focus => match window_for(&call.caller, cx) {
             Ok(handle) => {
-                activate(handle, cx);
+                activate(&handle, cx);
                 Response::done("Brought Sheprd forward")
             }
             Err(response) => response,
@@ -136,7 +138,7 @@ fn open(caller: &Caller, path: String, cx: &mut App) -> Response {
         open_in(view, path, window, cx)
     });
     if matches!(opened, Response::Done { .. }) {
-        activate(handle, cx);
+        activate(&handle, cx);
     }
     opened
 }
@@ -235,7 +237,7 @@ pub(super) fn window(call: Call<WindowOp>, cx: &mut App) -> Response {
         }
         WindowOp::Focus => match window_for(caller, cx) {
             Ok(handle) => {
-                activate(handle, cx);
+                activate(&handle, cx);
                 Response::done(format!("Focused window {}", handle.window_id().as_u64()))
             }
             Err(response) => response,

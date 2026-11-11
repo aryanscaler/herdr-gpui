@@ -145,6 +145,7 @@ impl Render for SheprdWindow {
         self.surface_signal.read(cx);
         let sidebar = self
             .sidebar_column_width(f32::from(window.viewport_size().width))
+            .filter(|_| !self.hosted)
             .map(|width| {
                 (
                     crate::sidebar::cached_view(&self.sidebar_view, width),
@@ -155,7 +156,7 @@ impl Render for SheprdWindow {
         // leaves none behind.
         if let Some(marks) = crate::mark_layer::Marks::of(window, cx) {
             marks.begin_frame(cx.entity_id());
-            if sidebar.is_none() {
+            if sidebar.is_none() && !self.hosted {
                 marks.forget(self.sidebar_view.entity_id());
             }
         }
@@ -816,7 +817,7 @@ impl Render for SheprdWindow {
         // Zen mode keeps toasts and menus: they carry errors and what the
         // user asked for, not chrome.
         let zen = self.zen_layout();
-        let root = div()
+        let mut root = div()
             .capture_key_down(cx.listener(Self::application_menu_shortcut))
             .capture_key_down(cx.listener(Self::chrome_focus_key))
             .on_modifiers_changed(cx.listener(Self::double_shift_modifiers))
@@ -976,23 +977,23 @@ impl Render for SheprdWindow {
                             .relative()
                             .child(content)
                             .children(self.render_notices(cx))
-                            .children(self.zen_status_bar(cx)),
+                            .when(!self.hosted, |column| {
+                                column.children(self.zen_status_bar(cx))
+                            }),
                     ),
-            )
-            // After the body, whose rows reserve the marks it draws, and under
-            // everything that covers the body.
-            .child(AnyView::from(self.mark_layer.clone()))
-            // At the window's foot in every layout: under the traffic lights
-            // it would hide them, and one place is easier to find.
-            .when(!zen, |root| root.children(self.render_worktree_banner()))
-            .children(self.render_tab_ghost(cx))
-            .children(self.render_core_note(cx))
-            .children(self.render_toasts(window, cx))
-            .children(self.render_file_transfer(window, cx))
-            .children(self.render_menu_leaving(window, cx))
-            .when(self.menu.page.is_some(), |root| {
-                root.child(self.render_menu(window, cx))
-            });
+            );
+        // After the body, whose rows reserve the marks it draws, and under
+        // everything that covers the body.
+        if !self.hosted {
+            root.extend([AnyView::from(self.mark_layer.clone()).into_any_element()]);
+            // At the window's foot in every layout: under the traffic
+            // lights it would hide them, and one place is easier to find.
+            if !zen {
+                let banner = self.render_worktree_banner();
+                root.extend(banner.map(IntoElement::into_any_element));
+            }
+            self.append_overlays(&mut root, window, cx);
+        }
         crate::titlebar::frame(window, self.theme.active, root)
     }
 }

@@ -30,6 +30,10 @@ pub(crate) struct Home {
     pub(crate) api: Option<u32>,
     pub(crate) computer: String,
     pub(crate) fingerprint: String,
+    /// Host-local standalone GitHub reads were explicitly enabled. Not a
+    /// promise of network reachability or repository authorization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) github: Option<bool>,
     /// Whether the Herdr daemon is reachable now.
     pub(crate) connected: bool,
     /// Agents that need an answer or finished unseen: the app's badge.
@@ -443,6 +447,7 @@ impl Home {
             api: Some(API_LEVEL),
             computer: computer.to_owned(),
             fingerprint: fingerprint.to_owned(),
+            github: None,
             connected: layout.connected,
             waiting,
             load,

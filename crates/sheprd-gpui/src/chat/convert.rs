@@ -98,7 +98,20 @@ fn run(request: &Request, cancelled: &AtomicBool) -> Result<String, Error> {
     let snapshot = existing::snapshot(&host, cancelled)?.snapshot;
     let found = snapshot.pane(pane).ok_or(convert::Error::Moved)?;
     convert::settled(found, *agent)?;
-    let resume = convert::resume(found, &process_info(&host, pane, cancelled)?, *agent)?;
+    // Without Herdr's integration, Claude's own record names the session.
+    // It is read here only for a pane on this machine, where the program is.
+    let home = program
+        .as_ref()
+        .and_then(|_| sheprd_client::local_path::home_dir());
+    let resume = convert::resume(
+        found,
+        &process_info(&host, pane, cancelled)?,
+        *agent,
+        |pid| {
+            let home = home.as_deref()?;
+            convert::recorded_session(*agent, pid, home, |path| std::fs::read_to_string(path))
+        },
+    )?;
     let line = line(&resume, program.as_deref())?;
     if program.is_none() {
         // i18n: data

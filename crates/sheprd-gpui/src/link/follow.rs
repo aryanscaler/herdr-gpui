@@ -5,13 +5,14 @@
 // i18n: migrated
 
 use super::Link;
+use crate::window::main_window::MainWindow;
 use crate::{
     NavigationTarget, SheprdWindow,
     control::{ErrorCode, Response},
     endpoint::LOCAL,
     i18n::{FluentValue, Localize, fl},
 };
-use gpui::{App, Context, Global, Window, WindowHandle};
+use gpui::{App, Context, Global, Window};
 use sheprd_client::protocol::ClientShellSnapshot;
 use std::{
     path::{Path, PathBuf},
@@ -127,7 +128,7 @@ pub(crate) fn poll(view: &SheprdWindow, window: &Window, cx: &mut Context<Sheprd
         }
         Some(Link::Open { .. }) => local_snapshot(view).is_some(),
     };
-    let Some(handle) = window.window_handle().downcast::<SheprdWindow>() else {
+    let Some(handle) = MainWindow::of(window, cx) else {
         return;
     };
     if !ready {
@@ -137,7 +138,7 @@ pub(crate) fn poll(view: &SheprdWindow, window: &Window, cx: &mut Context<Sheprd
         return;
     };
     cx.defer(move |cx| {
-        if let Err(refusal) = follow_link(link, handle, cx) {
+        if let Err(refusal) = follow_link(link, handle.clone(), cx) {
             let _ = handle.update(cx, |view, _, cx| {
                 complain(view, fl!("link-open-failed", reason = refusal.shown()), cx);
             });
@@ -146,17 +147,13 @@ pub(crate) fn poll(view: &SheprdWindow, window: &Window, cx: &mut Context<Sheprd
 }
 
 /// Follows `link` for the command line, which reports in English.
-pub(crate) fn follow(link: Link, handle: WindowHandle<SheprdWindow>, cx: &mut App) -> Response {
+pub(crate) fn follow(link: Link, handle: MainWindow, cx: &mut App) -> Response {
     follow_link(link, handle, cx).unwrap_or_else(|refusal| refusal.response())
 }
 
 /// Follows `link`, answering what was done in the command line's English,
 /// or why it was not.
-fn follow_link(
-    link: Link,
-    handle: WindowHandle<SheprdWindow>,
-    cx: &mut App,
-) -> Result<Response, Refusal> {
+fn follow_link(link: Link, handle: MainWindow, cx: &mut App) -> Result<Response, Refusal> {
     match link {
         Link::Notification { tag } => {
             if crate::window::system_notifications::open(&tag, cx) {

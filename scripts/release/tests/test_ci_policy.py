@@ -114,7 +114,7 @@ class CiPolicy(unittest.TestCase):
             self.assertTrue(condition_matches(job, context), job)
 
     def test_owner_only_workflows_allow_both_repository_locations_but_not_forks(self):
-        for workflow in ("nix.yml", "supply-chain.yml"):
+        for workflow in ("supply-chain.yml",):
             text = (ROOT / ".github/workflows" / workflow).read_text()
             sections = re.split(r"^  ([a-z-]+):\n", text.split("\njobs:\n", 1)[1], flags=re.M)
             jobs = dict(zip(sections[1::2], sections[2::2]))

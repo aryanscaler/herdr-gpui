@@ -5,15 +5,15 @@ mod arrive;
 mod page;
 
 use super::{Watches, main_windows, not_found, socket, valid_caller};
+use crate::window::main_window::MainWindow;
 use crate::{
-    SheprdWindow,
     browser::{Location, Store, Tab, TabId},
     control::protocol::{
         Call, Caller, ErrorCode, Response,
         tabs::{Reply, TabInfo, TabKind, TabOp},
     },
 };
-use gpui::{App, WindowHandle};
+use gpui::App;
 
 pub(super) fn serve(
     call: Call<TabOp>,
@@ -140,7 +140,7 @@ fn busy() -> Response {
 
 /// The windows a request may act in: the one `--window` names, else all,
 /// frontmost first.
-fn windows(caller: &Caller, cx: &App) -> Vec<WindowHandle<SheprdWindow>> {
+fn windows(caller: &Caller, cx: &App) -> Vec<MainWindow> {
     let mut windows = main_windows(cx);
     if let Some(id) = caller.window {
         windows.retain(|handle| handle.window_id().as_u64() == id);
@@ -149,7 +149,7 @@ fn windows(caller: &Caller, cx: &App) -> Vec<WindowHandle<SheprdWindow>> {
 }
 
 /// A window listing the workspace `tab` belongs to, and the endpoint there.
-fn showing(caller: &Caller, tab: &Tab, cx: &App) -> Option<(WindowHandle<SheprdWindow>, usize)> {
+fn showing(caller: &Caller, tab: &Tab, cx: &App) -> Option<(MainWindow, usize)> {
     windows(caller, cx).into_iter().find_map(|handle| {
         let index = handle
             .read_with(cx, |view, _| {

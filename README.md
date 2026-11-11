@@ -261,7 +261,11 @@ nix run github:sheprd-labs/sheprd
 ```
 
 The flake builds with the toolchain pinned in `rust-toolchain.toml` on x86_64 and
-ARM64 Linux. Like the packages, it never updates itself.
+ARM64 Linux, and Apple Silicon macOS (14.2 or newer). On macOS, `nix build`
+also creates `result/Applications/Sheprd.app`, including the pinned herdr-core
+and the native Bluetooth helper; launch it with `open result/Applications/Sheprd.app`.
+Linux users supply their own Herdr or herdr-core daemon. Nix builds never update
+themselves; upgrade through Nix.
 
 ### Windows installers
 

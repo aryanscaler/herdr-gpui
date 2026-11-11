@@ -37,6 +37,8 @@ pub struct RemoteConfig {
     pub device_idle_days: u16,
     /// Whether the daemon is installed as a user service and runs.
     pub enabled: bool,
+    /// Permit paired phones to read PRs with this host's GitHub CLI sign-in.
+    pub github_cli: bool,
     /// Whether the daemon keeps serving phones after Sheprd quits.
     pub keep_running: bool,
     pub live_activities: ActivityDetail,
@@ -56,6 +58,7 @@ impl Default for RemoteConfig {
             certificate: Certificate::default(),
             device_idle_days: DEFAULT_IDLE_DAYS,
             enabled: false,
+            github_cli: false,
             keep_running: true,
             live_activities: ActivityDetail::default(),
             notifications: Privacy::default(),

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Sheprd on Moonframe</title>
+  <desc id="desc">Sheprd's paw in Moonframe's frame: a cream ring and teal disc on a brown tile, the paw's pad striped like Moonframe's sunset.</desc>
+  <metadata>Sheprd's paw (sheprd-avatar.svg) and Moonframe's sunset; original artwork, Apache-2.0.</metadata>
+  <defs>
+    <clipPath id="pad">
+      <path d="M50 50 C60 50 70 60 72 68 C74 76 68 80 61 79 C56 78 54 76 50 76 C46 76 44 78 39 79 C32 80 26 76 28 68 C30 60 40 50 50 50Z"/>
+    </clipPath>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="192" fill="#3d2318"/>
+  <circle cx="512" cy="512" r="330" fill="#f5e6cc"/>
+  <circle cx="512" cy="512" r="312" fill="#2f6663"/>
+  <g transform="translate(512 512) scale(5.6) translate(-50 -53)">
+    <g clip-path="url(#pad)">
+      <rect x="0" y="48" width="100" height="12.5" fill="#f0b23c"/>
+      <rect x="0" y="60.5" width="100" height="1.8" fill="#f5e6cc"/>
+      <rect x="0" y="62.3" width="100" height="5.5" fill="#e8662d"/>
+      <rect x="0" y="67.8" width="100" height="1.8" fill="#f5e6cc"/>
+      <rect x="0" y="69.6" width="100" height="4.6" fill="#c33f24"/>
+      <rect x="0" y="74.2" width="100" height="1.8" fill="#f5e6cc"/>
+      <rect x="0" y="76" width="100" height="6" fill="#c33f24"/>
+    </g>
+    <g fill="#f5e6cc">
+      <ellipse cx="27" cy="45" rx="7" ry="9" transform="rotate(-25 27 45)"/>
+      <ellipse cx="41" cy="31" rx="7" ry="10" transform="rotate(-8 41 31)"/>
+      <ellipse cx="59" cy="31" rx="7" ry="10" transform="rotate(8 59 31)"/>
+      <ellipse cx="73" cy="45" rx="7" ry="9" transform="rotate(25 73 45)"/>
+    </g>
+  </g>
+</svg>

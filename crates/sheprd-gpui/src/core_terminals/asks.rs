@@ -14,11 +14,16 @@ use gpui::{prelude::*, *};
 use sheprd_backend::{Spawn, TerminalId};
 use std::rc::Rc;
 
-/// How views made by this window reach it. A closed window answers nothing.
+/// How views made by this window reach it. The window's tick polls its
+/// views while it is being updated, so an ask runs once that update ends,
+/// in the order asked. A closed window answers nothing.
 pub(super) fn window_call(cx: &Context<SheprdWindow>) -> WindowCall {
     let owner = cx.entity().downgrade();
     Rc::new(move |ask, window, cx| {
-        let _ = owner.update(cx, |this, cx| this.core_view_asks(ask, window, cx));
+        let owner = owner.clone();
+        window.defer(cx, move |window, cx| {
+            let _ = owner.update(cx, |this, cx| this.core_view_asks(ask, window, cx));
+        });
     })
 }
 

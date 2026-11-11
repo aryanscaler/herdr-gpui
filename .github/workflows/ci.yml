@@ -201,6 +201,11 @@ jobs:
       - name: Test integration-feature build and executable CLI
         if: matrix.features == 'all'
         run: cargo test --locked --workspace --all-features
+      # The `moonframe` feature's Luau layout loads only at run time: load every
+      # module and report what fails, without a window.
+      - name: Check the Moonframe layout
+        if: matrix.features == 'all'
+        run: cargo run --locked -p sheprd-gpui --all-features -- --check
 
   # Match the other platforms' Rust checks without an extra optimized build.
   # Native GUI tests run in windows-native; the Windows release builds run in
@@ -250,6 +255,11 @@ jobs:
       - name: Test integration-feature build and executable CLI
         if: matrix.features == 'all'
         run: cargo test --locked --workspace --all-features
+      # The `moonframe` feature's Luau layout loads only at run time: load every
+      # module and report what fails, without a window.
+      - name: Check the Moonframe layout
+        if: matrix.features == 'all'
+        run: cargo run --locked -p sheprd-gpui --all-features -- --check
 
   # The native GUI tests (`just test-gui`, `just test-sidebar`) on a real
   # Windows desktop session against a pinned, checksummed Herdr daemon in the

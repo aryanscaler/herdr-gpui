@@ -392,7 +392,7 @@ impl SheprdWindow {
     }
 
     /// Folds or unfolds a device's header, from its arrow or a screen reader.
-    fn toggle_device(&mut self, endpoint_id: &str, cx: &mut Context<Self>) {
+    pub(super) fn toggle_device(&mut self, endpoint_id: &str, cx: &mut Context<Self>) {
         if let Some(endpoint) = self.endpoints.iter_mut().find(|e| e.id == endpoint_id) {
             endpoint.collapsed = !endpoint.collapsed;
         }

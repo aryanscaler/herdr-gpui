@@ -47,7 +47,7 @@ const TITLE_END: f32 = 4.;
 /// One breath of a busy icon's pulse.
 const BUSY_PULSE: std::time::Duration = std::time::Duration::from_millis(1600);
 
-fn label(panel: ActivityPanel) -> SharedString {
+pub(super) fn label(panel: ActivityPanel) -> SharedString {
     match panel {
         ActivityPanel::Overview => fl!("sidebar-activity-overview"),
         ActivityPanel::Workspaces => fl!("sidebar-activity-workspaces"),
@@ -224,7 +224,7 @@ impl SheprdWindow {
 
     /// The section the bar marks: the one picked, or Workspaces when that
     /// one is no longer listed.
-    fn activity_panel(&self) -> ActivityPanel {
+    pub(crate) fn activity_panel(&self) -> ActivityPanel {
         Some(self.activity.panel)
             .filter(|panel| self.activity_panel_listed(*panel))
             .unwrap_or_default()
@@ -414,7 +414,7 @@ impl SheprdWindow {
         }
     }
 
-    fn render_activity_bar(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(crate) fn render_activity_bar(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let theme = &self.theme;
         let counts = self.activity_counts(cx);
         let bar = div()
@@ -643,7 +643,7 @@ impl SheprdWindow {
     /// The section's name over the sidebar, across its width, ended by the
     /// sidebar toggle. Over the rail, too narrow for the name, the toggle
     /// stands alone.
-    fn panel_title(&self, panel: ActivityPanel, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn panel_title(&self, panel: ActivityPanel, cx: &mut Context<Self>) -> Div {
         let expanded = self.sidebar_visible;
         let theme = &self.theme;
         let font = &self.config.sidebar;

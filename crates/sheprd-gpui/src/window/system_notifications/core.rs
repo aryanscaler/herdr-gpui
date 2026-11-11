@@ -6,8 +6,9 @@
 //! click shows its pane in whichever window holds it.
 
 use super::{Posted, Registry, Target, body, deliver};
+use crate::window::main_window::MainWindow;
 use crate::{SheprdWindow, i18n::fl};
-use gpui::{App, Context, SharedString, SystemNotification, WindowHandle};
+use gpui::{App, Context, SharedString, SystemNotification};
 use sheprd_backend::TerminalId;
 use sheprd_client::protocol::SemanticNotificationKind;
 use std::time::Instant;
@@ -62,7 +63,7 @@ impl SheprdWindow {
     /// A no-op without the registry, which only normal launches install.
     pub(crate) fn post_core_notification(
         &self,
-        handle: WindowHandle<SheprdWindow>,
+        handle: MainWindow,
         terminal: &TerminalId,
         kind: SemanticNotificationKind,
         cx: &mut Context<Self>,
@@ -80,9 +81,8 @@ impl SheprdWindow {
         // Any window may hear the change first; the details are the
         // window's that holds the agent.
         let details = self.core_agent_details(terminal, cx).or_else(|| {
-            cx.windows()
+            MainWindow::all(cx)
                 .into_iter()
-                .filter_map(|window| window.downcast::<SheprdWindow>())
                 .filter(|window| *window != handle)
                 .find_map(|window| window.read(cx).ok()?.core_agent_details(terminal, cx))
         });
@@ -211,23 +211,15 @@ impl SheprdWindow {
 /// posted it while it still holds the agent, else in another that does.
 /// Every window lists this computer's core, so the one that heard the
 /// change first may not be the one that shows it.
-pub(super) fn open(
-    posted: WindowHandle<SheprdWindow>,
-    terminal: &TerminalId,
-    cx: &mut App,
-) -> bool {
-    let holds = |handle: WindowHandle<SheprdWindow>, cx: &App| {
+pub(super) fn open(posted: MainWindow, terminal: &TerminalId, cx: &mut App) -> bool {
+    let holds = |handle: &MainWindow, cx: &App| {
         handle
             .read(cx)
             .is_ok_and(|view| view.holds_core_agent(terminal, cx))
     };
-    let target = std::iter::once(posted)
-        .chain(
-            cx.windows()
-                .into_iter()
-                .filter_map(|window| window.downcast::<SheprdWindow>()),
-        )
-        .find(|handle| holds(*handle, cx))
+    let target = std::iter::once(posted.clone())
+        .chain(MainWindow::all(cx))
+        .find(|handle| holds(handle, cx))
         .unwrap_or(posted);
     target
         .update(cx, |view, window, cx| {

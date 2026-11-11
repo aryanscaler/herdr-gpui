@@ -8,6 +8,7 @@
 use super::super::{Section, SettingsWindow};
 use super::input;
 use crate::direction::Logical;
+use crate::window::main_window::MainWindow;
 use crate::{
     cloud::{
         CloudProvider,
@@ -117,14 +118,10 @@ fn location_note(directory: &crate::railway::KeyDirectory, name: &str) -> String
 
 /// Settings can move between main windows while a setup stays with its owner.
 fn railway_setup_running(cx: &App) -> bool {
-    cx.windows().into_iter().any(|window| {
+    MainWindow::all(cx).into_iter().any(|window| {
         window
-            .downcast::<crate::SheprdWindow>()
-            .is_some_and(|window| {
-                window
-                    .read(cx)
-                    .is_ok_and(|window| window.cloud_jobs.has(CloudProvider::Railway))
-            })
+            .read(cx)
+            .is_ok_and(|window| window.cloud_jobs.has(CloudProvider::Railway))
     })
 }
 

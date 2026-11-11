@@ -1,4 +1,4 @@
-use super::super::{Posted, REGISTRY_LIMIT, SheprdWindow, Target};
+use super::super::{MainWindow, Posted, REGISTRY_LIMIT, SheprdWindow, Target};
 use super::*;
 use gpui::{WindowHandle, WindowId};
 use std::{sync::Weak, time::Instant};
@@ -6,7 +6,7 @@ use std::{sync::Weak, time::Instant};
 pub(super) fn posted(tag: &str) -> Posted {
     Posted {
         tag: tag.to_owned().into(),
-        window: WindowHandle::<SheprdWindow>::new(WindowId::from(1)),
+        window: MainWindow::Root(WindowHandle::<SheprdWindow>::new(WindowId::from(1))),
         target: Target::Notice {
             endpoint: "local".into(),
             generation: 0,

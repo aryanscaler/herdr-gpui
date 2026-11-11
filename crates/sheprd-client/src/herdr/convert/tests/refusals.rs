@@ -150,7 +150,12 @@ fn a_chat_program_in_front_is_not_the_agent() {
         Some("/work"),
     );
     assert!(matches!(
-        resume(&pane(serde_json::json!({})), &running, Agent::Claude),
+        resume(
+            &pane(serde_json::json!({})),
+            &running,
+            Agent::Claude,
+            |_| None
+        ),
         Err(Error::NotRunning(Agent::Claude))
     ));
 }

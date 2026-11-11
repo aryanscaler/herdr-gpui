@@ -20,7 +20,7 @@ pub(crate) type WorkspaceRow = (usize, String);
 
 impl SheprdWindow {
     /// Each host the sidebar lists, with the live state it draws from.
-    fn listed_lives(&self) -> impl Iterator<Item = (usize, &LiveState)> {
+    pub(super) fn listed_lives(&self) -> impl Iterator<Item = (usize, &LiveState)> {
         self.displayed_devices()
             .into_iter()
             .filter(|(_, endpoint)| endpoint.enabled && self.device_visible(&endpoint.id))

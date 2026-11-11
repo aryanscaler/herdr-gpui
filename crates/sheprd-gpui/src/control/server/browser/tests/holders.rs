@@ -35,21 +35,31 @@ fn the_window_holding_the_terminal_is_asked_first(cx: &mut TestAppContext) {
     hold(front, "t1", cx);
     hold(back, "t2", cx);
     cx.update(|cx| {
-        let ids = |windows: &[WindowHandle<crate::SheprdWindow>]| {
+        use crate::window::main_window::MainWindow;
+        let ids = |windows: &[MainWindow]| {
             windows
                 .iter()
                 .map(|handle| handle.window_id())
                 .collect::<Vec<_>>()
         };
-        let mut windows = vec![front, back];
+        let mut windows = vec![MainWindow::Root(front), MainWindow::Root(back)];
         holders_first(&mut windows, Some("t2"), cx);
-        assert_eq!(ids(&windows), ids(&[back, front]));
+        assert_eq!(
+            ids(&windows),
+            ids(&[MainWindow::Root(back), MainWindow::Root(front)])
+        );
         // No terminal, or one no window holds, keeps the frontmost order.
-        let mut windows = vec![front, back];
+        let mut windows = vec![MainWindow::Root(front), MainWindow::Root(back)];
         holders_first(&mut windows, None, cx);
-        assert_eq!(ids(&windows), ids(&[front, back]));
+        assert_eq!(
+            ids(&windows),
+            ids(&[MainWindow::Root(front), MainWindow::Root(back)])
+        );
         holders_first(&mut windows, Some("t9"), cx);
-        assert_eq!(ids(&windows), ids(&[front, back]));
+        assert_eq!(
+            ids(&windows),
+            ids(&[MainWindow::Root(front), MainWindow::Root(back)])
+        );
     });
 }
 

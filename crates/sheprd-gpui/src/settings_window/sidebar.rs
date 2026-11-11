@@ -2,6 +2,7 @@
 //! window at once, and commits write through Settings' serial save path.
 // i18n: migrated
 use super::{SettingsWindow, ui};
+use crate::window::main_window::MainWindow;
 use crate::{
     config::{Config, SidebarStyle, preferences::Preference},
     search_input::SearchInput,
@@ -282,13 +283,11 @@ impl SettingsWindow {
 
     pub(super) fn broadcast_sidebar(&self, cx: &mut Context<Self>) {
         let intent = SidebarIntent::of(&self.config);
-        for handle in cx.windows() {
-            if let Some(handle) = handle.downcast::<crate::SheprdWindow>() {
-                let _ = handle.update(cx, |view, _, cx| {
-                    intent.apply(&mut view.config);
-                    cx.notify();
-                });
-            }
+        for handle in MainWindow::all(cx) {
+            let _ = handle.update(cx, |view, _, cx| {
+                intent.apply(&mut view.config);
+                cx.notify();
+            });
         }
         // Windows opened later start from the draft too.
         let mut appearance = cx

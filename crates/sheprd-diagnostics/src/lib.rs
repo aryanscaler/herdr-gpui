@@ -148,6 +148,17 @@ pub fn previous_log_file(current: &Path) -> PathBuf {
 /// state directory or writer thread, every event counts as dropped. `targets`
 /// are the crates whose events are kept, each with its modules.
 pub fn init(targets: &'static [&'static str]) -> Result<()> {
+    tracing::subscriber::set_global_default(tracing_subscriber::registry().with(layer(targets)))?;
+    Ok(())
+}
+
+/// What [`init`] installs, as a layer for a host's own subscriber: a host
+/// that sets the global subscriber itself (Moonframe) adds it beside its own
+/// output, so the log file, the log window, and crash reports work as they
+/// do in the app. Call it once, before starting workers.
+pub fn layer(
+    targets: &'static [&'static str],
+) -> Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync + 'static> {
     let (lines, queued) = mpsc::sync_channel(QUEUE);
     let counters = Arc::new(Counters::default());
     let path = log_file().and_then(|path| {
@@ -164,8 +175,7 @@ pub fn init(targets: &'static [&'static str]) -> Result<()> {
         flushes: path.as_ref().map(|_| lines.clone()),
         path,
     });
-    tracing::subscriber::set_global_default(subscriber(Capture { lines, counters }, targets))?;
-    Ok(())
+    Box::new(filtered(Capture { lines, counters }, targets))
 }
 
 struct Sink {
@@ -440,10 +450,19 @@ fn kept_target(targets: &[&str], target: &str) -> bool {
     })
 }
 
+#[cfg(test)]
 fn subscriber(capture: Capture, targets: &'static [&'static str]) -> impl Subscriber + Send + Sync {
-    tracing_subscriber::registry().with(capture.with_filter(tracing_subscriber::filter::filter_fn(
-        move |meta| kept_target(targets, meta.target()),
-    )))
+    tracing_subscriber::registry().with(filtered(capture, targets))
+}
+
+/// `capture`, keeping only events from `targets`.
+fn filtered<S>(capture: Capture, targets: &'static [&'static str]) -> impl Layer<S> + Send + Sync
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    capture.with_filter(tracing_subscriber::filter::filter_fn(move |meta| {
+        kept_target(targets, meta.target())
+    }))
 }
 
 struct Capture {

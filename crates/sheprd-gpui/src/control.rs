@@ -9,9 +9,9 @@
 mod client;
 mod server;
 
-use crate::SheprdWindow;
 use crate::browser::Location;
 pub(crate) use crate::cli::control::Placement;
+use crate::window::main_window::MainWindow;
 #[cfg(windows)]
 pub(crate) use client::send_focus;
 #[cfg(feature = "mockup")]
@@ -152,13 +152,9 @@ pub(crate) fn origin<'a>(
     }
 }
 
-fn main_windows(cx: &App) -> Vec<gpui::WindowHandle<SheprdWindow>> {
+fn main_windows(cx: &App) -> Vec<MainWindow> {
     let active = cx.active_window();
-    let mut windows: Vec<_> = cx
-        .windows()
-        .into_iter()
-        .filter_map(|handle| handle.downcast::<SheprdWindow>())
-        .collect();
+    let mut windows = MainWindow::all(cx);
     // The frontmost window wins a workspace that several windows show.
     windows.sort_by_key(|handle| Some(handle.window_id()) != active.map(|a| a.window_id()));
     windows

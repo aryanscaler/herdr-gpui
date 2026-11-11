@@ -430,5 +430,6 @@ mod chat_layout;
 mod tab_layout;
 
 mod en_xa;
+mod host_menus;
 mod pseudo_locales;
 mod slow_animations;

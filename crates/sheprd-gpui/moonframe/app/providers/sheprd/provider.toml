@@ -1,0 +1,6 @@
+# Sheprd's state, shared as `app.sheprd`, and what mods ask of it: Rust in
+# src/main.rs. Send `{ command = "<catalog name>" }`, `{ focus_workspace = id }`,
+# `{ focus_pane = id }` or `{ panel = id }` to "provider:sheprd".
+interval = 60.0
+kind     = "native"
+start    = "always"

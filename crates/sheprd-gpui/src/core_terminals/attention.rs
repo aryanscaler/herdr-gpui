@@ -364,11 +364,11 @@ impl SheprdWindow {
         // may differ from the sound's.
         let delay = Duration::from_secs(self.config.notifications.delay_seconds);
         let posts = cx.default_global::<Heard>().take_posts(now, delay);
-        let Some(handle) = window.window_handle().downcast::<SheprdWindow>() else {
+        let Some(handle) = crate::window::main_window::MainWindow::of(window, cx) else {
             return;
         };
         for (terminal, news, _) in posts {
-            self.post_core_notification(handle, &terminal, news.kind(), cx);
+            self.post_core_notification(handle.clone(), &terminal, news.kind(), cx);
         }
     }
 }

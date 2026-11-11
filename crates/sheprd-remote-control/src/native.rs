@@ -60,7 +60,7 @@ fn home(state: &Shared) -> Home {
         })
         .collect();
     let pull_requests = state.pull_requests.borrow().clone();
-    Home::project(Sources {
+    let mut home = Home::project(Sources {
         computer: &state.computer,
         fingerprint: &state.fingerprint,
         layout: &layout,
@@ -71,7 +71,9 @@ fn home(state: &Shared) -> Home {
         tags: state.tags.current(),
         version: crate::server::version(),
         waiting: state.attention().len(),
-    })
+    });
+    home.github = Some(state.github.enabled());
+    home
 }
 
 /// `GET /api/v2/home`.

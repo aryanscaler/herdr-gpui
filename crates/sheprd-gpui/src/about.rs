@@ -20,7 +20,7 @@ const LICENSE: &str = "· Apache-2.0";
 static ICON: LazyLock<Arc<Image>> = LazyLock::new(|| {
     Arc::new(Image::from_bytes(
         ImageFormat::Png,
-        crate::app_icon::PNG.to_vec(),
+        crate::app_icon::png().to_vec(),
     ))
 });
 

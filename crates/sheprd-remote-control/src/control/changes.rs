@@ -99,6 +99,14 @@ impl Answer {
 #[serde(rename_all = "snake_case")]
 pub enum Failure {
     // keep-sorted start
+    #[error("GitHub data for this checkout is not available yet; try again shortly")]
+    GitHubPending,
+    #[error("GitHub denied repository or Actions read access on this computer")]
+    GitHubScope,
+    #[error("sign in with gh auth login on this computer, then enable remote GitHub CLI reads")]
+    GitHubSignIn,
+    #[error("GitHub is unavailable from this computer; check its network and try again")]
+    GitHubUnavailable,
     #[error("this workspace is not one Sheprd has open")]
     Gone,
     #[error("this check's log is too long to read to its end")]
@@ -111,6 +119,8 @@ pub enum Failure {
     NoLog,
     #[error("this workspace is not a Git repository Sheprd can read")]
     NoRepository,
+    #[error("GitHub reads are paused; try again later")]
+    RateLimited,
     #[error("Sheprd could not read this")]
     #[serde(other)]
     Unreadable,

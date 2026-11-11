@@ -30,20 +30,34 @@ pub(crate) const IN_WINDOW: bool = cfg!(any(target_os = "linux", windows));
 struct Headings(Vec<(gpui::SharedString, bool)>);
 impl gpui::Global for Headings {}
 
-/// Installs the menu bar, checking the layout the latest config picked.
-pub(crate) fn install(cx: &mut App) {
-    let menus = cx
-        .try_global::<crate::app::InitialAppearance>()
+/// A host that keeps the menu bar itself (Moonframe lays out the window and
+/// adds its Developer menu): told to build it again instead of the bar
+/// being set here, so the two never overwrite each other.
+pub(crate) struct HostMenus(pub(crate) std::rc::Rc<dyn Fn(&mut App)>);
+impl gpui::Global for HostMenus {}
+
+/// The menu bar for the latest config: its layouts checked.
+pub(crate) fn bar(cx: &App) -> Vec<Menu> {
+    cx.try_global::<crate::app::InitialAppearance>()
         .map_or_else(
             || menus(&Config::default()),
             |appearance| menus(&appearance.config),
-        );
+        )
+}
+
+/// Installs the menu bar, checking the layout the latest config picked.
+pub(crate) fn install(cx: &mut App) {
+    let menus = bar(cx);
     cx.set_global(Headings(
         menus
             .iter()
             .map(|menu| (menu.name.clone(), menu.disabled))
             .collect(),
     ));
+    if let Some(host) = cx.try_global::<HostMenus>().map(|host| host.0.clone()) {
+        host(cx);
+        return;
+    }
     cx.set_menus(menus);
 }
 

@@ -5,8 +5,7 @@
 //! a workspace, whose listed folder is read, and a file its list gave.
 //! Blocking: runs on the blocking pool.
 //!
-//! Pull requests and their checks need GitHub, which only Sheprd signs in
-//! to: without it, a workspace has no pull request a phone can see.
+//! Pull requests and checks are answered by the daemon's GitHub reader.
 
 use crate::control::changes::{
     Answer, ChangedFile, DiffLine, Failure, FileDiff, FileList, FileStatus, LineKind,
@@ -34,8 +33,7 @@ pub(crate) fn answer(cwd: &Path, wanted: &Wanted) -> Answer {
     let answered = match wanted {
         Wanted::Files { scope } => files(cwd, *scope).map(Answer::Files),
         Wanted::Diff { scope, path } => diff(cwd, *scope, path).map(Answer::Diff),
-        Wanted::Checks => Ok(Answer::Checks(Default::default())),
-        Wanted::CheckLog { .. } => Err(Failure::NoLog),
+        Wanted::Checks | Wanted::CheckLog { .. } => Err(Failure::GitHubSignIn),
     };
     answered.unwrap_or_else(Answer::Failed)
 }
@@ -480,7 +478,7 @@ fn command(cwd: &Path, args: &[&str]) -> Command {
 }
 
 /// Git's output for `args` in `cwd`, when it succeeded.
-fn git(cwd: &Path, args: &[&str]) -> std::io::Result<String> {
+pub(super) fn git(cwd: &Path, args: &[&str]) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&git_bytes(cwd, args)?).into_owned())
 }
 

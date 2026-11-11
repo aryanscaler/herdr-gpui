@@ -159,11 +159,11 @@ fn a_folder_outside_git_and_github_questions_say_so() {
     );
     assert_eq!(
         answer(dir.path(), &Wanted::Checks),
-        Answer::Checks(Default::default())
+        Answer::Failed(Failure::GitHubSignIn)
     );
     assert_eq!(
         answer(dir.path(), &Wanted::CheckLog { job: 1 }),
-        Answer::Failed(Failure::NoLog)
+        Answer::Failed(Failure::GitHubSignIn)
     );
 }
 

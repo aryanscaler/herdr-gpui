@@ -44,6 +44,7 @@ ratex-parser         = "=0.1.15"
 ratex-render         = { features = ["embed-fonts"], version = "=0.1.15" }
 ratex-types          = "=0.1.15"
 base64               = "0.23.1"
+async-channel        = "2"
 bincode              = { default-features = false, features = ["serde", "std"], version = "2" }
 # Reads the Windows clipboard off the UI thread, sized before it is copied.
 clipboard-win        = { default-features = false, features = ["std"], version = "5.4.1" }
@@ -117,6 +118,9 @@ keepawake            = { default-features = false, version = "0.6.1" }
 image                = { default-features = false, features = ["gif", "jpeg", "png", "webp"], version = "0.25.10" }
 # The sandboxed Luau interpreter behind automation scripts, built from source.
 mlua                 = { features = ["error-send", "luau"], version = "0.12.2" }
+# The `moonframe` feature of `sheprd-gpui` lays out the window in Luau; pinned to
+# moonframehq/moonframe#154 (rusqlite 0.41, as this workspace) until it merges.
+moonframe            = { default-features = false, git = "https://github.com/moonframehq/moonframe", rev = "623678ccf7519aabc9d10a33abbc41d68e94212c" }
 # Mermaid fences in chat answers become diagrams: parse, lay out, and write
 # SVG in pure Rust; GPUI rasterizes the SVG. No CLI and no PNG writer.
 mermaid-rs-renderer  = { default-features = false, version = "0.3.1" }

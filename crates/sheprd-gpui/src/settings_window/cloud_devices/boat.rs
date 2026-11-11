@@ -8,6 +8,7 @@ use super::{
     Hint, follow_config, input,
 };
 use crate::direction::Logical;
+use crate::window::main_window::MainWindow;
 use crate::{
     boat::{
         SandboxCount, Settings,
@@ -151,17 +152,13 @@ fn job_script(target: &Target, script: Option<String>) -> Option<String> {
 }
 
 fn setup_running(cx: &App) -> bool {
-    cx.windows().into_iter().any(|window| {
-        window
-            .downcast::<crate::SheprdWindow>()
-            .is_some_and(|window| {
-                window.read(cx).is_ok_and(|window| {
-                    window
-                        .cloud_jobs
-                        .iter()
-                        .any(|job| job.provider == CloudProvider::Boat)
-                })
-            })
+    MainWindow::all(cx).into_iter().any(|window| {
+        window.read(cx).is_ok_and(|window| {
+            window
+                .cloud_jobs
+                .iter()
+                .any(|job| job.provider == CloudProvider::Boat)
+        })
     })
 }
 

@@ -227,12 +227,52 @@ tone as the desktop: green for ready, yellow for pending checks/review, orange
 for blocked/behind, red for attention, purple for merged, and muted for drafts
 or unknown state. Tapping the badge opens its PR.
 
-Sheprd publishes its existing PR cache through the private control socket;
-no GitHub credentials are sent to the phone and no second lookup is started.
-Updates reach open lists through the patch stream. Badges show the last state
-reported by the desktop while it is closed; a daemon restart waits for the next
-desktop refresh. Boot, workspace, directory, and branch identities must match,
-so a recycled workspace cannot inherit another checkout's badge.
+By default, Sheprd publishes its PR cache through the private control socket.
+Standalone reads require explicit permission **on each computer**:
+
+1. Sign in with `gh auth login` on that computer as the user running the
+   remote-control service. For least privilege, use a repository-scoped token
+   granting read access to pull requests, checks/statuses, metadata and Actions
+   logs for the repositories to expose. Repository/SSO restrictions still apply.
+2. Set `github_cli = true` under `[remote]` in that computer's Sheprd settings,
+   then apply/restart its remote-control service. For a foreground daemon, pass
+   `sheprd-remote-control serve --state-dir DIR --github-cli` instead.
+
+This authorizes every paired phone to read PR information for the workspaces
+that computer lists. A paired SSH/cloud machine uses **its own** `gh` sign-in;
+enrollment does not copy the desktop's GitHub credential or enable this option.
+The daemon reads `gh auth token --hostname github.com` through the existing
+bounded credential reader. It never saves the token or sends it to a phone.
+Remove the option and restart the service to disable standalone reads; `gh auth
+logout` revokes use of the CLI sign-in after cached answers expire.
+
+When enabled, the daemon owns badges, checks and failing Actions log reads even
+with Sheprd closed, including saved and daemon-owned Herdr 2 workspaces. Its
+worker asks local Git to identify the checkout and uses the shared GitHub PR
+lookup and log reader. Successful absence of a PR is distinct from missing
+sign-in, denied scope, offline/error and throttled reads. The iOS Changes screen
+asks without requiring an existing badge and displays failures and whether
+standalone reads were enabled (`github` in `/api/v2/home`). Older daemons leave
+that capability out.
+
+In the mobile web app, each workspace's **Checks** link opens the authenticated
+check list even before a PR badge is available. Failed Actions jobs offer
+**Read failing log**; errors stay visible with Refresh/Retry. Log excerpts are
+escaped text, and the service worker caches only the app shell, never checks
+or logs.
+
+The cache holds at most 128 checkouts for 60 seconds, keyed by folder, branch,
+HEAD and a digest of Git's effective configuration (including arbitrary tracked
+remotes and includes). Identity is checked again after each completed read,
+including log downloads. Only one GitHub read runs at once;
+cache misses are paced at two seconds, errors pause the account for a minute,
+and rate-limit errors for an hour. Badges prefetch one listed checkout per tick,
+so large workspace lists converge incrementally. Logs are offered only for
+failed jobs in the workspace's verified PR, bounded by the shared 64 MiB read
+limit and 8 KiB excerpt. PR/checks/log failures never become an empty successful
+check list. API reads require pairing and reject workspaces absent from the
+current host layout. Updates reach open lists through the patch stream; boot,
+workspace, directory and branch identities fence badge publication.
 
 Issue-dispatched agents keep explicit issue/PR captions. Old wrapper-only
 `pasted_content` titles fall back to useful names on both desktop and phone.

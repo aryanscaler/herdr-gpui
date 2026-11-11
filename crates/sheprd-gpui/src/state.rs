@@ -285,9 +285,23 @@ impl LiveState {
             self.version_mismatch,
             Some(sheprd_client::VersionMismatch::DaemonOutdated { .. })
         ) && !self.status.is_connected();
+        self.herdr_1_absent() || outdated
+    }
+
+    /// Whether the host has no Herdr 1 at all: none installed on this
+    /// computer, or none a saved host's bridge found. A Herdr 1 too old for
+    /// this client is not absent, and stays an outage the user can act on.
+    pub(crate) fn herdr_1_absent(&self) -> bool {
         self.missing_installation
             || self.ssh_failure == Some(sheprd_client::SshFailure::HerdrMissing)
-            || outdated
+    }
+
+    /// Whether the connection bar speaks of this host's Herdr 1. A host with
+    /// none runs its terminals in herdr-core, so while `core_answers` that is
+    /// the arrangement the window works by, not a disconnection to report;
+    /// once the core is gone too there is nothing left to run them in.
+    pub(crate) fn reports_herdr_1(&self, core_answers: bool) -> bool {
+        !(self.herdr_1_absent() && core_answers)
     }
 
     fn answer_slot(&mut self, answer: Answer) -> &mut Option<(String, Option<DialogResponse>)> {

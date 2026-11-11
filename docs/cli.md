@@ -334,6 +334,14 @@ While it is off, `remote status` says so and exits 0; `pair`, `devices`,
 for `status`, where `status` is the daemon's own report, and
 `{"devices": [...]}` for `devices`.
 
+Standalone phone PR/check/log reads are opt-in per computer. After signing in
+with `gh auth login` on that host, set `[remote] github_cli = true` and restart
+its remote-control service. The foreground daemon accepts
+`sheprd-remote-control serve --state-dir DIR --github-cli`. This permits paired
+phones to read the listed workspaces using that host's GitHub CLI credential;
+pairing never copies the desktop's credential. See the
+[scope, cache and access policy](../crates/sheprd-remote-control/README.md#workspace-pull-requests-and-titles).
+
 ```sh
 sheprd remote status --json
 sheprd remote revoke d_6f1c

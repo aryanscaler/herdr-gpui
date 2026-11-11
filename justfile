@@ -1,6 +1,14 @@
 default:
     @just --list
 
+# Sheprd in a Moonframe window (the `moonframe` feature), on your settings and
+# daemon: quit Sheprd first. `just run-moonframe --check` checks the Luau.
+# Built in its own target directory, so it never replaces `target/release/sheprd`;
+# the helpers the app finds beside itself (`sheprd-acp`, `sheprd-automate`) too.
+run-moonframe *args:
+    cargo build --locked --release -p sheprd-acp -p sheprd-automate --target-dir target/moonframe
+    cargo run --locked --release -p sheprd-gpui --features moonframe --target-dir target/moonframe -- {{args}}
+
 # Launch the bundle so macOS reads Sheprd's identity and privacy declarations.
 run *args:
     #!/usr/bin/env bash
@@ -101,6 +109,15 @@ test-sidebar:
 test-perf budget="30":
     cargo build --locked --release -p sheprd-gpui --features integration-test
     HERDR_PERF_P95_MS="{{budget}}" target/release/sheprd --performance-test
+
+# Frame times and CPU of `sheprd` with and without the `moonframe` feature on
+# one workload, each on a private daemon started from `herdr`, as the median of
+# `rounds`; opens windows, so it needs a desktop. `scripts/bench_frames.py
+# --help` for more.
+bench-moonframe herdr rounds="3":
+    cargo build --locked --release -p sheprd-gpui
+    cargo build --locked --release -p sheprd-gpui --features moonframe --target-dir target/moonframe
+    scripts/bench_frames.py --herdr "{{herdr}}" --rounds "{{rounds}}" main=target/release/sheprd moonframe=target/moonframe/release/sheprd
 
 # Compare UI variants written as GPUI code in `file` (the built-in demo when
 # empty) in a native window. "Send to agent" types the notes into the calling

@@ -2,8 +2,8 @@
 //! once that window has shown its tab; a command for a page no window has
 //! made shows the tab first, and the answer waits for the page.
 use super::{MAX_TEXT_JSON, bounded_text, page_tab};
+use crate::window::main_window::MainWindow;
 use crate::{
-    SheprdWindow,
     browser::TabId,
     control::{
         protocol::{
@@ -16,14 +16,14 @@ use crate::{
         },
     },
 };
-use gpui::{App, WindowHandle};
+use gpui::App;
 use std::{
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
 
 /// The window that has made tab `id`'s page.
-fn holder(caller: &Caller, id: TabId, cx: &App) -> Option<WindowHandle<SheprdWindow>> {
+fn holder(caller: &Caller, id: TabId, cx: &App) -> Option<MainWindow> {
     windows(caller, cx).into_iter().find(|handle| {
         handle
             .read_with(cx, |view, _| view.has_page(id))

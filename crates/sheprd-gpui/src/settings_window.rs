@@ -24,6 +24,7 @@ mod remote_history;
 mod scrollbar;
 mod search;
 mod section;
+use crate::window::main_window::MainWindow;
 use section::{Group, Section};
 mod sidebar;
 #[cfg(test)]
@@ -538,12 +539,9 @@ impl SettingsWindow {
             previous.is_some_and(|previous| crate::menus::changed(&previous.config, &self.config));
         // Future windows inherit an explicit Settings draft, but not a main
         // picker's cancellable hover preview. Logs follow live appearance.
-        let previewing = cx.windows().into_iter().any(|window| {
-            window.downcast::<SheprdWindow>().is_some_and(|window| {
-                window.read(cx).map_or(true, |source| {
-                    source.menu.page == Some(crate::menu::Page::Themes)
-                        || source.theme_save_in_flight()
-                })
+        let previewing = MainWindow::all(cx).into_iter().any(|window| {
+            window.read(cx).map_or(true, |source| {
+                source.menu.page == Some(crate::menu::Page::Themes) || source.theme_save_in_flight()
             })
         });
         let mut appearance = crate::app::InitialAppearance {

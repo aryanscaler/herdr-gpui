@@ -9,7 +9,7 @@ fn resumed(argv: &[&str], cwd: Option<&str>, agent: Agent) -> Resume {
         "source": format!("herdr:{}", agent.name()),
         "value": SESSION,
     }, "agent": agent.name()});
-    resume(&pane(session), &info(argv, cwd), agent).unwrap()
+    resume(&pane(session), &info(argv, cwd), agent, |_| None).unwrap()
 }
 
 #[test]

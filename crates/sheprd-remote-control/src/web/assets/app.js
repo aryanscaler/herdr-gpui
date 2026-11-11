@@ -358,6 +358,8 @@ function routeOf(path, search) {
   if (chat) return { fragment: `/f/chat/${chat[1]}`, stream: `view=chat&pane=${chat[1]}` };
   const term = path.match(/^\/term\/([^/]+)$/);
   if (term) return { fragment: `/f/term/${term[1]}`, stream: `view=term&pane=${term[1]}` };
+  const checks = path.match(/^\/checks\/([^/]+)(?:\/(\d+))?$/);
+  if (checks) return { fragment: `/f${path}` };
   const routes = {
     "/": { fragment: "/f/home", stream: "view=home" },
     "/board": { fragment: "/f/board", stream: "view=board" },

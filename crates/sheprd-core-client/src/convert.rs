@@ -16,18 +16,14 @@
 //! records).
 
 use crate::{Core, Result, agent_kind, backend::info, wire::Terminal};
-use serde::Deserialize;
 use sheprd_backend::{AgentStatus, Process, TerminalId, TerminalInfo};
-use sheprd_chat_protocol::{Agent, ENDPOINT_ENV, EndpointId, TOKEN, restore};
+use sheprd_chat_protocol::{Agent, ENDPOINT_ENV, EndpointId, TOKEN};
+pub use sheprd_client::herdr::convert::claude_record;
 use sheprd_client::herdr::{
     AgentKind,
     convert::{self, Resume},
 };
-use std::{
-    io,
-    path::{Path, PathBuf},
-    sync::atomic::AtomicBool,
-};
+use std::{io, path::Path, sync::atomic::AtomicBool};
 
 /// The names a chat program runs under, as the OS reports them.
 const CHAT_PROGRAMS: &[&str] = &["herdr-acp", "sheprd-acp"];
@@ -116,21 +112,6 @@ fn agent_is_program(record: &Terminal, agent: Agent) -> bool {
         .is_some_and(|(pid, front)| front.pid == pid && front_runs(front, agent))
 }
 
-/// What Claude Code writes about one running CLI.
-#[derive(Deserialize)]
-struct ClaudeRecord {
-    pid: u32,
-    #[serde(rename = "sessionId")]
-    session_id: String,
-}
-
-/// Where Claude Code records the CLI with process ID `pid`.
-pub fn claude_record(home: &Path, pid: u32) -> PathBuf {
-    home.join(".claude")
-        .join("sessions")
-        .join(format!("{pid}.json"))
-}
-
 /// The session the agent in `process` runs, from what `read` finds in the
 /// record the agent keeps of itself. Only Claude Code keeps one; a record
 /// of another process, or a session no line can carry, is none.
@@ -140,15 +121,8 @@ pub fn session(
     home: &Path,
     read: impl FnOnce(&Path) -> io::Result<String>,
 ) -> Result<String, convert::Error> {
-    let none = || convert::Error::NoCoreSession(agent);
-    if agent != Agent::Claude {
-        return Err(none());
-    }
-    let text = read(&claude_record(home, process.pid)).map_err(|_| none())?;
-    let record: ClaudeRecord = serde_json::from_str(&text).map_err(|_| none())?;
-    (record.pid == process.pid && restore::session_id_is_plain(&record.session_id))
-        .then_some(record.session_id)
-        .ok_or_else(none)
+    convert::recorded_session(agent, process.pid, home, read)
+        .ok_or(convert::Error::NoCoreSession(agent))
 }
 
 /// What continues the conversation, read from the running agent.

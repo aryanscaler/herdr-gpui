@@ -66,6 +66,13 @@ secrecy.workspace              = true
 serde.workspace                = true
 serde_ignored.workspace        = true
 serde_json.workspace           = true
+# The `moonframe` feature: Sheprd in a window Moonframe lays out in Luau.
+# `acp` runs the agent behind the sparkles (the built-in `feedback` mod);
+# `studio` is Developer Mode (Inspect Element, the Developer tools). Not
+# `syntax`: its SQL grammar pins `cc` to a range the workspace can't share.
+async-channel = { optional = true, workspace = true }
+futures-lite  = { optional = true, workspace = true }
+moonframe     = { features = ["acp", "studio"], optional = true, workspace = true }
 sha2.workspace                 = true
 skrifa.workspace               = true
 sysinfo.workspace              = true
@@ -134,6 +141,15 @@ sprites = ["cloud", "sheprd-client/sprites", "sheprd-remote/sprites"]
 # provides `Window::render_to_image`, so `--capture` needs no screen-recording
 # permission.
 mockup = ["gpui_platform/test-support"]
+# Development only: a plain launch opens Sheprd in a window Moonframe lays out
+# from `moonframe/app` (Luau), with Inspect Element and the sparkles agent to
+# change it live; `sheprd` commands and `--socket`/`--session` launches stay
+# the app's own. Off by default: without it the app is unchanged.
+# `just run-moonframe` builds and runs it.
+moonframe = ["dep:async-channel", "dep:futures-lite", "dep:moonframe"]
+# With `moonframe`: writes the window's rendered frame to `MOONFRAME_CAPTURE`,
+# for checks where the session has no screen recording permission.
+moonframe-capture = ["moonframe", "moonframe/capture"]
 integration-test = [
   "sheprd-github/test-support",
   "objc2-app-kit/NSPasteboardItem",

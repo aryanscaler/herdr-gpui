@@ -73,8 +73,9 @@ class LinuxAliasTests(unittest.TestCase):
         # Execute the actual postFixup shell with stand-ins for Nix's wrapper
         # and patchelf. The Linux Nix workflow also checks the built output.
         text = (ROOT / "flake.nix").read_text()
-        hook = re.search(r"postFixup = ''\n(.*?)\n\s*'';", text, re.S)[1]
-        hook = re.sub(r"\$\{lib\.[^}]+\}", "/fixture", hook)
+        match = re.search(r"postFixup = lib\.optionalString isLinux ''\n(.*?)\n\s*'';", text, re.S)
+        self.assertIsNotNone(match, "the Linux-only postFixup hook must exist")
+        hook = re.sub(r"\$\{\s*lib\.[^}]+\}", "/fixture", match[1])
         binaries = self.work / "bin"
         binaries.mkdir()
         commands = ("sheprd", "sheprd-acp", "sheprd-automate", "sheprd-nearby", "sheprd-remote-control")

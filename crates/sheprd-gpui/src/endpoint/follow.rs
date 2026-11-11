@@ -5,6 +5,7 @@
 //! snapshot. Herdr sends no event for it, and names no asker, so the snapshot
 //! is all there is to go by.
 use super::{Endpoint, SheprdWindow};
+use crate::window::main_window::MainWindow;
 use gpui::{App, Context, WindowId};
 use sheprd_client::{ConnectTarget, protocol::ClientShellSnapshot};
 use std::time::{Duration, Instant};
@@ -109,10 +110,9 @@ impl SheprdWindow {
 /// Whether a window other than `own` shows `target`. Several windows each
 /// see the same move: the first to follow it speaks for the rest.
 fn shown_elsewhere(target: &ConnectTarget, own: WindowId, cx: &App) -> bool {
-    cx.windows()
+    MainWindow::all(cx)
         .into_iter()
         .filter(|handle| handle.window_id() != own)
-        .filter_map(|handle| handle.downcast::<SheprdWindow>())
         .filter_map(|handle| handle.read(cx).ok())
         .any(|view| view.endpoints[view.selected_endpoint].connection.target == *target)
 }

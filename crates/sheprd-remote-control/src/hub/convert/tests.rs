@@ -6,6 +6,8 @@ use std::sync::mpsc;
 
 #[cfg(unix)]
 mod folder;
+#[cfg(unix)]
+mod recorded;
 
 /// A Claude session as Herdr's own integration reports it.
 #[cfg(unix)]
@@ -42,7 +44,16 @@ fn hub(layout: Layout, client_socket: Option<PathBuf>) -> Arc<Hub> {
 }
 
 #[cfg(unix)]
-fn pane_answer(status: &str) -> Value {
+fn pane_answer(status: &str, reported: bool) -> Value {
+    let mut answer = pane_reported(status);
+    if !reported {
+        answer["pane"]["agent_session"] = Value::Null;
+    }
+    answer
+}
+
+#[cfg(unix)]
+fn pane_reported(status: &str) -> Value {
     json!({"type": "pane_info", "pane": {
         "pane_id": "t2-p1", "tab_id": "t2", "cwd": "/shell", "agent": "claude",
         "agent_status": status,
@@ -66,7 +77,7 @@ fn processes(front: u32, cwd: &str) -> Value {
 /// leaves once a Ctrl+C arrives. Sends each request's method and params.
 #[cfg(unix)]
 fn serve(dir: &std::path::Path, status: &'static str) -> mpsc::Receiver<(String, Value)> {
-    serve_in(dir, status, "/tmp")
+    serve_in(dir, status, "/tmp", true)
 }
 
 /// As [`serve`], with the agent running in `cwd`.
@@ -75,6 +86,7 @@ fn serve_in(
     dir: &std::path::Path,
     status: &'static str,
     cwd: &'static str,
+    reported: bool,
 ) -> mpsc::Receiver<(String, Value)> {
     use std::{
         io::{BufRead, BufReader, Write},
@@ -91,7 +103,7 @@ fn serve_in(
             let request: Value = serde_json::from_str(&line).unwrap();
             let method = request["method"].as_str().unwrap().to_owned();
             let result = match method.as_str() {
-                "pane.get" => pane_answer(status),
+                "pane.get" => pane_answer(status, reported),
                 "pane.process_info" => processes(if stopped { 10 } else { 20 }, cwd),
                 "pane.send_keys" => {
                     stopped = true;

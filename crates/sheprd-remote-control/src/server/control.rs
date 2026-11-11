@@ -263,7 +263,21 @@ pub(crate) fn answer(state: &State, stop: &watch::Sender<bool>, request: Request
                     message: "The daemon layout changed".into(),
                 };
             }
-            if state.pull_requests.borrow().as_ref() != &snapshot {
+            if state.github.enabled() {
+                state.pull_requests.send_if_modified(|current| {
+                    let mut merged = snapshot.clone();
+                    merged.entries = if current.boot_id == snapshot.boot_id {
+                        current.entries.clone()
+                    } else {
+                        Vec::new()
+                    };
+                    if current.as_ref() == &merged {
+                        return false;
+                    }
+                    *current = Arc::new(merged);
+                    true
+                });
+            } else if state.pull_requests.borrow().as_ref() != &snapshot {
                 state.pull_requests.send_replace(Arc::new(snapshot));
             }
             return Response::Done;

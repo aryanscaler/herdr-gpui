@@ -20,12 +20,13 @@ use super::{
     protocol::{Caller, ErrorCode, MAX_WAIT_SECONDS, Request, Response},
     socket, socket_path, valid_caller,
 };
+use crate::window::main_window::MainWindow;
 use crate::{
     SheprdWindow,
     browser::{Feedback, FeedbackKey, Scope},
 };
 use browser::{feedback, notes, open_browser, reload, serve_waiters};
-use gpui::{App, Context, Window, WindowHandle};
+use gpui::{App, Context, Window};
 use std::{
     path::Path,
     time::{Duration, Instant},
@@ -125,10 +126,7 @@ fn not_found(message: impl Into<String>) -> Response {
 /// The window a request acts in: the one `--window` named; else the one
 /// showing the caller's workspace (on the caller's own daemon when it names
 /// one); else, for a caller outside any workspace, the frontmost.
-pub(super) fn window_for(
-    caller: &Caller,
-    cx: &mut App,
-) -> Result<WindowHandle<SheprdWindow>, Response> {
+pub(super) fn window_for(caller: &Caller, cx: &mut App) -> Result<MainWindow, Response> {
     if !valid_caller(caller) {
         return Err(Response::error(
             ErrorCode::InvalidRequest,
@@ -177,7 +175,7 @@ pub(super) fn window_for(
                         .unwrap_or(false)
                 });
                 if let Some(handle) = holder {
-                    return Ok(*handle);
+                    return Ok(handle.clone());
                 }
             }
         }
@@ -189,7 +187,7 @@ pub(super) fn window_for(
                     })
                     .unwrap_or(false);
                 if shows {
-                    return Ok(*handle);
+                    return Ok(handle.clone());
                 }
             }
         }
@@ -204,7 +202,7 @@ pub(super) fn window_for(
                     .unwrap_or(false)
             });
             if let Some(handle) = own {
-                return Ok(*handle);
+                return Ok(handle.clone());
             }
         }
         // The caller's workspace is in no window, perhaps of a session the

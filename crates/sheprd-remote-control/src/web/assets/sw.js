@@ -20,7 +20,7 @@ const FILES = [
 // longer trusts its certificate, a cached page would hide Safari's warning
 // and leave pairing failing with nothing to accept.
 const ROUTES = ["/", "/board", "/computers", "/new", "/new-chat", "/settings"];
-const SHELL_PREFIXES = ["/chat/", "/term/"];
+const SHELL_PREFIXES = ["/chat/", "/term/", "/checks/"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL).then((cache) => cache.addAll(FILES)).then(() => self.skipWaiting()));

@@ -107,7 +107,7 @@ pub(super) fn open_browser(request: &BrowserOpen, cx: &mut App) -> Response {
 /// a terminal in a Herdr workspace, and only the one holding its tab can
 /// place a page beside it.
 pub(super) fn holders_first(
-    windows: &mut [gpui::WindowHandle<crate::SheprdWindow>],
+    windows: &mut [crate::window::main_window::MainWindow],
     terminal: Option<&str>,
     cx: &App,
 ) {

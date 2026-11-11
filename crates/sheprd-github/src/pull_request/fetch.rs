@@ -108,12 +108,8 @@ impl Origins {
     }
 }
 
-#[cfg(test)]
-pub(super) fn fetch(
-    input: &Input,
-    token: &secrecy::SecretString,
-    cancelled: impl Fn() -> bool,
-) -> Result {
+/// Read one verified local checkout. Blocking, bounded, and cancellable.
+pub fn fetch(input: &Input, token: &secrecy::SecretString, cancelled: impl Fn() -> bool) -> Result {
     let tokens = crate::Tokens::from(std::sync::Arc::new(token.clone()));
     let mut batch = super::batch::fetch_batch(
         vec![input.clone()],

@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+use crate::SheprdWindow;
 use crate::{
     browser::{LocalFile, OrchestratorRepo, Scope, WebUrl},
     code_view::CodeFile,
