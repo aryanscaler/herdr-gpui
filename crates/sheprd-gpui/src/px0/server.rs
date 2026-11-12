@@ -66,11 +66,14 @@ pub(super) fn probe(address: &WebUrl) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 pub(super) struct Discovery {
     pub(super) pid: u32,
     pub(super) url: WebUrl,
 }
+
+/// The largest `workbench.lock` read; px0 writes a few dozen bytes.
+pub(super) const LOCK_LIMIT: u64 = LIMIT;
 
 pub(super) fn discover(path: &Path) -> Result<Option<Discovery>, Error> {
     let file = match std::fs::File::open(path) {
@@ -82,14 +85,18 @@ pub(super) fn discover(path: &Path) -> Result<Option<Discovery>, Error> {
     file.take(LIMIT + 1)
         .read_to_end(&mut bytes)
         .map_err(Error::Discovery)?;
+    Ok(parse(&bytes))
+}
+
+/// A `workbench.lock`'s record, read here or on a host: `None` when it is
+/// too long, malformed, or names no loopback workbench.
+pub(super) fn parse(bytes: &[u8]) -> Option<Discovery> {
     if bytes.len() as u64 > LIMIT {
-        return Ok(None);
+        return None;
     }
-    let Ok(discovery) = serde_json::from_slice::<Discovery>(&bytes) else {
-        return Ok(None);
-    };
+    let discovery = serde_json::from_slice::<Discovery>(bytes).ok()?;
     if discovery.pid == 0 || base(&discovery.url).is_err() {
-        return Ok(None);
+        return None;
     }
-    Ok(Some(discovery))
+    Some(discovery)
 }

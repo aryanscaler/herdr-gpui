@@ -34,11 +34,9 @@ impl Localize for host::Error {
         match self {
             Self::Address => fl!("error-px0-host-address"),
             Self::Command(error) => fl!("error-px0-host-command", error = error.localize()),
-            Self::Exited => fl!("error-px0-host-exited"),
             Self::Forward(error) => fl!("error-px0-host-forward", error = error.localize()),
             Self::Missing => fl!("error-px0-host-missing"),
-            Self::Output => fl!("error-px0-host-output"),
-            Self::Setup => fl!("error-px0-host-setup"),
+            Self::Read(error) => fl!("error-px0-host-read", error = error.localize()),
             Self::Spawn(error) => fl!("error-px0-host-spawn", error = error.to_string()),
             Self::Ssh => fl!("error-px0-host-ssh"),
             Self::Stopped(status) => fl!("error-px0-host-stopped", status = status.to_string()),

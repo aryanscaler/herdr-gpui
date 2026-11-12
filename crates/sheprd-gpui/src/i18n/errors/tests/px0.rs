@@ -28,11 +28,9 @@ fn every_px0_host_variant_has_a_message() {
     assert_localized(&[
         Host::Address,
         Host::Command(sheprd_client::Error::Disconnected),
-        Host::Exited,
         Host::Forward(sheprd_client::Error::Disconnected),
         Host::Missing,
-        Host::Output,
-        Host::Setup,
+        Host::Read(sheprd_client::Error::Disconnected),
         Host::Spawn(std::io::Error::other("disk on fire")),
         Host::Ssh,
         Host::Timeout,

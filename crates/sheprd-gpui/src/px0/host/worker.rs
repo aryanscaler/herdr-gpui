@@ -1,22 +1,27 @@
-//! One host's workbench. A worker thread owns an `ssh` that runs `serve.sh`
-//! there, reads the port the script reports, forwards it to this computer
-//! with a [`PortForward`], and checks that the workbench answers. Windows
-//! read only its latest state. Closing the script's input, or ending the
-//! `ssh`, stops a workbench the script started.
-use super::{super::server, Error};
+//! One host's workbench. A worker thread reads px0's `workbench.lock` on the
+//! host and reuses the workbench it names when that answers; otherwise an
+//! `ssh` it owns runs `serve.sh`, which starts px0 there, and the worker waits
+//! for px0's new lock. Either way it forwards the workbench's port to this
+//! computer with a [`PortForward`] and checks that it answers. Windows read
+//! only its latest state. Closing the script's input, or ending the `ssh`,
+//! stops a workbench the script started.
+use super::{
+    super::server::{self, Discovery},
+    Error,
+};
 use crate::{
     browser::WebUrl,
     owned_process as process,
     px0::{Error as Px0Error, State},
 };
-use sheprd_client::{ForwardEvent, PortForward};
+use sheprd_client::{ForwardEvent, PortForward, ScriptLimits, SshLane};
 use std::{
-    io::{BufRead, BufReader, Read},
     num::NonZeroU16,
-    process::{Child, ChildStdin, ChildStdout, ExitStatus, Stdio},
+    process::{Child, ChildStdin, ExitStatus, Stdio},
     sync::{
         Arc, Mutex, MutexGuard, PoisonError,
-        mpsc::{self, Receiver, SyncSender, TryRecvError},
+        atomic::AtomicBool,
+        mpsc::{self, Receiver, SyncSender},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -24,10 +29,22 @@ use std::{
 
 /// The script `ssh` runs on the host.
 pub(super) const SCRIPT: &str = include_str!("serve.sh");
+/// Prints the host's `workbench.lock`, or nothing when there is none.
+const READ_LOCK: &str =
+    r#"cat "$HOME/.herdr-gpui/px0-state/px0/workbench.lock" 2>/dev/null; exit 0"#;
+const READ_LIMITS: ScriptLimits = ScriptLimits {
+    output: server::LOCK_LIMIT,
+    idle: Duration::from_secs(20),
+};
 /// SSH through a proxy such as Coder's, and px0's first start, are slow.
 const PORT_WAIT: Duration = Duration::from_secs(90);
+/// How often the host's lock is read while px0 starts.
+const LOCK_POLL: Duration = Duration::from_millis(500);
 /// From the forward listening to the workbench answering through it.
 const READY_WAIT: Duration = Duration::from_secs(30);
+/// The same for a workbench found running: one that does not answer by
+/// then is a stale lock, and a new px0 replaces it.
+const REUSE_WAIT: Duration = Duration::from_secs(5);
 const TICK: Duration = Duration::from_millis(100);
 /// How often a ready workbench is asked whether it still answers.
 const CHECK: Duration = Duration::from_secs(3);
@@ -37,9 +54,6 @@ const GRACE: Duration = Duration::from_millis(500);
 /// The same off the app's quit: a replacement waits for this, so it never
 /// finds the old workbench still stopping and reuses it.
 const STOP_GRACE: Duration = Duration::from_secs(10);
-/// `port 65535` and a line break fit with room to spare; a longer line is
-/// not the script's.
-const LINE: u64 = 64;
 
 pub(super) struct Worker {
     state: Arc<Mutex<State>>,
@@ -127,11 +141,6 @@ impl Drop for Worker {
     }
 }
 
-/// The port in the script's report, `port N`.
-pub(super) fn parse(line: &str) -> Option<NonZeroU16> {
-    line.trim_end().strip_prefix("port ")?.parse().ok()
-}
-
 fn cancelled(stop: &Receiver<()>, wait: Duration) -> bool {
     !matches!(
         stop.recv_timeout(wait),
@@ -178,21 +187,31 @@ fn failure(owned: &Mutex<Owned>) -> Option<Px0Error> {
     ended(owned).map(|status| Error::exited(status).into())
 }
 
-/// Reads the script's report on a thread of its own: `Some` port, or `None`
-/// when its output ends or says anything else first.
-fn read_port(stdout: ChildStdout) -> Receiver<Option<NonZeroU16>> {
-    let (send, port) = mpsc::sync_channel(1);
-    let spawned = thread::Builder::new()
-        .name("herdr-px0-host-port".into())
-        .spawn(move || {
-            let mut line = String::new();
-            let read = BufReader::new(stdout).take(LINE).read_line(&mut line);
-            let _ = send.send(read.ok().and_then(|_| parse(&line)));
-        });
-    if spawned.is_err() {
-        tracing::warn!("Cannot read the host's px0 port");
-    }
-    port
+/// The workbench the host's `workbench.lock` names, if any, over the host's
+/// shared connection.
+fn read_lock(target: &str) -> Result<Option<Discovery>, Error> {
+    // Held until the read's child is reaped below.
+    let (command, _channel) =
+        sheprd_client::shared_script_command(target, READ_LOCK, SshLane::Quick)
+            .map_err(Error::Command)?;
+    let mut output = Vec::new();
+    sheprd_client::run_script_command(
+        command,
+        std::io::empty(),
+        &mut output,
+        READ_LIMITS,
+        &AtomicBool::new(false),
+    )
+    .map_err(Error::Read)?;
+    Ok(server::parse(&output))
+}
+
+/// How reaching a workbench through a forward went.
+enum Reach {
+    Ready(WebUrl),
+    /// It did not answer in time.
+    Silent,
+    Stopped,
 }
 
 fn run(
@@ -201,40 +220,29 @@ fn run(
     output: &Mutex<State>,
     owned: &Mutex<Owned>,
 ) -> Result<(), Px0Error> {
-    let mut command = sheprd_client::script_command(target, SCRIPT).map_err(Error::Command)?;
-    process::isolate(&mut command);
-    command.stdin(Stdio::piped());
-    let stdout = {
-        let mut slot = lock(owned);
-        if slot.stopped {
-            return Ok(());
+    let before = read_lock(target)?;
+    let reused = match &before {
+        Some(found) => reach(target, found, REUSE_WAIT, stop, owned)?,
+        None => Reach::Silent,
+    };
+    let url = match reused {
+        Reach::Ready(url) => url,
+        Reach::Stopped => return Ok(()),
+        // No workbench, or a stale lock: px0 starts and replaces it.
+        Reach::Silent => {
+            if let Some(forward) = lock(owned).forward.take() {
+                forward.stop();
+            }
+            let Some(found) = launch(target, before.as_ref(), stop, owned)? else {
+                return Ok(());
+            };
+            match reach(target, &found, READY_WAIT, stop, owned)? {
+                Reach::Ready(url) => url,
+                Reach::Silent => return Err(Error::Timeout.into()),
+                Reach::Stopped => return Ok(()),
+            }
         }
-        let mut child = command.spawn().map_err(Error::Spawn)?;
-        let stdout = child.stdout.take();
-        slot.input = child.stdin.take();
-        slot.child = Some(child);
-        stdout.ok_or(Error::Output)?
     };
-    let Some(remote) = wait_port(&read_port(stdout), stop, owned)? else {
-        return Ok(());
-    };
-    let forward = PortForward::start(target, remote).map_err(Error::Forward)?;
-    {
-        let mut slot = lock(owned);
-        if slot.stopped {
-            forward.stop();
-            return Ok(());
-        }
-        slot.forward = Some(forward);
-    }
-    let Some(local) = wait_listening(stop, owned)? else {
-        return Ok(());
-    };
-    let url = WebUrl::try_from(format!("http://127.0.0.1:{local}/").as_str())
-        .map_err(|_| Px0Error::Address)?;
-    if !wait_ready(&url, stop, owned)? {
-        return Ok(());
-    }
     *lock(output) = State::Ready(url.clone());
     while !cancelled(stop, CHECK) {
         if let Some(error) = failure(owned) {
@@ -256,36 +264,87 @@ fn run(
     Ok(())
 }
 
-fn wait_port(
-    port: &Receiver<Option<NonZeroU16>>,
+/// Starts px0 on the host and returns the workbench its new lock names: one
+/// other than `before`, the stale lock px0 replaces. `None` when stopped.
+fn launch(
+    target: &str,
+    before: Option<&Discovery>,
     stop: &Receiver<()>,
     owned: &Mutex<Owned>,
-) -> Result<Option<NonZeroU16>, Px0Error> {
-    let deadline = Instant::now() + PORT_WAIT;
-    loop {
-        if cancelled(stop, TICK) {
+) -> Result<Option<Discovery>, Px0Error> {
+    let mut command = sheprd_client::script_command(target, SCRIPT).map_err(Error::Command)?;
+    process::isolate(&mut command);
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    {
+        let mut slot = lock(owned);
+        if slot.stopped {
             return Ok(None);
         }
-        match port.try_recv() {
-            Ok(Some(port)) => return Ok(Some(port)),
-            Ok(None) | Err(TryRecvError::Disconnected) => {
-                // The output ended: the script's status says why.
-                let wait = Instant::now() + GRACE;
-                while Instant::now() < wait {
-                    if let Some(error) = failure(owned) {
-                        return Err(error);
-                    }
-                    thread::sleep(Duration::from_millis(25));
-                }
-                return Err(Error::Output.into());
-            }
-            Err(TryRecvError::Empty) => {}
+        let mut child = command.spawn().map_err(Error::Spawn)?;
+        slot.input = child.stdin.take();
+        slot.child = Some(child);
+    }
+    let deadline = Instant::now() + PORT_WAIT;
+    loop {
+        if cancelled(stop, LOCK_POLL) {
+            return Ok(None);
         }
         if let Some(error) = failure(owned) {
             return Err(error);
         }
+        if let Some(found) = read_lock(target)?
+            && before != Some(&found)
+        {
+            return Ok(Some(found));
+        }
         if Instant::now() >= deadline {
-            return Err(Error::Timeout.into());
+            return Err(Error::Address.into());
+        }
+    }
+}
+
+/// Forwards `found`'s port here and waits up to `wait` for the workbench to
+/// answer through it. The forward stays in `owned`.
+fn reach(
+    target: &str,
+    found: &Discovery,
+    wait: Duration,
+    stop: &Receiver<()>,
+    owned: &Mutex<Owned>,
+) -> Result<Reach, Px0Error> {
+    let remote = server::base(&found.url)?
+        .port()
+        .and_then(NonZeroU16::new)
+        .ok_or(Px0Error::Address)?;
+    let forward = PortForward::start(target, remote).map_err(Error::Forward)?;
+    {
+        let mut slot = lock(owned);
+        if slot.stopped {
+            forward.stop();
+            return Ok(Reach::Stopped);
+        }
+        slot.forward = Some(forward);
+    }
+    let Some(local) = wait_listening(stop, owned)? else {
+        return Ok(Reach::Stopped);
+    };
+    let url = WebUrl::try_from(format!("http://127.0.0.1:{local}/").as_str())
+        .map_err(|_| Px0Error::Address)?;
+    let deadline = Instant::now() + wait;
+    loop {
+        match server::probe(&url) {
+            Ok(()) => return Ok(Reach::Ready(url)),
+            Err(_) if Instant::now() >= deadline => return Ok(Reach::Silent),
+            Err(_) => {}
+        }
+        if let Some(error) = failure(owned) {
+            return Err(error);
+        }
+        if cancelled(stop, Duration::from_millis(500)) {
+            return Ok(Reach::Stopped);
         }
     }
 }
@@ -310,24 +369,6 @@ fn wait_listening(stop: &Receiver<()>, owned: &Mutex<Owned>) -> Result<Option<u1
         }
         if Instant::now() >= deadline {
             return Err(Error::Timeout.into());
-        }
-    }
-}
-
-/// Whether the workbench answered through the forward; `false` when stopped.
-fn wait_ready(url: &WebUrl, stop: &Receiver<()>, owned: &Mutex<Owned>) -> Result<bool, Px0Error> {
-    let deadline = Instant::now() + READY_WAIT;
-    loop {
-        match server::probe(url) {
-            Ok(()) => return Ok(true),
-            Err(error) if Instant::now() >= deadline => return Err(error),
-            Err(_) => {}
-        }
-        if let Some(error) = failure(owned) {
-            return Err(error);
-        }
-        if cancelled(stop, Duration::from_millis(500)) {
-            return Ok(false);
         }
     }
 }

@@ -4,23 +4,22 @@
 use super::*;
 use std::{
     fs,
-    io::{BufRead, BufReader, Write},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::Duration,
 };
 
-/// A stand-in px0: it keeps its arguments and state folder, leaves a child
-/// of its own running, as px0 runs one per checkout, and then publishes its
-/// address in `workbench.lock` as px0 does.
+/// A stand-in px0: it keeps its arguments and state folder and leaves a
+/// child of its own running, as px0 runs one per checkout. Hung up, it stops
+/// that child and exits, as px0 does.
 const FAKE_PX0: &str = r#"#!/bin/sh
 printf '%s\n' "$@" > "$HOME/args"
 printf '%s' "$XDG_STATE_HOME" > "$HOME/state"
 sleep 600 &
-echo $! > "$HOME/grandchild"
-mkdir -p "$XDG_STATE_HOME/px0"
-printf '{\n  "pid": %s,\n  "url": "http://127.0.0.1:41234"\n}\n' $$ > "$XDG_STATE_HOME/px0/workbench.lock"
+child=$!
+trap 'kill "$child"; exit 0' HUP
+echo "$child" > "$HOME/grandchild"
 echo $$ > "$HOME/pid"
 wait
 "#;
@@ -32,12 +31,12 @@ fn home(name: &str) -> PathBuf {
     dir
 }
 
-/// Puts the stand-in where the script looks when `ssh`'s PATH lacks it.
-fn install(home: &Path) {
+/// Puts `program` where the script looks when `ssh`'s PATH lacks px0.
+fn install(home: &Path, program: &str) {
     let bin = home.join(".local/bin");
     fs::create_dir_all(&bin).unwrap();
     let px0 = bin.join("px0");
-    fs::write(&px0, FAKE_PX0).unwrap();
+    fs::write(&px0, program).unwrap();
     fs::set_permissions(&px0, fs::Permissions::from_mode(0o700)).unwrap();
 }
 
@@ -50,17 +49,9 @@ fn run(home: &Path) -> Child {
         .env("HOME", home)
         .env("PATH", "/usr/bin:/bin")
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
         .stderr(Stdio::null());
     command.spawn().unwrap()
-}
-
-fn report(child: &mut Child) -> String {
-    let mut line = String::new();
-    BufReader::new(child.stdout.as_mut().unwrap())
-        .read_line(&mut line)
-        .unwrap();
-    line
 }
 
 fn read(path: PathBuf) -> String {
@@ -88,17 +79,20 @@ fn wait_for(mut done: impl FnMut() -> bool) -> bool {
 }
 
 #[test]
-fn the_script_reports_px0s_port_and_stops_its_whole_tree() {
+fn the_script_starts_px0_and_hangs_it_up_when_its_input_ends() {
     let home = home("serve");
-    install(&home);
+    install(&home, FAKE_PX0);
     let mut child = run(&home);
-    assert_eq!(report(&mut child), "port 41234\n");
+    assert!(wait_for(
+        || home.join("pid").exists() && home.join("grandchild").exists()
+    ));
     let args = read(home.join("args"));
     assert_eq!(
         args.lines().collect::<Vec<_>>(),
         [
             "-no-open",
             "-no-update",
+            "-no-telemetry",
             "-no-color",
             "-host",
             "127.0.0.1",
@@ -114,28 +108,28 @@ fn the_script_reports_px0s_port_and_stops_its_whole_tree() {
     );
     let (px0, grandchild) = (read(home.join("pid")), read(home.join("grandchild")));
     assert!(alive(&px0) && alive(&grandchild));
-    // The end of the input, as the app goes away, stops px0 and its child.
+    // The end of the input, as the app goes away, hangs up px0, which stops
+    // its child; the script then ends with px0.
     drop(child.stdin.take());
     assert!(wait_for(|| !alive(&px0) && !alive(&grandchild)));
-    child.wait().unwrap();
+    assert!(child.wait().unwrap().success());
     let _ = fs::remove_dir_all(home);
 }
 
 #[test]
-fn a_running_workbench_is_reused_and_left_running() {
-    let home = home("reuse");
-    install(&home);
-    let mut owner = run(&home);
-    assert_eq!(report(&mut owner), "port 41234\n");
-    let px0 = read(home.join("pid"));
-    let mut second = run(&home);
-    assert_eq!(report(&mut second), "port 41234\n");
-    drop(second.stdin.take());
-    assert!(second.wait().unwrap().success());
-    assert!(alive(&px0), "only its starter stops it");
-    drop(owner.stdin.take());
-    assert!(wait_for(|| !alive(&px0)));
-    owner.wait().unwrap();
+fn the_script_ends_with_px0_and_its_status() {
+    let home = home("exits");
+    install(&home, "#!/bin/sh\nexit 3\n");
+    let mut child = run(&home);
+    // The input stays open (`Child::wait` would close it first): px0's own
+    // end is what ends the script.
+    let mut status = None;
+    assert!(wait_for(|| {
+        status = child.try_wait().unwrap();
+        status.is_some()
+    }));
+    let status = status.unwrap();
+    assert!(matches!(Error::exited(status), Error::Stopped(status) if status.code() == Some(3)));
     let _ = fs::remove_dir_all(home);
 }
 
@@ -143,7 +137,7 @@ fn a_running_workbench_is_reused_and_left_running() {
 fn a_host_without_px0_says_so() {
     let home = home("missing");
     let mut child = run(&home);
-    let _ = child.stdin.take().map(|mut input| input.write_all(b""));
+    drop(child.stdin.take());
     let status = child.wait().unwrap();
     assert!(matches!(Error::exited(status), Error::Missing), "{status}");
     let _ = fs::remove_dir_all(home);

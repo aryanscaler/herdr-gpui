@@ -3886,10 +3886,12 @@ Sheprd ownership of it. Closing a tab leaves the workbench available for other
 tabs. px0 manages its own per-checkout children and idle cleanup.
 
 A workspace on an SSH host opens px0 on that host, in the workspace's folder
-there. The app runs one `ssh` per host, which starts px0 with the same flags
-and a registry of the app's own (`~/.herdr-gpui/px0-state`), or reuses the
-workbench an earlier start left there, and forwards its loopback port here
-(`crates/sheprd-gpui/src/px0/host/serve.sh`). It never installs px0 on a host:
+there. The app reads px0's `workbench.lock` in a registry of the app's own
+(`~/.herdr-gpui/px0-state`) and reuses the workbench it names when that
+answers; otherwise one `ssh` per host starts px0 there with the same flags,
+and is hung up when the app stops it, quits, or loses the connection
+(`crates/sheprd-gpui/src/px0/host/serve.sh`). Either way the app forwards the
+workbench's loopback port here. It never installs px0 on a host:
 install it there on `PATH`, in `~/.local/bin` or `~/bin`, or on the login
 shell's `PATH`. The workbench stops when the app quits; a failure shows in
 the tab with **Retry**, which starts it again. The `px0.url` setting applies

@@ -5,21 +5,26 @@ use crate::browser::WebUrl;
 mod script;
 
 #[test]
-fn only_the_scripts_own_report_names_a_port() {
+fn the_hosts_lock_is_read_as_this_computers_is() {
+    use super::super::server;
+    let found =
+        server::parse(b"{\n  \"pid\": 4242,\n  \"url\": \"http://127.0.0.1:41234\"\n}\n").unwrap();
+    assert_eq!(found.pid, 4242);
     assert_eq!(
-        worker::parse("port 35165\n").map(|port| port.get()),
-        Some(35165)
+        found.url,
+        WebUrl::try_from("http://127.0.0.1:41234").unwrap()
     );
-    for line in [
-        "port 0\n",
-        "port 70000\n",
-        "port\n",
-        "35165\n",
-        "",
-        "listening on 1\n",
+    // No lock, a stale or foreign record, or an oversized one names nothing.
+    for bytes in [
+        &b""[..],
+        b"not json",
+        b"{\"pid\": 0, \"url\": \"http://127.0.0.1:41234\"}",
+        b"{\"pid\": 7, \"url\": \"http://example.com:41234\"}",
     ] {
-        assert_eq!(worker::parse(line), None, "{line:?}");
+        assert!(server::parse(bytes).is_none(), "{bytes:?}");
     }
+    let long = vec![b' '; usize::try_from(server::LOCK_LIMIT).unwrap() + 1];
+    assert!(server::parse(&long).is_none());
 }
 
 #[cfg(unix)]
@@ -27,10 +32,7 @@ fn only_the_scripts_own_report_names_a_port() {
 fn the_scripts_exit_codes_name_its_failures() {
     use std::os::unix::process::ExitStatusExt;
     let named = |code: i32| Error::exited(std::process::ExitStatus::from_raw(code << 8));
-    assert!(matches!(named(2), Error::Setup));
-    assert!(matches!(named(3), Error::Missing));
-    assert!(matches!(named(4), Error::Address));
-    assert!(matches!(named(5), Error::Exited));
+    assert!(matches!(named(127), Error::Missing));
     assert!(matches!(named(255), Error::Ssh));
     assert!(matches!(named(1), Error::Stopped(status) if status.code() == Some(1)));
 }
