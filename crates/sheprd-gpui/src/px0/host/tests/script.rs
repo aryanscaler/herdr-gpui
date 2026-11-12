@@ -142,3 +142,37 @@ fn a_host_without_px0_says_so() {
     assert!(matches!(Error::exited(status), Error::Missing), "{status}");
     let _ = fs::remove_dir_all(home);
 }
+
+#[test]
+fn only_a_live_px0_of_the_users_own_counts_as_running() {
+    let check = |pid: u32| {
+        #[allow(clippy::disallowed_methods)]
+        let output = Command::new("/bin/sh")
+            .args(["-c", &worker::alive_script(pid)])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        output.stdout.starts_with(b"alive")
+    };
+    assert!(check(std::process::id()));
+    #[allow(clippy::disallowed_methods)]
+    let mut gone = Command::new("/bin/sh")
+        .args(["-c", "exit 0"])
+        .spawn()
+        .unwrap();
+    let pid = gone.id();
+    gone.wait().unwrap();
+    assert!(!check(pid));
+    // Another account's process, as launchd's is, is not this user's.
+    assert!(!check(1));
+}
+
+#[test]
+fn px0s_state_is_private_to_the_user() {
+    let home = home("umask");
+    install(&home, "#!/bin/sh\numask > \"$HOME/umask\"\n");
+    let mut child = run(&home);
+    assert!(wait_for(|| child.try_wait().unwrap().is_some()));
+    assert_eq!(read(home.join("umask")), "0077");
+    let _ = fs::remove_dir_all(home);
+}

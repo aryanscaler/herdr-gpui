@@ -3,6 +3,8 @@
 # own `workbench.lock`; this only finds px0 and ties its life to the input.
 # Exit codes: 127 px0 not found, otherwise px0's own.
 set -u
+# px0's registry and sessions, under the folder below, stay this user's own.
+umask 077
 # Sheprd never installs px0: it uses the one on PATH, in the user's own bin
 # folders where its installer puts it, or, since `ssh` gives no login shell,
 # on the login shell's PATH.

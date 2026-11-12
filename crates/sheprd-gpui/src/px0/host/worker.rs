@@ -190,10 +190,25 @@ fn failure(owned: &Mutex<Owned>) -> Option<Px0Error> {
 /// The workbench the host's `workbench.lock` names, if any, over the host's
 /// shared connection.
 fn read_lock(target: &str) -> Result<Option<Discovery>, Error> {
-    // Held until the read's child is reaped below.
-    let (command, _channel) =
-        sheprd_client::shared_script_command(target, READ_LOCK, SshLane::Quick)
-            .map_err(Error::Command)?;
+    Ok(server::parse(&quick(target, READ_LOCK)?))
+}
+
+/// Whether `pid` is a live process of the SSH user's own on the host.
+/// `kill -0` fails on another account's process, so a stale lock whose port
+/// someone else now holds is never trusted.
+fn owner_alive(target: &str, pid: u32) -> Result<bool, Error> {
+    Ok(quick(target, &alive_script(pid))?.starts_with(b"alive"))
+}
+
+pub(super) fn alive_script(pid: u32) -> String {
+    format!("kill -0 {pid} 2>/dev/null && echo alive; exit 0")
+}
+
+/// `script`'s bounded output on the host's shared connection.
+fn quick(target: &str, script: &str) -> Result<Vec<u8>, Error> {
+    // Held until the command's child is reaped below.
+    let (command, _channel) = sheprd_client::shared_script_command(target, script, SshLane::Quick)
+        .map_err(Error::Command)?;
     let mut output = Vec::new();
     sheprd_client::run_script_command(
         command,
@@ -203,7 +218,7 @@ fn read_lock(target: &str) -> Result<Option<Discovery>, Error> {
         &AtomicBool::new(false),
     )
     .map_err(Error::Read)?;
-    Ok(server::parse(&output))
+    Ok(output)
 }
 
 /// How reaching a workbench through a forward went.
@@ -221,9 +236,13 @@ fn run(
     owned: &Mutex<Owned>,
 ) -> Result<(), Px0Error> {
     let before = read_lock(target)?;
+    // Only a workbench whose px0 still runs as this user is reused; a new
+    // one's lock can only be written by the px0 the script starts.
     let reused = match &before {
-        Some(found) => reach(target, found, REUSE_WAIT, stop, owned)?,
-        None => Reach::Silent,
+        Some(found) if owner_alive(target, found.pid)? => {
+            reach(target, found, REUSE_WAIT, stop, owned)?
+        }
+        _ => Reach::Silent,
     };
     let url = match reused {
         Reach::Ready(url) => url,
