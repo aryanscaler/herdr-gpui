@@ -42,6 +42,7 @@ fn left_behind(path: &std::path::Path, endpoint_id: &str) -> Journal {
                 },
             },
             terminal: None,
+            recoverable: false,
         })),
     ));
     Journal::at(Some(path.to_owned()))

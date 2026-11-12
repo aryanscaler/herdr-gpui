@@ -21,12 +21,25 @@ const KEY: &str = "/src/app/.git";
 const LINKED: &str = "/src/app-feature";
 const NEW: &str = "/src/app-lane";
 
+mod remote;
+mod socket;
+
 /// A window on this computer with no Herdr 1, keeping a workspace at
 /// `LINKED`, a checkout of `app`, beside an SSH host "Box" that runs
 /// Herdr 1 when `herdr_1` is set, else only herdr-core.
 fn window(
     cx: &mut TestAppContext,
     herdr_1: bool,
+) -> (Entity<SheprdWindow>, &mut VisualTestContext, String) {
+    window_on(cx, herdr_1, sheprd_client::ConnectTarget::Local)
+}
+
+/// [`window`] with this computer reached through `target`, set before the
+/// workspace is kept so it is kept in that target's scope.
+fn window_on(
+    cx: &mut TestAppContext,
+    herdr_1: bool,
+    target: sheprd_client::ConnectTarget,
 ) -> (Entity<SheprdWindow>, &mut VisualTestContext, String) {
     let (fixture, cx) = cx.add_window_view(|window, cx| {
         let view = cx.new(|cx| fixture_window(window, cx));
@@ -51,7 +64,7 @@ fn window(
                 remote.live.snapshot = None;
             }
             view.endpoints.push(remote);
-            view.endpoints[0].connection.target = sheprd_client::ConnectTarget::Local;
+            view.endpoints[0].connection.target = target;
             view.live.snapshot = None;
             view.live.missing_installation = true;
             view.core_terminals.seed_checkout_for_test(
@@ -155,6 +168,9 @@ fn a_dispatch_here_lands_in_a_kept_workspace(cx: &mut TestAppContext) {
                 "This Mac",
                 "app",
                 Ok(Dispatched::Kept {
+                    host_identity: crate::teleport::host_for(&view.endpoints[0].connection.target)
+                        .unwrap()
+                        .identity(),
                     endpoint_id,
                     path: NEW.into(),
                     label: Some("Lane".into()),
@@ -228,7 +244,7 @@ fn herdr_1_callers_never_get_kept_workspace_ids(cx: &mut TestAppContext) {
                 .unwrap();
             assert!(
                 kept.iter()
-                    .all(|repo| crate::browser::is_kept_id(&repo.workspace_id))
+                    .any(|repo| repo.key == KEY && crate::browser::is_kept_id(&repo.workspace_id))
             );
             let herdr_1 = view
                 .herdr_1_destination(&local)

@@ -26,21 +26,15 @@ fn full_width_switch_and_typed_width_save_the_same_setting(cx: &mut TestAppConte
     let (view, cx) = cx.add_window_view(skill_fixture);
     let edits = Arc::new(Mutex::new(Vec::new()));
     view.update(cx, |view, cx| {
-        view.section = Section::General;
+        view.section = Section::Chat;
         view.config.features.acp_chats = true;
         view.controls.preference_io = Some(width_io(edits.clone()));
         cx.notify();
     });
     cx.simulate_resize(size(px(960.), px(3200.)));
     cx.update(|window, cx| crate::sidebar::layout_tests::full_draw(window, cx).clear(cx));
-    assert!(
-        cx.debug_bounds("general-chat-width-control-field")
-            .is_some()
-    );
-    let toggle = cx
-        .debug_bounds("general-chat-full-width-toggle")
-        .unwrap()
-        .center();
+    assert!(cx.debug_bounds("chat-width-control-field").is_some());
+    let toggle = cx.debug_bounds("chat-full-width-toggle").unwrap().center();
     cx.simulate_click(toggle, Default::default());
     cx.run_until_parked();
     assert_eq!(
@@ -48,14 +42,8 @@ fn full_width_switch_and_typed_width_save_the_same_setting(cx: &mut TestAppConte
         &[Preference::ChatMaxWidth(0)]
     );
     cx.update(|window, cx| crate::sidebar::layout_tests::full_draw(window, cx).clear(cx));
-    assert!(
-        cx.debug_bounds("general-chat-width-control-field")
-            .is_none()
-    );
-    let toggle = cx
-        .debug_bounds("general-chat-full-width-toggle")
-        .unwrap()
-        .center();
+    assert!(cx.debug_bounds("chat-width-control-field").is_none());
+    let toggle = cx.debug_bounds("chat-full-width-toggle").unwrap().center();
     cx.simulate_click(toggle, Default::default());
     cx.run_until_parked();
     assert_eq!(
@@ -65,7 +53,7 @@ fn full_width_switch_and_typed_width_save_the_same_setting(cx: &mut TestAppConte
         ))
     );
     cx.update(|window, cx| crate::sidebar::layout_tests::full_draw(window, cx).clear(cx));
-    let field = cx.debug_bounds("general-chat-width-control-field").unwrap();
+    let field = cx.debug_bounds("chat-width-control-field").unwrap();
     // The field also contains the unit and steppers; editing starts on its
     // 44 px numeric value, not at the center of the complete control.
     cx.simulate_click(
@@ -94,7 +82,7 @@ fn chat_width_preview_is_unwritten_and_invalid_typed_values_stay_open(cx: &mut T
     let (view, cx) = cx.add_window_view(skill_fixture);
     let edits = Arc::new(Mutex::new(Vec::new()));
     view.update(cx, |view, cx| {
-        view.section = Section::General;
+        view.section = Section::Chat;
         view.config.features.acp_chats = true;
         view.controls.preference_io = Some(width_io(edits.clone()));
         view.commit_number(

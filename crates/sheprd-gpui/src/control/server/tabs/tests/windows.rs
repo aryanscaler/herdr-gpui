@@ -170,6 +170,7 @@ fn requests_for_unknown_workspaces_and_bad_paths_are_refused(cx: &mut gpui::Test
         ),
         (
             TabOp::Orchestrator {
+                action: None,
                 repo: Some("src".into()),
             },
             Caller::default(),

@@ -34,6 +34,7 @@ fn branch_runs_keep_sessions_distinct() {
         ..workspace.clone()
     };
     let agent = LiveAgent {
+        terminals: crate::orchestrator::Terminals::Herdr1,
         endpoint: 0,
         host: None,
         session: Some("two".into()),

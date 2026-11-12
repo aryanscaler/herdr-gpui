@@ -344,9 +344,12 @@ impl SheprdWindow {
         cx.on_app_quit(|this, _| {
             this.port_forwards.stop_all();
             this.tunnels.close_all();
+            this.flush_undo_close();
             async {}
         })
         .detach();
+        // Closing the window, the tabs it hid for undo still close.
+        cx.on_release(|this, _| this.flush_undo_close()).detach();
         #[cfg(feature = "integration-test")]
         if sidebar_test {
             this._poll = Task::ready(());

@@ -36,6 +36,15 @@ impl Checkouts {
     /// Takes a finished batch and starts the next one when `folders` holds
     /// one never asked or the last answers are old. Whether answers changed.
     pub(super) fn poll(&mut self, folders: Vec<String>, now: Instant) -> bool {
+        self.poll_on(folders, now, sheprd_client::ConnectTarget::Local)
+    }
+
+    pub(super) fn poll_on(
+        &mut self,
+        folders: Vec<String>,
+        now: Instant,
+        target: sheprd_client::ConnectTarget,
+    ) -> bool {
         let mut changed = false;
         if let Some(asking) = &self.asking {
             match asking.try_recv() {
@@ -66,11 +75,23 @@ impl Checkouts {
                     .into_iter()
                     .map(|cwd| {
                         let deadline = Instant::now() + DEADLINE;
-                        let identity = sheprd_vcs::git::identity(&cwd, deadline, &|| false)
-                            .unwrap_or_else(|error| {
-                                tracing::debug!(%error, "Could not read a Herdr 2 workspace's checkout");
-                                None
-                            });
+                        let identity = if target.is_remote() {
+                            sheprd_remote::teleport::Host::new(&target)
+                                .ok()
+                                .and_then(|host| {
+                                    sheprd_remote::work::identity_before(
+                                        &host,
+                                        &cwd,
+                                        deadline,
+                                        &std::sync::atomic::AtomicBool::new(false),
+                                    )
+                                    .ok()
+                                })
+                        } else {
+                            sheprd_vcs::git::identity(&cwd, deadline, &|| false)
+                                .ok()
+                                .flatten()
+                        };
                         (cwd, identity)
                     })
                     .collect();
@@ -86,6 +107,8 @@ impl Checkouts {
 
     #[cfg(test)]
     pub(crate) fn seed(&mut self, cwd: &str, identity: Option<Identity>) {
+        // An older real worker must not overwrite the fixture's answer.
+        self.asking = None;
         self.known.insert(cwd.to_owned(), identity);
         self.asked = Some(Instant::now());
     }
@@ -93,6 +116,17 @@ impl Checkouts {
 
 #[cfg(test)]
 impl super::CoreTerminals {
+    pub(crate) fn seed_remote_checkout_for_test(
+        &mut self,
+        scope: &crate::browser::Scope,
+        cwd: &str,
+        identity: Option<Identity>,
+    ) {
+        if let Some(remote) = self.remote.get_mut(scope) {
+            remote.checkouts.seed(cwd, identity);
+        }
+    }
+
     /// Answers for `cwd` as Git would, for tests outside this module.
     pub(crate) fn seed_checkout(&mut self, cwd: &str, identity: Option<Identity>) {
         self.checkouts.seed(cwd, identity);

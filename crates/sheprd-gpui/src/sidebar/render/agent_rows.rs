@@ -192,8 +192,14 @@ impl SheprdWindow {
                 }),
             )
         })
-        .on_click(cx.listener(move |this, _, window, cx| {
-            this.open_listed_agent(&navigate_endpoint, &target, window, cx);
+        .on_click(cx.listener(move |this, _, window, cx| match &target {
+            crate::sidebar::AgentTarget::Pane(pane) => {
+                this.open_agent_row(&navigate_endpoint, pane, cx);
+                window.focus(&this.focus, cx);
+            }
+            crate::sidebar::AgentTarget::Core { .. } => {
+                this.open_listed_agent(&navigate_endpoint, &target, window, cx);
+            }
         }))
     }
 

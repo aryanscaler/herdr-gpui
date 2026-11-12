@@ -171,7 +171,7 @@ impl CoreTerminalView {
     }
 
     /// Scrolls the view to `offset` lines above the live screen.
-    pub(super) fn scroll_history(&mut self, offset: usize) {
+    pub(crate) fn scroll_history(&mut self, offset: usize) {
         self.ask(History::ScrollTo { offset });
     }
 

@@ -41,7 +41,7 @@ For every key and its default, read the managed file or the [example config on G
 
 Open Settings with Cmd-, on macOS or Ctrl+Shift+, on Linux and Windows. It opens in its own window, and the terminal stays usable while it is open. Its pages are grouped:
 
-- **Appearance:** Theme, Sidebar, Fonts, Status bar
+- **Appearance:** Theme, Sidebar, Fonts, Status bar, Chat
 - **Behaviour:** General, Tabs & panes, Code, Notifications
 - **Connect:** Integrations, Plugins, Cloud devices
 - **Advanced:** Configuration

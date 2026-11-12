@@ -69,6 +69,7 @@ fn imessage_prose_inherits_its_bubble_while_rich_surfaces_keep_theme_ink(cx: &mu
             let (mut code, mut table) = {
                 let links = Links::new(view, "fixture", cx);
                 let mut context = RichContext {
+                    pane_id: "fixture",
                     accents: None,
                     visuals: &visuals,
                     links,

@@ -308,9 +308,15 @@ impl Run {
 /// Where a run's agent lives in Herdr, written by the run's owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HerdrSession {
+    /// Receipt written only after this run creates its linked checkout.
+    pub checkout_token: Option<String>,
+    /// Explicit authority over a legacy terminal's displayed current process.
+    pub adopted: Option<crate::actions::legacy::Receipt>,
     pub run_id: String,
-    /// `None` on the machine that owns the database, else an SSH destination.
+    /// Legacy SSH destination, or an opaque comparison key for other routes.
     pub host: Option<String>,
+    /// Exact execution route for new runs; absent only in legacy records.
+    pub target: Option<sheprd_client::ConnectTarget>,
     /// The Herdr `--session` name, `None` for the default session.
     pub session: Option<String>,
     pub pane: Pane,
@@ -321,6 +327,9 @@ pub struct HerdrSession {
 /// The terminal a run's agent is in, by the Herdr that runs it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pane {
+    /// The checkout exists, but no agent terminal has started yet. Keeps the
+    /// destination durable so failed launches can still be removed.
+    Pending,
     /// Herdr 1's pane, in the workspace made for the run's worktree.
     Herdr1 {
         workspace_id: String,
@@ -347,6 +356,7 @@ pub enum Terminals {
 /// An agent Herdr shows on one of the client's connected hosts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveAgent {
+    pub terminals: Terminals,
     /// The endpoint it is on, by index in the window's list.
     pub endpoint: usize,
     /// `None` on this machine, else the SSH destination.

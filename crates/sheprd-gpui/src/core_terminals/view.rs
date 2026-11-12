@@ -147,6 +147,9 @@ pub(crate) struct CoreTerminalView {
     painter: Rc<RefCell<TerminalPainter>>,
     /// Set while the view is a pane of a split.
     pane: Option<PaneLook>,
+    paste_error: Option<crate::Error>,
+    paste_pending: RefCell<Option<paste::Pending>>,
+    paste_target: Option<sheprd_client::ConnectTarget>,
     /// Where the button held down is going.
     press: Option<pointer::Press>,
     /// Whether the terminal runs in another host's core.
@@ -214,6 +217,9 @@ impl CoreTerminalView {
             observe,
             painter,
             pane: None,
+            paste_error: None,
+            paste_pending: RefCell::new(None),
+            paste_target: Some(sheprd_client::ConnectTarget::Local),
             press: None,
             remote: false,
             scrolled_at: None,
@@ -232,6 +238,7 @@ impl CoreTerminalView {
 
     /// Keeps the last frame, dimmed, while the connection is away.
     pub(crate) fn set_stale(&mut self, cx: &mut Context<Self>) {
+        self.paste_pending.borrow_mut().take();
         self.stale = true;
         cx.notify();
     }
@@ -244,6 +251,7 @@ impl CoreTerminalView {
     /// connection. The old frame shows until the new link draws one, and the
     /// terminal is told its size and focus again.
     pub(crate) fn relink(&mut self, link: Link, cx: &mut Context<Self>) {
+        self.paste_pending.borrow_mut().take();
         self.link = link;
         // The old link's answers never arrive: copy mode stops waiting on
         // its motion or search and drops the keys queued behind it, and a
@@ -365,6 +373,7 @@ impl CoreTerminalView {
     /// The answers come with the screen, never made from a newer one, so
     /// a copy checks its rows against text at least as new as it read.
     pub(crate) fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.poll_paste(window, cx);
         let (screen, answers) = self.link.mailbox.take_with_answers();
         let changed = screen.is_some();
         if let Some(mut screen) = screen {
@@ -429,7 +438,9 @@ impl CoreTerminalView {
             }
             return;
         }
-        self.link.send(Command::Input(input));
+        if !self.hold_paste_input(&input) {
+            self.link.send(Command::Input(input));
+        }
     }
 
     /// Sizes the terminal to the cells that fit where it is laid out.
@@ -468,6 +479,11 @@ impl CoreTerminalView {
             return;
         }
         let modifiers = event.keystroke.modifiers;
+        if event.keystroke.key == "escape" && self.cancel_paste() {
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
         // Cmd-C copies a selection, as the window's copy does a Herdr pane's.
         // Ctrl-C does too only while `copy_on_select` is off, as in Herdr,
         // where the highlight waits for that copy; a selection the release
@@ -483,6 +499,19 @@ impl CoreTerminalView {
             && self.copy_selection()
         {
             self.announce_copy();
+            cx.stop_propagation();
+            window.prevent_default();
+            return;
+        }
+        if self.remote
+            && modifiers.control
+            && !modifiers.platform
+            && !modifiers.shift
+            && !modifiers.alt
+            && !modifiers.function
+            && event.keystroke.key.eq_ignore_ascii_case("v")
+        {
+            self.paste_control_v(key_input(event, false), window, cx);
             cx.stop_propagation();
             window.prevent_default();
             return;

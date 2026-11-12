@@ -139,11 +139,23 @@ impl OrchestratorView {
     }
 
     /// Lists only the project `key` names, as a menu opening one workspace's
-    /// issues asks.
+    /// issues asks, and makes checkout `key` the active repository: a run
+    /// the caller then restarts or adopts is looked up, and acted on, there
+    /// rather than in whichever project was active before. Anything still
+    /// waiting on the old project's answer is closed rather than rebound.
     pub(crate) fn only_project(&mut self, key: String, cx: &mut Context<Self>) {
         let Some(pick) = self.pick_of(&key) else {
             return;
         };
+        if let Some(repo) = self.repos.iter().position(|repo| repo.key == key)
+            && repo != self.active
+        {
+            // A dialog or confirmation still open shows the old project's
+            // choices; submitting it would act through the new one.
+            self.dialog = None;
+            self.confirm = None;
+            self.active = repo;
+        }
         self.projects = HashSet::from([pick]);
         self.refresh_rows();
         cx.notify();

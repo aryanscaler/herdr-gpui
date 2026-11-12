@@ -98,7 +98,7 @@ Hold **Shift** while selecting text in a pane. When you release, an **Annotate**
 
 For an existing selection, run **Annotate Selection for the Agent** (Cmd-Shift-A on macOS, Ctrl+Alt+Shift+A on Linux and Windows). The whole selection must be on screen. Notes go to the agent in that pane, else to the first agent in its workspace, and are delivered as page notes are (see [Browser tabs](browser.md#sending-notes)). With no agent, they are copied to the clipboard.
 
-In a Herdr 2 pane, select text (it may reach into the scrollback) and run **Annotate Selection for the Agent**. Herdr 2 agents do not take notes yet, so the note is copied to the clipboard.
+In a Herdr 2 pane, select text (it may reach into the scrollback) and run **Annotate Selection for the Agent**. Notes are sent through that host's core to the selected agent. If the agent is gone, unreachable, or refuses the reply, the notes are copied to the clipboard instead.
 
 ## Terminal links
 
@@ -123,7 +123,7 @@ Herdr 2 panes read links from their own screen, the same way, and a web address 
 
 ## Images
 
-Paste an image into an agent with Cmd-V. Sheprd sends it through Herdr's image bridge: the daemon writes a temporary file and pastes its path into the pane, where an agent such as OpenCode can read it as an image. Sheprd never presses Enter for you.
+In a Herdr 1 pane, paste an image into an agent with Cmd-V. Sheprd sends it through Herdr's image bridge: the daemon writes a temporary file and pastes its path into the pane, where an agent such as OpenCode can read it as an image. Sheprd never presses Enter for you. Herdr 2 terminal paste currently accepts text and copied file paths, not clipboard bitmap images. Rendering inline images below is a separate capability.
 
 - **Local panes:** Cmd-V pastes a clipboard image (Ctrl-Shift-V or Shift-Insert on Windows). Local Ctrl-V goes to the terminal unchanged, so agents can read the clipboard themselves.
 - **SSH panes:** drop one PNG, JPEG, GIF, WebP or BMP image on a pane, or paste one with Cmd-V or Ctrl-V.
@@ -138,11 +138,11 @@ Programs that show images with the kitty graphics protocol, such as `kitten icat
 
 Drop files from your file manager onto a pane or popup to paste their paths there, even if another pane is focused. Paths are pasted with shell characters escaped (`/tmp/Shot\ 1.png`), separated by spaces, and Enter is never pressed. Files copied in the file manager and pasted with Cmd-V work the same way. A drop is limited to 256 paths.
 
-Herdr 2 panes take dropped and copied files the same way. A live macOS screenshot thumbnail, dropped before it saves, goes through the image bridge as a pasted image does on a Herdr 1 pane; a Herdr 2 pane, which has no image bridge, gets its path. A WSL distribution receives its own paths for the files, with nothing copied.
+Local Herdr 2 panes take dropped and copied file paths the same way. A live macOS screenshot thumbnail, dropped before it saves, goes through the image bridge on a Herdr 1 pane; a local Herdr 2 pane gets only its path, which may not yet name a readable file. Remote Herdr 2 panes refuse file paths: SSH uploads and WSL path translation are not implemented for them. Herdr 1 WSL panes receive translated paths, with nothing copied.
 
 ## SSH file copies
 
-Drop regular files onto an SSH pane to copy them to that host. A `Copying...` card shows the file name or count, progress, and a **Cancel** button. Once every file has arrived, their remote paths are pasted into the pane. Nothing is pasted if the copy fails.
+Drop regular files onto a Herdr 1 SSH pane to copy them to that host. A `Copying...` card shows the file name or count, progress, and a **Cancel** button. Once every file has arrived, their remote paths are pasted into the pane. Nothing is pasted if the copy fails.
 
 - Each file goes into a new private `herdr-upload.*` directory under the host's `${TMPDIR:-/tmp}`. Existing files are never overwritten.
 - Directories and special files are refused; symlinks to regular files are followed. A single image uses the image bridge instead.

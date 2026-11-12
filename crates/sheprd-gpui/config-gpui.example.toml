@@ -33,6 +33,12 @@
 # To follow the system light/dark appearance, name a theme for each side, as
 # Ghostty does: theme = "light:Catppuccin Latte,dark:Catppuccin Mocha"
 theme = "Default"
+# Explicit Herdr 2 click adapters, disabled by default. See docs/link-handlers.md.
+# Each entry names plugin, id, host, pattern, directory and command (argv).
+link_handlers = []
+# Opt-in existing herdr-plugin.toml link actions, with per-host enable and
+# manifest platform filtering. No build/startup/event hooks are imported.
+link_plugins = []
 # Themes starred in the Color Scheme picker, listed above the rest. The
 # picker's star button keeps this list in config-gpui.local.toml.
 # favorite_themes = ["Nord", "Catppuccin Mocha"]
@@ -811,6 +817,14 @@ size = 12
 # enabled = true
 # Mods, by folder name, not to run.
 # disabled = []
+
+# Undo closing a terminal tab (Settings > Tabs & panes > Undo closing a tab).
+# A closed tab stays open in Herdr, hidden in this window, for `seconds`
+# (1 to 60), and Reopen Closed Tab within that time brings it back with its
+# programs still running. Herdr's other clients list it until it closes.
+# [undo_close_tab]
+# enabled = false
+# seconds = 10
 
 # Zen mode (View > Toggle Zen Mode, or `toggle_zen_mode`) hides the
 # header, sidebar, tab strips, status bar, and notices, and every group but

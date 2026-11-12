@@ -4,10 +4,7 @@
 use crate::{
     SheprdWindow,
     browser::Shown,
-    chat::{
-        core_pane,
-        visual::{self, DiagramStyle, Job, Output, VisualId},
-    },
+    chat::visual::{self, DiagramStyle, Job, Output, VisualId},
 };
 use gpui::{App, AppContext as _, Context, Window};
 use std::rc::Rc;
@@ -86,7 +83,7 @@ impl SheprdWindow {
                 continue;
             };
             for terminal in self.core_terminals.visible_chat_panes(tab) {
-                let key = core_pane::key(terminal);
+                let key = self.core_chat_key(tab, terminal);
                 if !visible.contains(&key) {
                     visible.push(key);
                 }

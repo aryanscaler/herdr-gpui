@@ -540,15 +540,15 @@ pub(super) async fn rename_workspace(
     // A workspace Sheprd keeps for Herdr 2 is Sheprd's to rename; while it
     // is closed, its saved tabs are renamed for it.
     if state.hub.kept_workspace(&workspace) {
-        if !state.changes.open() {
-            state.hub.rename_kept(workspace, name.to_owned()).await?;
-            return Ok(Json(json!({})));
-        }
         let op = crate::control::layout::Op::RenameWorkspace {
             workspace,
             name: name.to_owned(),
         };
-        crate::native::changes::change_layout(&state, 0, String::new(), op).await?;
+        let keeper = crate::hub::Keeper::Saved {
+            tab: 0,
+            terminal: String::new(),
+        };
+        crate::native::changes::arrange(&state, keeper, op).await?;
         return Ok(Json(json!({})));
     }
     // The groups this daemon lists for Herdr 2 it names itself.

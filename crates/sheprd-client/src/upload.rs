@@ -1,5 +1,5 @@
 use crate::{Error, Result, catalog::validate_target};
-use std::{path::PathBuf, sync::atomic::AtomicBool};
+use std::{path::PathBuf, process::Command, sync::atomic::AtomicBool};
 
 const LINE_LIMIT: usize = 4096;
 
@@ -26,18 +26,47 @@ pub fn upload_files(
     progress: impl FnMut(u64, u64),
 ) -> Result<Vec<String>> {
     validate_target(target)?;
+    upload_files_with(paths, cancelled, progress, |script| {
+        Ok(crate::ssh::command(target, script))
+    })
+}
+
+/// Stage regular files through a caller-selected POSIX command route.
+///
+/// Has the bounds, cancellation, ownership, and worker-only requirements of
+/// [`upload_files`]. Available on Linux and macOS clients only; other platforms
+/// return [`Error::UploadUnsupported`] without calling the factory.
+///
+/// `command` receives a complete shell-quoted `/bin/sh -c ...` command, ready for
+/// a remote execution API or a local `new_command("/bin/sh").args(["-c", script])`.
+/// Return an unspawned command with no PTY; this function replaces its standard
+/// streams. The route must run the command verbatim on a POSIX host and preserve
+/// binary stdin/stdout without banners. The factory owns destination validation,
+/// authentication, and host-key trust; use the existing trusted route builders.
+/// It must return promptly: factory execution is not covered by the I/O timeout.
+///
+/// Capture the original destination: the same factory is used for every file
+/// and rollback, even after cancellation. A factory error after partial success
+/// triggers rollback; a rollback factory error is retained in `UploadCleanup`.
+/// Keep that destination for [`remove_uploaded_files_with`] after success.
+/// Keep route credentials alive around the entire call, including rollback
+/// (for example, call this inside the cloud provider's command-template scope).
+pub fn upload_files_with(
+    paths: &[PathBuf],
+    cancelled: &AtomicBool,
+    progress: impl FnMut(u64, u64),
+    command: impl FnMut(&str) -> Result<Command>,
+) -> Result<Vec<String>> {
     if paths.len() > 256 {
         return Err(Error::UploadPathLimit);
     }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
-        posix::upload(paths, cancelled, progress, |script| {
-            crate::ssh::command(target, script)
-        })
+        posix::upload(paths, cancelled, progress, command)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        let _ = (paths, cancelled, progress);
+        let _ = (paths, cancelled, progress, command);
         Err(Error::UploadUnsupported)
     }
 }
@@ -59,14 +88,29 @@ pub fn upload_files(
 /// timeout, without a cancellation flag. Empty batches do not spawn SSH.
 pub fn remove_uploaded_files(target: &str, paths: &[String]) -> Result<()> {
     validate_target(target)?;
+    remove_uploaded_files_with(paths, |script| Ok(crate::ssh::command(target, script)))
+}
+
+/// Remove successful uploads using their original command route.
+///
+/// Has the validation, provenance, nonrecursive deletion, and worker-only
+/// requirements of [`remove_uploaded_files`], and the factory/trust contract of
+/// [`upload_files_with`]. Pass only unchanged paths returned by that upload and
+/// capture its original destination, never the current UI selection. Validation
+/// completes before calling the factory. Empty batches do not call it. Linux
+/// and macOS clients only; other platforms return [`Error::UploadUnsupported`].
+pub fn remove_uploaded_files_with(
+    paths: &[String],
+    mut command: impl FnMut(&str) -> Result<Command>,
+) -> Result<()> {
     let owned = cleanup_paths(paths)?;
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
-        posix::cleanup(&owned, &mut |script| crate::ssh::command(target, script))
+        posix::cleanup(&owned, &mut command)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        let _ = owned;
+        let _ = (owned, &mut command);
         Err(Error::UploadUnsupported)
     }
 }
@@ -468,7 +512,7 @@ complete=1
         paths: &[PathBuf],
         cancelled: &AtomicBool,
         mut progress: impl FnMut(u64, u64),
-        mut command: impl FnMut(&str) -> Command,
+        mut command: impl FnMut(&str) -> Result<Command>,
     ) -> Result<Vec<String>> {
         let (sources, total) = prepare(paths, cancelled)?;
         let mut owned = Vec::new();
@@ -480,7 +524,7 @@ complete=1
                 check(cancelled, Instant::now())?;
                 let mut last = Instant::now();
                 let (mut stream, mut child) =
-                    spawn(command(&receive_command(&source.name, source.len)))?;
+                    spawn(command(&receive_command(&source.name, source.len))?)?;
                 if line(&mut stream, cancelled, &mut last)? != "herdr-upload-ready:1" {
                     return Err(Error::UploadResponse);
                 }
@@ -552,7 +596,7 @@ complete=1
 
     pub(super) fn cleanup(
         owned: &[StagedUpload],
-        command: &mut impl FnMut(&str) -> Command,
+        command: &mut impl FnMut(&str) -> Result<Command>,
     ) -> Result<()> {
         for staged in owned {
             staged.validate()?;
@@ -581,7 +625,7 @@ exit "$failed"
         );
         let mut last = Instant::now();
         let stop = AtomicBool::new(false);
-        let (mut stream, mut child) = spawn(command(&script))?;
+        let (mut stream, mut child) = spawn(command(&script)?)?;
         for staged in owned {
             write_bytes(
                 &mut stream,
@@ -604,5 +648,10 @@ exit "$failed"
     #[allow(clippy::unwrap_used, clippy::expect_used)]
     mod tests {
         include!("upload_tests.rs");
+        include!("upload/tests/legacy_factory.rs");
+
+        mod routes {
+            include!("upload/tests/routes.rs");
+        }
     }
 }

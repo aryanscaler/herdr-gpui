@@ -301,10 +301,18 @@ impl SheprdWindow {
                         .then(|| crate::browser::ClosedHerdrTab::capture(snapshot, &close.tab))
                         .flatten()
                 });
-                let sent = self.request_focus_change(method.as_str(), None, |handle, boot| {
-                    handle.request(boot, method, params)
-                });
-                if sent && let Some(closed) = closing_tab {
+                // With undo on, the tab hides and closes later instead.
+                let deferred = closing_tab
+                    .as_ref()
+                    .is_some_and(|closed| self.defer_tab_close(closed, cx));
+                let sent = deferred
+                    || self.request_focus_change(method.as_str(), None, |handle, boot| {
+                        handle.request(boot, method, params)
+                    });
+                if sent
+                    && !deferred
+                    && let Some(closed) = closing_tab
+                {
                     self.record_closed_herdr_tab(closed, cx);
                 }
                 if let Some(tab) = tab {

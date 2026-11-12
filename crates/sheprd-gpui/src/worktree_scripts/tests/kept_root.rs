@@ -4,6 +4,8 @@
 use super::super::kept_root;
 use std::{path::Path, process::Command, sync::atomic::AtomicBool};
 
+mod socket;
+
 fn git(dir: &Path, args: &[&str]) {
     let status = Command::new("git")
         .arg("-C")

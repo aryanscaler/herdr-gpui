@@ -10,7 +10,6 @@ use sheprd_chat_protocol::Agent;
 use std::{path::PathBuf, sync::atomic::AtomicBool};
 
 const SESSION: &str = "0c6f0c39-3c1e-4b7e-9a51-6d1b8e2d7f10";
-const PID: i32 = 4242;
 
 /// `t1` running Claude Code until Ctrl+C reaches it, then its shell.
 fn agent_record(stopped: bool, status: &str) -> Value {
@@ -21,7 +20,7 @@ fn agent_record(stopped: bool, status: &str) -> Value {
     };
     json!({"address": "t1", "cols": 80, "rows": 24, "cwd": "/tmp", "state": "live",
         "pid": 100, "status": {"state": status, "app": "claude"},
-        "foreground": {"pid": if stopped { 100 } else { PID }, "name": name,
+        "foreground": {"pid": if stopped { 100 } else { std::process::id() }, "name": name,
             "argv": argv, "cwd": "/tmp"}})
 }
 
@@ -42,9 +41,21 @@ fn stand(status: &'static str) -> Stand {
     let home = dir.path().join("home");
     let sessions = home.join(".claude").join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
+    let pid = std::process::id();
+    let stamp = sheprd_client::new_command("ps")
+        .args(["-o", "lstart=", "-p", &pid.to_string()])
+        .env("LC_ALL", "C")
+        .env("TZ", "UTC")
+        .output()
+        .unwrap();
+    assert!(stamp.status.success());
+    let started = String::from_utf8(stamp.stdout).unwrap();
     std::fs::write(
-        sessions.join(format!("{PID}.json")),
-        format!(r#"{{"pid":{PID},"sessionId":"{SESSION}","cwd":"/tmp"}}"#),
+        sessions.join(format!("{pid}.json")),
+        serde_json::to_vec(
+            &json!({"pid":pid,"sessionId":SESSION,"cwd":"/tmp","procStart":started.trim()}),
+        )
+        .unwrap(),
     )
     .unwrap();
     let path = dir.path().join("core.sock");
@@ -73,6 +84,7 @@ fn stand(status: &'static str) -> Stand {
             let method = request["method"].as_str().unwrap().to_owned();
             let result = match method.as_str() {
                 "terminal.list" => json!({"terminals": [agent_record(stopped, status)]}),
+                "doc.get" => json!({"value": null, "version": 0}),
                 "terminal.keys" => {
                     stopped = true;
                     json!({})
@@ -82,7 +94,7 @@ fn stand(status: &'static str) -> Stand {
                 "terminal.label" => agent_record(stopped, status),
                 method => panic!("unexpected method {method}"),
             };
-            if method != "terminal.list" {
+            if method != "terminal.list" && method != "doc.get" {
                 sent.send((method, request["params"].clone())).unwrap();
             }
             let response = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});

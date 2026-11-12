@@ -68,6 +68,7 @@ fn kept_workspace(view: &SheprdWindow, caller: &Caller) -> Option<Result<String,
     if target.workspace.is_none()
         && target.terminal.is_none()
         && target.pane.is_none()
+        && target.daemon.is_none()
         && let Some(id) = view.kept_in_front()
     {
         return Some(Ok(id.to_owned()));
@@ -103,12 +104,6 @@ fn open_kept_menu(
         ));
     }
     Ok(id.to_owned())
-}
-
-/// Refuses a flow that needs Herdr 1's state for a caller in a workspace
-/// the app keeps for Herdr 2, before any menu opens.
-fn needs_herdr(view: &SheprdWindow, caller: &Caller, what: &str) -> Result<(), Response> {
-    find(view, caller)?.herdr(what).map(|_| ())
 }
 
 /// What the caller's workspace is checked out on, for messages.
@@ -191,12 +186,11 @@ pub(super) fn script(
 fn launch(view: &SheprdWindow, caller: &Caller, kind: ScriptKind) -> Result<Launch, Response> {
     selected_workspace(view, caller)?;
     let found = find(view, caller)?;
-    let herdr = found.herdr("a worktree script")?;
-    let Some(tree) = &herdr.workspace.worktree else {
+    let Some(tree) = &found.workspace.worktree else {
         return Err(invalid(crate::worktree_scripts::Error::NotGit.to_string()));
     };
     // The menu offers the setup script on linked worktrees alone.
-    if kind == ScriptKind::Setup && !tree.is_linked_worktree {
+    if kind == ScriptKind::Setup && !tree.linked {
         return Err(invalid(
             "The setup script runs in linked worktrees, not the main checkout",
         ));
@@ -206,11 +200,21 @@ fn launch(view: &SheprdWindow, caller: &Caller, kind: ScriptKind) -> Result<Laun
         kind,
         endpoint: (view.selection_epoch, endpoint.generation),
         endpoint_id: endpoint.id.clone(),
-        boot: herdr.snapshot.boot_id.clone(),
-        workspace: herdr.workspace.workspace_id.clone(),
+        boot: found
+            .herdr
+            .as_ref()
+            .map(|herdr| herdr.snapshot.boot_id.clone())
+            .unwrap_or_default(),
+        workspace: found.workspace.id.clone(),
         repo: tree.label.clone(),
         repo_key: tree.key.clone(),
-        checkout: None,
+        checkout: found
+            .herdr
+            .is_none()
+            .then(|| crate::worktree_scripts::Checkout {
+                path: found.workspace.cwd.clone(),
+                root: None,
+            }),
         force: false,
         requested: true,
     })
@@ -375,10 +379,11 @@ pub(super) fn fan_out(
             "This window's last fan-out is still open for comparison; keep a lane or close it from the workspace menu first",
         );
     }
-    if let Err(response) = needs_herdr(view, caller, "fan-out") {
-        return response;
-    }
-    let workspace = match open_menu(view, caller, window, cx) {
+    let opened = match kept_workspace(view, caller) {
+        Some(kept) => kept.and_then(|id| open_kept_menu(view, &id, window, cx)),
+        None => open_menu(view, caller, window, cx),
+    };
+    let workspace = match opened {
         Ok(workspace) => workspace,
         Err(response) => return response,
     };

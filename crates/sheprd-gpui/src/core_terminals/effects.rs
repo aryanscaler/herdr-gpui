@@ -49,6 +49,10 @@ impl SheprdWindow {
                 view.poll(window, cx);
                 view.take_effects()
             });
+            if let Some(error) = view.update(cx, |view, _| view.take_paste_error()) {
+                use crate::i18n::Localize as _;
+                self.show_flash(Flash::warning(error.localize()), cx);
+            }
             dropped |= view.read(cx).take_dropped();
             let muted = |host: &Host| {
                 crate::notification_mutes::Mutes::any(cx)

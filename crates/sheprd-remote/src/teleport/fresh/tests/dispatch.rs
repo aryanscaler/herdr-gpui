@@ -65,6 +65,9 @@ impl Home {
 
 fn prepared(host: Host) -> Prepared {
     Prepared {
+        work_repository: work::Repository::Herdr1 {
+            workspace_id: "w1".into(),
+        },
         repository: Open {
             key: "/repo/.git".into(),
             label: "repo".into(),

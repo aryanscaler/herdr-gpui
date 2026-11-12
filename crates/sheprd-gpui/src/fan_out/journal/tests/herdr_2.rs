@@ -12,6 +12,7 @@ fn kept_checkout() -> Checkout {
             opened: work::Opened::Herdr2,
         },
         terminal: None,
+        recoverable: false,
     }
 }
 

@@ -199,7 +199,17 @@ pub(crate) struct Cleanup {
 
 /// Revalidate the exact folder immediately before background removal.
 /// Cached workspace metadata must never authorize deleting another branch.
+#[cfg(test)]
 pub(crate) fn verify_kept_removal(
+    candidate: &Candidate,
+    path: &str,
+    cancelled: &AtomicBool,
+) -> crate::Result<()> {
+    verify_kept_removal_on(&ConnectTarget::Local, candidate, path, cancelled)
+}
+
+pub(crate) fn verify_kept_removal_on(
+    target: &ConnectTarget,
     candidate: &Candidate,
     path: &str,
     cancelled: &AtomicBool,
@@ -207,10 +217,59 @@ pub(crate) fn verify_kept_removal(
     if candidate.input.checkout.as_deref() != Some(path) {
         return Err(crate::Error::StaleWorkspace);
     }
-    let report = probe(&candidate.input, cancelled)?;
+    let report = probe_on(target, &candidate.input, cancelled)?;
     decide_status(candidate, &report, AgentStatus::Idle, false)
         .map(|_| ())
         .map_err(|_| crate::Error::StaleWorkspace)
+}
+
+fn probe_on(
+    target: &ConnectTarget,
+    input: &Input,
+    cancelled: &AtomicBool,
+) -> crate::Result<Report> {
+    if !target.is_remote() {
+        return probe(input, cancelled);
+    }
+    let host = sheprd_remote::teleport::Host::new(target)?;
+    let folder = input
+        .checkout
+        .as_deref()
+        .ok_or(crate::Error::StaleWorkspace)?;
+    let identity = sheprd_remote::work::identity(&host, folder, cancelled)?;
+    if !identity.linked
+        || input.repo_key.as_deref() != Some(identity.key.as_str())
+        || identity.branch.as_deref() != Some(input.branch.as_str())
+    {
+        return Err(crate::Error::StaleWorkspace);
+    }
+    let checkout =
+        sheprd_remote::work::git(&host, folder, &["rev-parse", "--show-toplevel"], cancelled)?;
+    let head = sheprd_remote::work::git(
+        &host,
+        &checkout,
+        &["rev-parse", "--verify", "HEAD"],
+        cancelled,
+    )?;
+    let dirty = !sheprd_remote::work::git(
+        &host,
+        &checkout,
+        &[
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=normal",
+            "--ignore-submodules=none",
+        ],
+        cancelled,
+    )?
+    .is_empty();
+    let archive = crate::worktree_scripts::read_config(target, &checkout, cancelled)?
+        .is_some_and(|config| config.scripts.get(ScriptKind::Archive).is_some());
+    Ok(Report {
+        head,
+        dirty,
+        archive,
+    })
 }
 
 /// Read the checkout's head, status, and archive script. Blocking: call only

@@ -72,6 +72,11 @@ mod fallback_split;
 /// Notes a control request sends, only to a pane the window shows.
 mod requested_notes;
 
+/// Pages a group shows without being chosen, as from a restored layout,
+/// get their native page on the next tick. Only builds that show pages.
+#[cfg(any(target_os = "macos", windows))]
+mod shown_pages;
+
 /// Browser tabs in a group's strip: reordering and growing in.
 mod tab_strip;
 

@@ -7,6 +7,8 @@ fn lanes_spread_over_hosts_and_one_can_be_moved(cx: &mut gpui::TestAppContext) {
     cx.update(|window, cx| {
         view.update(cx, |view, cx| {
             view.live.status = crate::state::ConnectionStatus::Connected;
+            // A verified local peer, whose snapshot speaks for this computer.
+            view.live.local_daemon_peer = true;
             view.endpoints[0].connection.target = sheprd_client::ConnectTarget::Local;
             let snapshot = std::sync::Arc::make_mut(view.live.snapshot.as_mut().unwrap());
             snapshot.workspaces = crate::sidebar::layout_tests::snapshot(7).workspaces;

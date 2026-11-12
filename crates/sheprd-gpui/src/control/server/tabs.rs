@@ -42,7 +42,9 @@ pub(super) fn serve(
         TabOp::Code { path, line } => arrive::code(&caller, &path, line, incoming, watches, cx),
         TabOp::Edit { path, line } => arrive::edit(&caller, &path, line, incoming, watches, cx),
         TabOp::Devices => arrive::devices(&caller, incoming, watches, cx),
-        TabOp::Orchestrator { repo } => arrive::orchestrator(&caller, repo, incoming, watches, cx),
+        TabOp::Orchestrator { repo, action } => {
+            arrive::orchestrator(&caller, repo, action, incoming, watches, cx)
+        }
         TabOp::Review => arrive::review(&caller, incoming, watches, cx),
         TabOp::Px0 => arrive::px0(&caller, incoming, watches, cx),
     }

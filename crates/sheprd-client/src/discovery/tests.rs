@@ -156,3 +156,4 @@ fn sessions_are_contained_and_default_is_not_nested() {
         PathBuf::from("/tmp/explicit.sock")
     );
 }
+mod saved_targets;

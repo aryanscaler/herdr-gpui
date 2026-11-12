@@ -99,11 +99,17 @@ fn hosts_joining_after_settling_go_last_and_leaving_ones_go() {
 }
 
 #[test]
-fn one_host_alone_offers_no_choice() {
+fn a_pending_remote_keeps_discovery_open_but_one_host_alone_does_not() {
     let now = Instant::now();
     let mut picker = Picker::new("laptop", now);
     picker.update(vec![current(host("laptop", 8, 1.)), offline("farm")], now);
-    assert!(!picker.offers_choice());
+    assert!(picker.offers_choice());
+    assert!(picker.online("farm").is_none());
+    picker.update(
+        vec![current(host("laptop", 8, 1.)), host("farm", 16, 1.)],
+        now,
+    );
+    assert!(picker.online("farm").is_some());
     assert!(Picker::opened("laptop", vec![current(host("laptop", 8, 1.))], Vec::new()).is_none());
 }
 

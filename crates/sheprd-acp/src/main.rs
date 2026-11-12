@@ -22,6 +22,7 @@ mod relay;
 mod restore;
 mod rpc;
 mod session;
+mod session_helpers;
 mod tui;
 
 use std::process::ExitCode;
@@ -55,6 +56,16 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Ok(cli::Parsed::Session(command)) => {
+            let discover = matches!(command, session_helpers::Command::Discover { .. });
+            match session_helpers::run(command) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("sheprd-acp: {error:#}");
+                    ExitCode::from(session_helpers::exit_code(discover, &error))
+                }
+            }
+        }
         Ok(cli::Parsed::Mirror(options)) => match mirror::run(options) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {

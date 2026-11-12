@@ -1,4 +1,5 @@
-//! Fonts: one family and size per face, then a live specimen of the face in use.
+//! Fonts: one family and size per face, then a live specimen of the face in
+//! use and a chat code block in the terminal face.
 // i18n: migrated
 use super::{SettingsWindow, ui};
 use crate::{
@@ -58,6 +59,7 @@ impl SettingsWindow {
             None,
         ))
         .child(self.render_font_specimen())
+        .child(self.render_html_preview(cx))
     }
 
     fn all_families_button(&self) -> Stateful<Div> {

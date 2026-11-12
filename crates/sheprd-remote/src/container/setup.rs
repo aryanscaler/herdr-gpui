@@ -71,6 +71,15 @@ pub fn add_device(
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<SavedDevice> {
+    add_device_for(request, cloud::Requirement::Either, cancelled, report)
+}
+
+fn add_device_for(
+    request: AddRequest,
+    requirement: cloud::Requirement,
+    cancelled: &dyn Fn() -> bool,
+    report: &dyn Fn(cloud::Step),
+) -> crate::Result<SavedDevice> {
     let AddRequest {
         settings,
         name,
@@ -83,7 +92,7 @@ pub fn add_device(
         report(cloud::Step::Building("pulling image".into()));
     })?;
     // An unsaved container would run unlisted, so a failure deletes it too.
-    let ready = make_ready(engine, &name, install, cancelled, report);
+    let ready = make_ready(engine, &name, install, requirement, cancelled, report);
     if let Err(error) = &ready {
         if let Err(cleanup) = machine::delete(engine, &name, &|| false) {
             tracing::warn!(category = "container", id = name, error = %cleanup, "Could not remove a failed container");
@@ -99,13 +108,16 @@ fn make_ready(
     engine: Engine,
     id: &str,
     install: bool,
+    requirement: cloud::Requirement,
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<SavedDevice> {
-    install_herdr(engine, id, install, cancelled, report)?;
+    install_herdr(engine, id, install, requirement, cancelled, report)?;
     // Commands such as Teleport's need a running server before any window
     // connects; a failure here still leaves a device a connection can start.
-    if let Err(error) = machine::start_server(engine, id, cancelled) {
+    if requirement == cloud::Requirement::Either
+        && let Err(error) = machine::start_server(engine, id, cancelled)
+    {
         tracing::warn!(category = "container", id, %error, "Herdr's server did not start");
     }
     let device = SavedDevice {
@@ -125,11 +137,12 @@ fn install_herdr(
     engine: Engine,
     id: &str,
     approved: bool,
+    requirement: cloud::Requirement,
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<()> {
     report(cloud::Step::CheckingHerdr);
-    if !install::installed(machine::exec(engine, id)?, &cancelled)? {
+    if !requirement.installed(machine::exec(engine, id)?, &cancelled)? {
         if !approved {
             return Err(cloud::Error::Install(install::Failure::NotInstalled {
                 machine: Some(id.to_string()),
@@ -138,13 +151,13 @@ fn install_herdr(
             .into());
         }
         report(cloud::Step::InstallingHerdr);
-        install::install(machine::exec(engine, id)?, &cancelled)?;
+        requirement.install(machine::exec(engine, id)?, &cancelled)?;
         // The installer's own success is not proof the bridge will find it.
-        if !install::installed(machine::exec(engine, id)?, &cancelled)? {
+        if !requirement.installed(machine::exec(engine, id)?, &cancelled)? {
             return Err(cloud::Error::Install(install::Failure::Missing).into());
         }
     }
-    if approved {
+    if approved && requirement == cloud::Requirement::Either {
         install::add_core(machine::exec(engine, id), &cancelled)?;
     }
     Ok(())
@@ -164,12 +177,13 @@ pub fn provision(
     if let Some(image) = &spec.image {
         image.clone_into(&mut settings.image);
     }
-    add_device(
+    add_device_for(
         AddRequest {
             settings,
             name: spec.name.clone().unwrap_or_else(random_name),
             install: spec.install,
         },
+        spec.requirement,
         cancelled,
         report,
     )
@@ -257,7 +271,14 @@ pub fn adopt(
     super::lifecycle::start(engine, id, || {
         machine::ensure_running(engine, id, cancelled)
     })?;
-    make_ready(engine, id, install, cancelled, &|_| {})
+    make_ready(
+        engine,
+        id,
+        install,
+        cloud::Requirement::Either,
+        cancelled,
+        &|_| {},
+    )
 }
 
 /// Delete the saved container `id` with its home volume, then forget it. A

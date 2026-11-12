@@ -156,6 +156,8 @@ struct SavedTab {
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum CoreLocation {
     CoreTerminal {
+        #[serde(default)]
+        active: Option<sheprd_backend::TerminalId>,
         /// Names the user gave panes, by terminal, shown over their titles.
         #[serde(default, deserialize_with = "pane_names")]
         names: BTreeMap<String, String>,
@@ -260,6 +262,15 @@ impl SavedTabs {
         match self.location(scope, id)? {
             CoreLocation::CoreTerminal { panes, zoomed, .. } => {
                 zoomed.as_ref().filter(|zoomed| panes.contains(zoomed))
+            }
+        }
+    }
+
+    /// The selected pane, if it still belongs to this tab.
+    pub fn tab_active(&self, scope: &str, id: u64) -> Option<&sheprd_backend::TerminalId> {
+        match self.location(scope, id)? {
+            CoreLocation::CoreTerminal { panes, active, .. } => {
+                active.as_ref().filter(|active| panes.contains(active))
             }
         }
     }

@@ -87,8 +87,10 @@ impl Checkpoint {
     pub(crate) fn resume(self) -> Option<Resume> {
         match self {
             Self::Created => Some(Resume::Start),
-            Self::StartingAgent | Self::Prompting => Some(Resume::Prompt),
-            Self::Planned | Self::CreatingWorktree | Self::Prompted => None,
+            Self::StartingAgent => Some(Resume::Prompt),
+            // A lost acknowledgement does not prove that the send failed.
+            // Neither backend supplies an idempotency key for prompt sends.
+            Self::Planned | Self::CreatingWorktree | Self::Prompting | Self::Prompted => None,
         }
     }
 }
@@ -96,6 +98,8 @@ impl Checkpoint {
 /// How an interrupted lane is finished, only ever at the user's request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Resume {
+    /// Recover an owned creation receipt before starting anything.
+    Creation,
     /// Start the agent, then send the prompt.
     Start,
     /// Send the prompt only: an agent may already run in the pane, and
@@ -153,6 +157,8 @@ pub(crate) struct SavedCheckout {
     pub(crate) herdr_2: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) terminal: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) recoverable: bool,
 }
 
 impl SavedCheckout {
@@ -187,6 +193,7 @@ impl SavedCheckout {
                 opened,
             },
             terminal: self.terminal.clone().filter(|_| self.herdr_2),
+            recoverable: self.recoverable,
         }
     }
 }
@@ -208,6 +215,7 @@ impl From<&Checkout> for SavedCheckout {
             pane_id,
             herdr_2,
             terminal: checkout.terminal.clone(),
+            recoverable: checkout.recoverable,
         }
     }
 }
@@ -282,12 +290,28 @@ impl Record {
             return false;
         };
         let step = match progress {
-            Progress::CreatingWorktree => Checkpoint::CreatingWorktree,
+            Progress::CreatingOwned(checkout) => {
+                let saved = SavedCheckout::from(&**checkout);
+                if !saved.fits() || lane.checkout.is_some() {
+                    return false;
+                }
+                lane.checkout = Some(saved);
+                lane.step = Checkpoint::CreatingWorktree;
+                // The launch already saved CreatingWorktree before resolving
+                // its path. Adding that path is itself a durable change.
+                return true;
+            }
+            Progress::CreatingWorktree => {
+                if lane.checkout.is_some() {
+                    return false;
+                }
+                Checkpoint::CreatingWorktree
+            }
             Progress::Created(checkout) => {
                 // Too long to keep: the lane stays at creating its worktree,
                 // which says as much as can be kept, that one may exist.
                 let saved = SavedCheckout::from(&**checkout);
-                if !saved.fits() || lane.checkout.is_some() {
+                if !saved.fits() || lane.checkout.as_ref().is_some_and(|known| known != &saved) {
                     return false;
                 }
                 lane.checkout = Some(saved);
@@ -313,7 +337,7 @@ impl Record {
         };
         // A lane with a worktree never goes back to not knowing it, and one
         // without never claims an agent.
-        if step.has_checkout() != lane.checkout.is_some() {
+        if step != Checkpoint::CreatingWorktree && step.has_checkout() != lane.checkout.is_some() {
             return false;
         }
         let changed = lane.step != step;
@@ -355,7 +379,8 @@ impl Record {
                 AgentKind::parse(&lane.kind).is_some()
                     && short(&lane.branch)
                     && short(&lane.agent)
-                    && lane.step.has_checkout() == lane.checkout.is_some()
+                    && (lane.step == Checkpoint::CreatingWorktree
+                        || lane.step.has_checkout() == lane.checkout.is_some())
                     && lane.checkout.as_ref().is_none_or(SavedCheckout::fits)
             })
     }
@@ -698,10 +723,24 @@ impl Journal {
             .find(|record| record.id == id)
             .and_then(|record| record.lanes.get_mut(index));
         if let Some(lane) = lane
-            && step.has_checkout() == lane.checkout.is_some()
+            && (step == Checkpoint::CreatingWorktree
+                || step.has_checkout() == lane.checkout.is_some())
         {
             lane.step = step;
         }
+    }
+
+    /// The saved ownership and step of a lane whose host may return.
+    pub(super) fn saved_lane(&self, id: u64, index: usize) -> Option<SavedLane> {
+        let state = self.0.state.lock().ok()?;
+        state
+            .records
+            .iter()
+            .chain(&state.unsaved)
+            .find(|record| record.id == id)?
+            .lanes
+            .get(index)
+            .cloned()
     }
 
     /// The step lane `index` of fan-out `id` last reached.
@@ -746,6 +785,14 @@ impl Journal {
             .clone();
         state.claimed.push(record.id);
         Some(record)
+    }
+
+    /// A closed comparison no longer owns the record. Unreachable lanes
+    /// left after Keep must be claimable again when their host returns.
+    pub(super) fn release(&self, id: u64) {
+        if let Ok(mut state) = self.0.state.lock() {
+            state.claimed.retain(|claimed| *claimed != id);
+        }
     }
 
     #[cfg(test)]

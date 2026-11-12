@@ -343,6 +343,16 @@ orchestrator-dismiss = Dismiss
 
 # What a finished action did, in the banner.
 orchestrator-done-started = Agent started
+orchestrator-done-recovered = Agent terminal recovered; the initial prompt was not resent
+orchestrator-done-adopted = Control granted over the verified current process
+orchestrator-adopt = Adopt current process
+orchestrator-confirm-adopt-body = This legacy run has no historical ownership receipt. This does not prove the current process is its original agent. Grant this run control over the current process shown below? Cancel changes nothing.
+    Host: { $host }
+    Terminal: { $terminal }
+    Checkout: { $cwd }
+    Current process: { $process }
+orchestrator-restart = Restart agent
+orchestrator-confirm-restart-body = End this run's verified agent and start it again in the same checkout, with its saved model and initial prompt. Changes in the checkout are kept.
 orchestrator-done-stopped = Agent stopped
 orchestrator-done-sent = Message sent
 orchestrator-done-removed = Run removed

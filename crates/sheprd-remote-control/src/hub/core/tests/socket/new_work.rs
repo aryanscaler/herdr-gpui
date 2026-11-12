@@ -27,6 +27,7 @@ fn committed_repository(parent: &Path) -> PathBuf {
 fn chat_record(address: &str, endpoint: &EndpointId) -> Value {
     let mut record = record(address);
     record["labels"] = json!({TOKEN: endpoint.to_string()});
+    record["foreground"] = json!({"pid":42,"name":"sheprd-acp","argv":["sheprd-acp"]});
     record
 }
 

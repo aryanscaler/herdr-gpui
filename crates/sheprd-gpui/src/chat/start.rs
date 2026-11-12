@@ -45,7 +45,7 @@ pub enum Error {
     Disabled,
     #[error("Sheprd is not connected")]
     NotConnected,
-    #[error("chats start on this machine's Herdr or an SSH host's")]
+    #[error("this pane has no supported chat route")]
     NotLocal,
     #[error("no workspace is focused")]
     NoWorkspace,
@@ -116,8 +116,8 @@ pub(crate) fn command_line(agent: Agent) -> String {
 /// to install it, which stays on screen.
 pub(crate) fn remote_command_line(agent: Agent) -> String {
     format!(
-        " sh -c '{}'",
-        super::remote_program_script(&agent.to_string())
+        " sh -c {}",
+        sheprd_client::shell_quote(&super::remote_program_script(&agent.to_string()))
     )
 }
 
@@ -194,7 +194,7 @@ impl SheprdWindow {
         }
         match self.chat_route() {
             Some(super::Route::Local) => matches!(self.chats.program, Program::Found(_)),
-            Some(super::Route::Ssh(_)) => true,
+            Some(super::Route::Ssh(_) | super::Route::Remote(_)) => true,
             None => false,
         }
     }
@@ -202,7 +202,15 @@ impl SheprdWindow {
     pub(super) fn chat_route(&self) -> Option<super::Route> {
         self.endpoints
             .get(self.selected_endpoint)
-            .and_then(|endpoint| super::discovery::route(&endpoint.connection.target, &self.live))
+            .and_then(|endpoint| {
+                super::discovery::route(&endpoint.connection.target, &self.live).or_else(|| {
+                    let host = crate::core_terminals::Host::of(&crate::browser::scope(endpoint));
+                    self.core_terminals
+                        .answers(&host)
+                        .then(|| self.core_chat_route(&host))
+                        .flatten()
+                })
+            })
     }
 
     pub(crate) fn chat_starting(&self) -> bool {
@@ -219,7 +227,7 @@ impl SheprdWindow {
             return Err(Error::AgentMissing(agent));
         }
         let program = match self.chat_route().ok_or(Error::NotLocal)? {
-            super::Route::Ssh(_) => None,
+            super::Route::Ssh(_) | super::Route::Remote(_) => None,
             super::Route::Local => Some(self.chats.program.found()?.to_owned()),
         };
         if self.script_slot_busy() {
@@ -273,6 +281,7 @@ impl SheprdWindow {
     pub(crate) fn start_chat_or_flash(&mut self, agent: Agent, cx: &mut Context<Self>) {
         let started = match self.core_chat_group_tab(None, cx) {
             Some(tab) => self.start_core_chat(agent, tab, cx),
+            None if self.kept_in_front().is_some() => self.start_kept_core_chat(agent, cx),
             None => self.start_chat(agent, None),
         };
         if let Err(error) = started {
@@ -292,7 +301,12 @@ impl SheprdWindow {
             cx.notify();
             return;
         }
-        match self.start_chat(agent, None) {
+        let started = if self.kept_in_front().is_some() {
+            self.start_kept_core_chat(agent, cx)
+        } else {
+            self.start_chat(agent, None)
+        };
+        match started {
             Ok(()) => self.expect_new_tab_in(group),
             Err(error) => self.flash_chat_error(&error, cx),
         }

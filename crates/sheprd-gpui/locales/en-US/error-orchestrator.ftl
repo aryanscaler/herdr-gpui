@@ -57,6 +57,9 @@ error-orchestrator-not-a-repository = This folder is not inside a Git repository
 error-orchestrator-not-owner = Run { $run } belongs to another application
 error-orchestrator-not-web-address = Only web addresses open here
 error-orchestrator-nothing-to-open = This run has no Herdr workspace to show
+error-orchestrator-retained = The checkout, agent receipt, and any Beads claim were retained for inspection: { $error }
+error-orchestrator-action-lock = Cannot obtain the repository's action lock: { $error }
+error-orchestrator-ownership-uncertain = The run's agent identity could not be verified. Its checkout and terminal were retained for inspection.
 # $kind is the step that failed. $operation is its English description,
 # shown for a step not listed here.
 error-orchestrator-output = { $kind ->

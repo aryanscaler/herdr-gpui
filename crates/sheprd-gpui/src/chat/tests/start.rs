@@ -153,8 +153,9 @@ fn a_remote_line_finds_the_hosts_own_program() {
     assert!(line.ends_with("exit 127'"));
     assert!(line.contains("$HOME/.herdr/bin/herdr-acp"));
     assert!(line.contains("exec \"$p\" opencode"));
-    // Wrapped in single quotes, so the script must hold none of its own.
-    assert_eq!(line.matches('\'').count(), 2);
+    // The matched-version remote install path is quoted inside the script;
+    // the outer shell must preserve that quoting rather than terminate it.
+    assert!(line.contains("herdr-remote-control/bin/"));
 }
 
 /// A window on a local daemon this user owns, with `program` found.

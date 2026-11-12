@@ -218,17 +218,19 @@ impl SheprdWindow {
             .clone();
         // Herdr 1 names a kept checkout's main checkout for its scripts;
         // here Git does, as for the kept workspace's other worktree work.
-        let find_root = job.launch.kept() && checkout.root.is_none();
+        let resolve = job.launch.kept() && checkout.root.is_none();
         let token = job.cancel.clone();
         let cancel = job.cancel.clone();
         let read = cx.background_executor().spawn(async move {
-            let root = find_root
-                .then(|| kept_root(&checkout.path, &cancel))
-                .flatten();
-            (config::read(&target, &checkout.path, &cancel), root)
+            let checkout = if resolve {
+                kept_script_checkout(&target, &checkout.path, &cancel)?
+            } else {
+                checkout
+            };
+            Ok::<_, crate::Error>((config::read(&target, &checkout.path, &cancel)?, checkout))
         });
         cx.spawn(async move |this, cx| {
-            let (result, root) = read.await;
+            let result = read.await;
             this.update(cx, |this, cx| {
                 let Some(job) = this
                     .worktree_script
@@ -237,9 +239,10 @@ impl SheprdWindow {
                 else {
                     return;
                 };
-                if let (Some(checkout), Some(root)) = (&mut job.launch.checkout, root) {
-                    checkout.root = Some(root);
-                }
+                let result = result.map(|(config, checkout)| {
+                    job.launch.checkout = Some(checkout);
+                    config
+                });
                 this.worktree_scripts_read(result, cx);
             })
             .ok();
@@ -728,30 +731,38 @@ fn script_lines(script: &str) -> Vec<String> {
 
 /// The repository's main checkout, as Git lists it first, for a kept
 /// checkout's `HERDR_ROOT_PATH`. Blocking; `None` when Git cannot say.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) fn kept_root(checkout: &str, cancelled: &AtomicBool) -> Option<String> {
-    let host = sheprd_remote::teleport::Host::new(&sheprd_client::ConnectTarget::Local).ok()?;
-    let listed = sheprd_remote::work::list(&host, checkout, cancelled).ok()?;
-    listed
+    kept_root_on(&sheprd_client::ConnectTarget::Local, checkout, cancelled)
+        .ok()
+        .flatten()
+}
+
+fn kept_root_on(
+    target: &sheprd_client::ConnectTarget,
+    checkout: &str,
+    cancelled: &AtomicBool,
+) -> crate::Result<Option<String>> {
+    let host = sheprd_remote::work::host_for_kept(target)?;
+    let listed = sheprd_remote::work::list(&host, checkout, cancelled)?;
+    Ok(listed
         .into_iter()
         .next()
         .filter(|main| !main.bare)
-        .map(|main| main.path)
+        .map(|main| main.path))
 }
 
 /// The whole checkout a kept folder belongs to, and the main checkout
 /// supplied to its scripts. Blocking, like reading the script itself.
 pub(crate) fn kept_script_checkout(
+    target: &sheprd_client::ConnectTarget,
     folder: &str,
     cancelled: &AtomicBool,
 ) -> crate::Result<Checkout> {
-    let path = crate::git::git(
-        folder,
-        &["rev-parse", "--show-toplevel"],
-        "locate worktree script checkout", // i18n: data
-        std::time::Instant::now() + std::time::Duration::from_secs(15),
-        &|| cancelled.load(Ordering::Acquire),
-    )?;
-    let root = kept_root(&path, cancelled);
+    let host = sheprd_remote::work::host_for_kept(target)?;
+    let path =
+        sheprd_remote::work::git(&host, folder, &["rev-parse", "--show-toplevel"], cancelled)?;
+    let root = kept_root_on(target, &path, cancelled)?;
     Ok(Checkout { path, root })
 }
 

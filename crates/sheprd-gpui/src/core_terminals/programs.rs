@@ -30,10 +30,14 @@ impl SheprdWindow {
         Ok(())
     }
 
-    /// The terminal of this computer's core that `key` labels `value`.
-    pub(crate) fn local_terminal_labelled(&self, key: &str, value: &str) -> Option<TerminalId> {
+    pub(crate) fn host_terminal_labelled(
+        &self,
+        host: &Host,
+        key: &str,
+        value: &str,
+    ) -> Option<TerminalId> {
         self.core_terminals
-            .infos
+            .infos_of(host)?
             .all()
             .find(|info| info.labels.get(key).is_some_and(|known| known == value))
             .map(|info| info.id.clone())
@@ -42,25 +46,41 @@ impl SheprdWindow {
     /// How this computer's `terminal` ended, once a tab showing it saw it
     /// end. Terminal IDs repeat from one core to another, so a tab of
     /// another host's core never answers for it.
+    #[cfg(test)]
     pub(crate) fn core_terminal_exit(&self, terminal: &TerminalId, cx: &App) -> Option<Exit> {
-        self.local_views(terminal)
+        self.host_terminal_exit(&Host::Local, terminal, cx)
+    }
+
+    pub(crate) fn host_terminal_exit(
+        &self,
+        host: &Host,
+        terminal: &TerminalId,
+        cx: &App,
+    ) -> Option<Exit> {
+        self.host_views(host, terminal)
             .find_map(|(_, view)| view.read(cx).exit())
     }
 
     /// Whether a tab shows this computer's `terminal`.
+    #[cfg(test)]
     pub(crate) fn local_terminal_shown(&self, terminal: &TerminalId) -> bool {
-        self.local_views(terminal).next().is_some()
+        self.host_terminal_shown(&Host::Local, terminal)
     }
 
-    fn local_views<'a>(
+    pub(crate) fn host_terminal_shown(&self, host: &Host, terminal: &TerminalId) -> bool {
+        self.host_views(host, terminal).next().is_some()
+    }
+
+    fn host_views<'a>(
         &'a self,
+        host: &'a Host,
         terminal: &'a TerminalId,
     ) -> impl Iterator<Item = (TabId, &'a Entity<CoreTerminalView>)> + 'a {
         self.core_terminals
             .views
             .iter()
             .filter(move |((tab, shown), _)| {
-                shown == terminal && self.core_terminals.host_of(*tab) == Host::Local
+                shown == terminal && &self.core_terminals.host_of(*tab) == host
             })
             .map(|((tab, _), view)| (*tab, view))
     }

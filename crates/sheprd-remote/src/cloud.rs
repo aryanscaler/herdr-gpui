@@ -27,8 +27,8 @@ pub use catalog::{FILE as CATALOG_FILE, SavedDevice, load, remove, rename, save}
 pub use command::{connect_core, with_command};
 pub use providers::ProviderError;
 pub use providers::{
-    Deletion, Shape, Spec, connect, deletion, icon, image as image_support, name, noun, offer,
-    provision,
+    Deletion, Requirement, Shape, Spec, connect, deletion, icon, image as image_support, name,
+    noun, offer, provision,
 };
 pub use sheprd_client::CloudProvider;
 pub use value::Value;
@@ -40,6 +40,8 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error(transparent)]
+    CoreInstall(#[from] crate::core_install::Error),
     #[error("Could not update {}: {source}", path.display())]
     Catalog {
         path: PathBuf,

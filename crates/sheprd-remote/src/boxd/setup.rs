@@ -37,6 +37,15 @@ pub fn add_device(
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<SavedDevice> {
+    add_device_for(request, cloud::Requirement::Either, cancelled, report)
+}
+
+fn add_device_for(
+    request: AddRequest,
+    requirement: cloud::Requirement,
+    cancelled: &dyn Fn() -> bool,
+    report: &dyn Fn(cloud::Step),
+) -> crate::Result<SavedDevice> {
     let AddRequest {
         settings,
         name,
@@ -49,7 +58,16 @@ pub fn add_device(
     };
     report(cloud::Step::Creating);
     let machine = api.create(&name)?;
-    let ready = prepare(&api, &settings, &machine.id, install, cancelled, report).and_then(|()| {
+    let ready = prepare(
+        &api,
+        &settings,
+        &machine.id,
+        install,
+        requirement,
+        cancelled,
+        report,
+    )
+    .and_then(|()| {
         let device = SavedDevice {
             provider: CloudProvider::Boxd,
             id: machine.id.clone(),
@@ -77,6 +95,7 @@ fn prepare(
     settings: &Settings,
     id: &str,
     approved: bool,
+    requirement: cloud::Requirement,
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<()> {
@@ -87,7 +106,7 @@ fn prepare(
     let mut attempt = 0;
     let installed = loop {
         attempt += 1;
-        match install::installed(relay_command(settings, id)?, &cancelled) {
+        match requirement.installed(relay_command(settings, id)?, &cancelled) {
             Ok(installed) => break installed,
             Err(error) if attempt >= PROBE_ATTEMPTS || cancelled() => return Err(error.into()),
             Err(_) => std::thread::sleep(std::time::Duration::from_secs(2)),
@@ -102,12 +121,12 @@ fn prepare(
             .into());
         }
         report(cloud::Step::InstallingHerdr);
-        install::install(relay_command(settings, id)?, &cancelled)?;
-        if !install::installed(relay_command(settings, id)?, &cancelled)? {
+        requirement.install(relay_command(settings, id)?, &cancelled)?;
+        if !requirement.installed(relay_command(settings, id)?, &cancelled)? {
             return Err(cloud::Error::Install(install::Failure::Missing).into());
         }
     }
-    if approved {
+    if approved && requirement == cloud::Requirement::Either {
         install::add_core(relay_command(settings, id), &cancelled)?;
     }
     Ok(())
@@ -126,12 +145,13 @@ pub fn provision(
         .boxd
         .settings()?
         .ok_or(super::Error::Account)?;
-    add_device(
+    add_device_for(
         AddRequest {
             settings,
             name: spec.name.clone().unwrap_or_else(random_name),
             install: spec.install,
         },
+        spec.requirement,
         cancelled,
         report,
     )

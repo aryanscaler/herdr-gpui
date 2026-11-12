@@ -1,5 +1,7 @@
 use super::*;
 
+mod routes;
+
 #[core::prelude::v1::test]
 fn the_answer_names_known_agents_in_table_order() {
     assert_eq!(

@@ -10,6 +10,7 @@ use gpui::{
 use sheprd_client::{ConnectTarget, protocol::SurfaceRect};
 
 mod routing;
+mod wrapped_code;
 
 const PROSE: &str = "Read naïve café 中文 text across a narrow paragraph. These extra words deliberately wrap onto several lines before the code and table below.";
 const SOURCE: &str = "Read naïve café 中文 text across a narrow paragraph. These extra words deliberately wrap onto several lines before the code and table below.\n\n```rust\n\tlet α = 1;\n\tprintln!(\"{α}\");\n```\n\n| Name | Value |\n|:--|--:|\n| café | 42 |";

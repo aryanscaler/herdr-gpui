@@ -110,7 +110,9 @@ pub use terminal_attach::TerminalAttach;
 pub use transport::Stream;
 #[cfg(windows)]
 pub use transport::pipe_available;
-pub use upload::{remove_uploaded_files, upload_files};
+pub use upload::{
+    remove_uploaded_files, remove_uploaded_files_with, upload_files, upload_files_with,
+};
 pub use wsl::{
     WslHost, WslHosts, add_wsl_host, delete_distro_session, list_distro_sessions, list_distros,
     list_running_distros, load_wsl_hosts, load_wsl_hosts_at, probe_distro, remove_wsl_host,

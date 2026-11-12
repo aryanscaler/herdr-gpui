@@ -81,12 +81,14 @@ impl SheprdWindow {
         }
         loop {
             if let Some(tab) = run.current.clone() {
-                let open = self.live.snapshot.as_ref().is_some_and(|snapshot| {
-                    snapshot
-                        .tabs
-                        .iter()
-                        .any(|candidate| candidate.tab_id == tab)
-                });
+                // A tab whose close waits for its undo window is closed here.
+                let open = !self.browser.undo.waits(&run.workspace.0, &tab)
+                    && self.live.snapshot.as_ref().is_some_and(|snapshot| {
+                        snapshot
+                            .tabs
+                            .iter()
+                            .any(|candidate| candidate.tab_id == tab)
+                    });
                 if !open {
                     run.current = None;
                     run.sent = None;

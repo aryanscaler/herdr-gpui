@@ -57,12 +57,18 @@ pub fn base_commit(origin: &Origin, reference: &str, cancelled: &AtomicBool) -> 
 #[derive(Debug)]
 pub struct Prepared {
     pub repository: Repository,
+    work_repository: work::Repository,
     host: Host,
     /// The shipped commit's temporary reference, dropped by [`Prepared::finish`].
     reference: Option<String>,
 }
 
 impl Prepared {
+    /// The backend-specific repository to pass to `work::create` or `work::start`.
+    pub fn work_repository(&self) -> &work::Repository {
+        &self.work_repository
+    }
+
     /// Drop the shipped commit's temporary reference. The new branches keep
     /// the commit reachable.
     pub fn finish(&self, cancelled: &AtomicBool) {
@@ -81,12 +87,18 @@ pub fn prepare(
     report: &mut impl FnMut(Step),
     cancelled: &AtomicBool,
 ) -> Result<Prepared> {
+    if destination.lands_in == sheprd_session::Keeper::App {
+        return kept::prepare(origin, destination, commit, report, cancelled);
+    }
     report(Step::Discover);
     let source = origin.source();
     let candidate = job::resolve(&source, destination, cancelled)?;
     let repository = job::arrive(&source, &candidate, report, cancelled)?;
     let to = &destination.place.host;
     let mut prepared = Prepared {
+        work_repository: work::Repository::Herdr1 {
+            workspace_id: repository.workspace_id.clone(),
+        },
         repository,
         host: to.clone(),
         reference: None,

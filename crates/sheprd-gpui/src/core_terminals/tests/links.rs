@@ -158,6 +158,7 @@ fn a_link_modifier_click_opens_the_address(cx: &mut TestAppContext) {
     assert_eq!(
         opened(&asked),
         [LinkClick {
+            handler_url: Some(URL.into()),
             target: RowTarget::Web(URL.into()),
             terminal: TerminalId::new("t1").unwrap(),
             cwd: None,

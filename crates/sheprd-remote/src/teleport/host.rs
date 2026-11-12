@@ -21,6 +21,7 @@ const QUERY_IDLE: Duration = Duration::from_secs(60);
 enum Route {
     Local,
     Ssh(String),
+    Wsl(String),
     #[cfg(feature = "cloud")]
     Cloud {
         provider: sheprd_client::CloudProvider,
@@ -74,6 +75,7 @@ impl Host {
         let route = match &self.route {
             Route::Local => "local".to_owned(),
             Route::Ssh(target) => format!("ssh:{target}"),
+            Route::Wsl(distro) => format!("wsl:{distro}"),
             #[cfg(feature = "cloud")]
             Route::Cloud {
                 provider,
@@ -111,7 +113,14 @@ impl Host {
                 #[cfg(any(test, feature = "test-support"))]
                 env: Vec::new(),
             }),
-            ConnectTarget::Socket(_) | ConnectTarget::Wsl { .. } => Err(Error::UnsupportedHost),
+            ConnectTarget::Socket(_) => Err(Error::UnsupportedHost),
+            ConnectTarget::Wsl { distro, session } => Ok(Self {
+                route: Route::Wsl(distro.clone()),
+                session: Some(session.clone()),
+                development: false,
+                #[cfg(any(test, feature = "test-support"))]
+                env: Vec::new(),
+            }),
             #[cfg(feature = "cloud")]
             ConnectTarget::Cloud {
                 provider,
@@ -276,6 +285,7 @@ exec "$herdr_core" "$@"
         let host = match &self.route {
             Route::Local => ScriptHost::Local,
             Route::Ssh(target) => ScriptHost::Ssh(target, lane),
+            Route::Wsl(distro) => ScriptHost::Wsl(distro),
             #[cfg(feature = "cloud")]
             Route::Cloud {
                 provider,

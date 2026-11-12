@@ -42,4 +42,6 @@ pub enum Error {
     NoEndpointDir,
     #[error(transparent)]
     Observe(#[from] crate::observe::Error),
+    #[error(transparent)]
+    SessionHelpers(#[from] crate::session_helpers::Error),
 }

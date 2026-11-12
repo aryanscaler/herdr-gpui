@@ -36,6 +36,7 @@ rustix.workspace = true
 sheprd-client = { features = ["test-support"], workspace = true }
 sheprd-github = { features = ["test-support"], workspace = true }
 sheprd-remote = { features = ["test-support"], workspace = true }
+sheprd-session.workspace = true
 tempfile.workspace = true
 
 [features]

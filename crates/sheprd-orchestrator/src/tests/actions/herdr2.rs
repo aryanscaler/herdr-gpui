@@ -4,16 +4,51 @@
 use super::*;
 use crate::test_executable;
 
+mod cleanup;
+mod completed;
+mod journal;
+mod legacy;
+mod ownership;
+mod remote;
+mod restart;
+mod uncertain;
+mod verified_end;
+
 /// A `herdr-core` whose agent in `t9` reports `status` once started.
-fn fake_core(dir: &Path, status: &str) {
+pub(super) fn fake_core(dir: &Path, status: &str) {
     let script = format!(
-        r#"#!/bin/sh
-printf '%s\n' "$*" >> "$HOME/core-calls"
-case "$1" in
-run) echo '{{"address":"t9"}}' ;;
-wait) echo '{{"ended":true,"exit_code":null,"reason":"status","status":"{status}","turn":0}}' ;;
-*) echo '{{}}' ;;
-esac
+        r#"#!/usr/bin/env python3
+import json, os, pathlib, sys
+home = pathlib.Path(os.environ['HOME'])
+args = sys.argv[1:]
+with (home / 'core-calls').open('a') as log:
+    log.write(' '.join(args) + '\n')
+inventory = home / 'core-inventory'
+if args[0] == 'run':
+    if (home / 'reject-run').exists():
+        sys.exit(1)
+    label = args[args.index('--label') + 1].split('=', 1)
+    terminal = {{'address':'t9', 'cwd': args[args.index('--cwd') + 1], 'argv': args[args.index('--') + 1:], 'labels': {{label[0]: label[1]}}, 'state': 'live', 'pid': 8}}
+    terminal['foreground'] = {{'argv': terminal['argv'], 'name': 'claude', 'cwd': terminal['cwd'], 'pid': 9}}
+    inventory.write_text(json.dumps({{'terminals': [terminal]}}))
+    if (home / 'lose-run-reply').exists():
+        sys.exit(1)
+    print('{{"address":"t9"}}')
+elif args[0] == 'wait':
+    print('{{"ended":true,"exit_code":null,"reason":"status","status":"{status}","turn":0}}')
+elif args[0] in ('ls', 'list'):
+    print(inventory.read_text() if inventory.exists() else '{{"terminals":[]}}')
+elif args[0] == 'kill':
+    inventory.write_text('{{"terminals":[]}}')
+    print('{{}}')
+elif args[0] == 'label':
+    value = json.loads(inventory.read_text())
+    key, token = args[-1].split('=', 1)
+    value['terminals'][0]['labels'][key] = token
+    inventory.write_text(json.dumps(value))
+    print('{{}}')
+else:
+    print('{{}}')
 "#
     );
     test_executable::write(dir.join("home/.local/bin/herdr-core"), &script, 0o755).unwrap();
@@ -52,13 +87,17 @@ fn a_herdr_2_dispatch_types_the_agent_into_a_core_shell_and_records_its_terminal
     assert!(calls(dir.path()).is_empty(), "{:?}", calls(dir.path()));
     let checkout = checkout(dir.path());
     assert!(checkout.join(".git").exists());
+    let core = core_calls(dir.path());
+    assert!(core[0].starts_with(&format!(
+        "run --bg --json --no-parent --keep --cwd {} --label sheprd.orchestrator.run=",
+        checkout.display()
+    )));
+    assert!(core[0].ends_with(" -- claude --model opus"));
     assert_eq!(
-        core_calls(dir.path()),
+        &core[1..],
         [
-            format!("run --bg --json --no-parent --cwd {}", checkout.display()),
-            "send --json -- t9 'claude' '--model' 'opus'".to_owned(),
-            "wait --json --timeout 5 t9".to_owned(),
-            "send --json -- t9 Fix the icons; don't break 'quotes'.".to_owned(),
+            "wait --json --timeout 5 t9",
+            "send --json -- t9 Fix the icons; don't break 'quotes'."
         ]
     );
     let store = Store::open(&site.database).unwrap();
@@ -112,10 +151,15 @@ fn a_herdr_2_run_is_stopped_messaged_and_removed_through_its_terminal() {
     perform(&site, &Action::Remove { run: id }, &cancelled).unwrap();
 
     assert_eq!(
-        core_calls(dir.path())[before..],
+        core_calls(dir.path())[before..]
+            .iter()
+            .filter(|call| !call.starts_with("ls "))
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
         [
             "send --json -- t9 --and the tests",
             "keys --json -- t9 esc ctrl+c",
+            "keep --off --json -- t9",
             "kill --json -- t9",
         ]
     );
@@ -131,21 +175,21 @@ fn a_herdr_2_run_is_stopped_messaged_and_removed_through_its_terminal() {
 }
 
 #[test]
-fn a_herdr_2_agent_that_never_gets_ready_is_ended_and_its_worktree_removed() {
+fn a_herdr_2_agent_that_never_gets_ready_retains_its_durable_identity() {
     let dir = tempfile::tempdir().unwrap();
     let site = site(dir.path(), "");
     fake_core(dir.path(), "blocked");
     let request = Action::Dispatch(Box::new(herdr2_request()));
     let error = perform(&site, &request, &AtomicBool::new(false)).unwrap_err();
-    assert!(matches!(error, Error::Work(_)), "{error:?}");
+    assert!(matches!(error, Error::Retained { .. }), "{error:?}");
 
     let core = core_calls(dir.path());
-    assert_eq!(core.last().map(String::as_str), Some("kill --json -- t9"));
+    assert!(!core.iter().any(|call| call.starts_with("kill ")));
     assert!(!core.iter().any(|call| call.contains("Fix the icons")));
-    assert!(!checkout(dir.path()).exists());
+    assert!(checkout(dir.path()).exists());
     let store = Store::open(&site.database).unwrap();
     let run = store.runs().unwrap().remove(0);
     assert_eq!(run.state, RunState::Failed);
-    assert!(run.workspace.is_none());
-    assert!(store.sessions().unwrap().is_empty());
+    assert!(run.workspace.is_some());
+    assert_eq!(store.sessions().unwrap().len(), 1);
 }

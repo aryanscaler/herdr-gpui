@@ -86,17 +86,21 @@ impl SheprdWindow {
                 let region = scope(Region::ToolBefore(index));
                 card.child(side(fl!("chat-diff-before")))
                     .child(div().id("before").child(self.render_chat_tool_code(
+                        pane_id,
                         before,
                         region.as_ref(),
                         visuals,
+                        None,
                         cx,
                     )))
                     .child(side(fl!("chat-diff-after")))
             })
             .child(div().id("after").child(self.render_chat_tool_code(
+                pane_id,
                 &preview.code,
                 scope(Region::ToolPreview(index)).as_ref(),
                 visuals,
+                None,
                 cx,
             )))
     }

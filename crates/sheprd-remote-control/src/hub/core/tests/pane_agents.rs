@@ -15,6 +15,7 @@ fn a_split_keeps_every_panes_agent_and_a_chat_is_not_one() {
     done["status"]["state"] = json!("done");
     let mut chat = record("t3");
     chat["labels"] = json!({ sheprd_chat_protocol::TOKEN: "0123456789abcdef0123456789abcdef" });
+    chat["foreground"] = json!({"pid":42,"name":"sheprd-acp","argv":["sheprd-acp"]});
     let records: Vec<Terminal> = [record("t1"), done, chat]
         .into_iter()
         .map(|record| serde_json::from_value(record).unwrap())

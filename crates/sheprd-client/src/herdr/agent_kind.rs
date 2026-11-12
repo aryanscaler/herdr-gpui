@@ -157,10 +157,11 @@ impl AgentKind {
     }
 
     /// Whether a reported session reference identifies a session this kind
-    /// can resume. Only Herdr's own integrations are trusted to report one,
-    /// and only with the reference kinds Herdr's restore accepts.
+    /// can resume. References come from Herdr's integrations or the verified
+    /// Sheprd session-binding reader, with the reference kinds restore accepts.
     pub fn accepts(self, session: &AgentSession) -> bool {
-        session.source.strip_prefix("herdr:") == Some(self.integration())
+        (session.source.strip_prefix("herdr:") == Some(self.integration())
+            || session.source == super::sessions::SOURCE)
             && session.agent == self.name()
             && match (self, session.kind) {
                 (Self::Pi | Self::Omp, SessionKind::Path) => valid_path(&session.value),
@@ -202,6 +203,8 @@ impl AgentKind {
                 "--fallback-model",
             ],
             Self::Codex => &[
+                "--enable",
+                "--disable",
                 "-m",
                 "--model",
                 "-c",
@@ -321,6 +324,9 @@ impl AgentKind {
         let mut kept = Vec::new();
         let mut args = argv.iter().skip(1).peekable();
         while let Some(arg) = args.next() {
+            if arg == "--" {
+                break;
+            }
             if !arg.starts_with('-') {
                 continue;
             }
@@ -392,7 +398,12 @@ impl AgentKind {
 }
 
 fn valid_path(path: &str) -> bool {
-    path.starts_with('/') && path.len() <= MAX_SESSION_PATH && !path.chars().any(char::is_control)
+    let drive = path.as_bytes().get(..3).is_some_and(|prefix| {
+        prefix[0].is_ascii_alphabetic() && prefix[1] == b':' && matches!(prefix[2], b'/' | b'\\')
+    });
+    (path.starts_with('/') || drive)
+        && path.len() <= MAX_SESSION_PATH
+        && !path.chars().any(char::is_control)
 }
 impl AgentKind {
     /// Whether [`AgentKind::start_argv`] knows how to give this agent a

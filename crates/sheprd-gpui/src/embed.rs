@@ -48,18 +48,19 @@ pub fn run_helpers() -> Option<std::process::ExitCode> {
 }
 
 /// Reads settings and stores. Call it before the host's event loop, so the
-/// first frame does no disk work on the UI thread.
-pub fn prepare() -> Startup {
+/// first frame does no disk work on the UI thread. Fails when another client
+/// owns the saved tabs, which the host must not open beside it.
+pub fn prepare() -> std::io::Result<Startup> {
     // A panic leaves a report where the app's own do, beside the host's.
     crate::crash::install(crate::APP_VERSION);
     sheprd_client::set_command_environment(crate::login_env::apply);
     sheprd_remote::config::set_loader(Config::load_remote);
     // Before anything resolves a config path or the daemon's socket.
     crate::login_env::adopt_config_home();
-    Startup {
+    Ok(Startup {
         appearance: StartupAppearance::load(Config::load_startup),
-        stores: Stores::load(true),
-    }
+        stores: Stores::load(true)?,
+    })
 }
 
 fn install(startup: Startup, cx: &mut App) {

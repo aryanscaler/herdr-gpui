@@ -35,7 +35,7 @@ public struct Home: Codable, Hashable, Sendable {
     public var shortcutsMs: UInt64?
 
     enum CodingKeys: String, CodingKey {
-        case api, computer, fingerprint, connected, waiting, load, working, version, workspaces, tags
+        case api, computer, fingerprint, github, connected, waiting, load, working, version, workspaces, tags
         case shortcutsMs = "shortcuts_ms"
     }
 

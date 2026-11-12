@@ -8,4 +8,4 @@ pub mod protocol;
 pub mod socket;
 
 pub use error::{Error, Result};
-pub use protocol::{Placement, app::ActivityPanel};
+pub use protocol::{Placement, app::ActivityPanel, tabs::OrchestratorRun};

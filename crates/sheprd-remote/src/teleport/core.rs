@@ -106,6 +106,12 @@ impl Terminal {
     }
 }
 
+/// Whether `program`, a process name or path (a login shell's leading `-`
+/// allowed), is a shell a terminal opens with.
+pub(crate) fn is_shell(program: &str) -> bool {
+    SHELLS.contains(&basename(program).trim_start_matches('-'))
+}
+
 fn basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }

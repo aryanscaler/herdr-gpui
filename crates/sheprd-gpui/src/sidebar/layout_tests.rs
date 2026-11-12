@@ -23,6 +23,8 @@ mod agent_groups;
 #[cfg(test)]
 mod agent_menu;
 #[cfg(test)]
+mod agent_row_rescroll;
+#[cfg(test)]
 mod agent_rows;
 #[cfg(test)]
 mod agents_header;

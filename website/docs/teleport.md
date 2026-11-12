@@ -56,6 +56,11 @@ From the command line, `sheprd teleport --to HOST` opens the dialog for your lin
 
 ### Agent sessions
 
+The table below describes Herdr 1's session-transfer support. For a Herdr 2
+source, only Claude's process-bound record is currently discovered; the other
+agents use handoff and restart. A handoff is not conversation continuity, and
+queueing a destination launch does not prove that its session resumed.
+
 | Agent | Resumed with |
 | --- | --- |
 | Claude Code | `claude --resume <id>` |

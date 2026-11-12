@@ -6,7 +6,7 @@ status: shipped
 
 # Issues and pull requests
 
-The orchestrator lists the issues, pull requests, and Beads tasks of every repository your workspaces hold, and starts an agent on any of them in a new worktree. This page covers the sections it adds to the activity bar, its sources, dispatching agents, and review profiles.
+The orchestrator lists issues, pull requests, and Beads tasks from discovered repositories and starts agents in new worktrees. Repository discovery still depends on Herdr 1 snapshots; a repository present only in an app-kept Herdr 2 workspace is not guaranteed to appear. Local Herdr 2 dispatch is available for discovered repositories, with the limits below. This page covers the sections it adds to the activity bar, its sources, dispatching agents, and review profiles.
 
 ## Where it lives
 

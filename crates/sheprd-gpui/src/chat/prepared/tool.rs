@@ -25,12 +25,19 @@ pub(crate) struct Code {
 }
 
 impl Code {
-    fn new(language: &str, source: Arc<str>) -> Self {
+    pub(in crate::chat) fn new(language: &str, source: Arc<str>) -> Self {
         let language = crate::notifications::safe_text(language, 40);
         Self {
             id: VisualId::of(("code", &language, &source)),
             language,
             source,
+        }
+    }
+
+    /// Notes this code as on screen, as [`Preview::request_visible`] does.
+    pub(in crate::chat) fn request_visible(&self, visuals: &Visuals) {
+        if let Some(source) = self.visual() {
+            visuals.request_visible(self.id, source);
         }
     }
 
@@ -70,9 +77,7 @@ impl Preview {
 
     pub(super) fn request_visible(&self, visuals: &Visuals) {
         for code in self.codes() {
-            if let Some(source) = code.visual() {
-                visuals.request_visible(code.id, source);
-            }
+            code.request_visible(visuals);
         }
     }
 

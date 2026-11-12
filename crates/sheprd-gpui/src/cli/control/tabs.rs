@@ -56,6 +56,14 @@ pub enum Items {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OrchestratorCommand {
+    Adopt {
+        repo: Option<PathBuf>,
+        run: String,
+    },
+    Restart {
+        repo: Option<PathBuf>,
+        run: String,
+    },
     Open {
         repo: Option<PathBuf>,
     },
@@ -112,6 +120,14 @@ pub(super) fn orchestrator(args: &mut Args) -> Result<OrchestratorCommand, CliEr
     let verb = args.verb();
     Ok(match verb.as_ref().and_then(|verb| verb.to_str()) {
         None | Some("open") => OrchestratorCommand::Open { repo },
+        Some("restart") => OrchestratorCommand::Restart {
+            repo,
+            run: args.required_text("RUN")?,
+        },
+        Some("adopt") => OrchestratorCommand::Adopt {
+            repo,
+            run: args.required_text("RUN")?,
+        },
         Some("items") => OrchestratorCommand::Items {
             repo,
             items: Items::All,

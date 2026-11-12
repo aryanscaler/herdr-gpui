@@ -249,4 +249,5 @@ fn the_probe_reads_a_linked_checkouts_head_status_and_archive_script() {
 
 mod kept;
 mod kept_identity;
+mod kept_paths;
 mod window;

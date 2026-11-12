@@ -52,6 +52,51 @@ pub(crate) fn list(input: &Input, cancelled: &impl Fn() -> bool) -> crate::Resul
     Ok(parse(&output))
 }
 
+/// The kept workspace's branches on its own host. The saved common directory
+/// is verified there before refs are listed; remote paths never reach `list`.
+pub(crate) fn list_on(
+    target: &sheprd_client::ConnectTarget,
+    input: &Input,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> crate::Result<Vec<Branch>> {
+    if !target.is_remote() {
+        return list(input, &|| {
+            cancelled.load(std::sync::atomic::Ordering::Acquire)
+        });
+    }
+    let host = sheprd_remote::work::host_for_kept(target)?;
+    list_from_host(&host, input, cancelled)
+}
+
+fn list_from_host(
+    host: &sheprd_remote::teleport::Host,
+    input: &Input,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> crate::Result<Vec<Branch>> {
+    let checkout = input
+        .checkout
+        .as_deref()
+        .ok_or(crate::Error::StaleWorkspace)?;
+    let identity = sheprd_remote::work::identity(host, checkout, cancelled)?;
+    if input.repo_key.as_deref() != Some(identity.key.as_str()) {
+        return Err(crate::Error::StaleWorkspace);
+    }
+    let output = sheprd_remote::work::git(
+        host,
+        checkout,
+        &[
+            "-c",
+            "core.fsmonitor=false",
+            "for-each-ref",
+            "--sort=-committerdate",
+            &format!("--format={FORMAT}"),
+            "refs/heads",
+        ],
+        cancelled,
+    )?;
+    Ok(parse(&output))
+}
+
 /// Keep what a new checkout could use. A branch that some worktree has checked
 /// out is already somewhere, and Git refuses a second checkout of it.
 pub(super) fn parse(output: &str) -> Vec<Branch> {
@@ -75,6 +120,9 @@ pub(super) fn parse(output: &str) -> Vec<Branch> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    mod host;
 
     #[test]
     fn only_branches_without_a_checkout_are_offered() {

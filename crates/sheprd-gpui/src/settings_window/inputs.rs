@@ -30,7 +30,7 @@ pub(in crate::settings_window) enum NumberField {
 impl NumberField {
     pub(in crate::settings_window) fn selector(self) -> &'static str {
         match self {
-            Self::ChatMaxWidth => "general-chat-width-control",
+            Self::ChatMaxWidth => "chat-width-control",
             Self::Spacing(spacing) => spacing.control(),
             Self::FontSize(face) => size_control(face),
             Self::ToastDelay => "notif-delay-control",

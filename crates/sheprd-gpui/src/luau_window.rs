@@ -246,6 +246,15 @@ pub(crate) fn run() -> ExitCode {
     // Before the app's startup sets the Dock icon and the About image.
     crate::embed::icon(ICON_PNG, ICON_ICNS);
     // Read before the event loop, as the app's own startup does.
+    let startup = match crate::embed::prepare() {
+        Ok(startup) => startup,
+        Err(error) => {
+            tracing::error!(%error, "Cannot acquire saved-tab ownership");
+            // i18n: data
+            eprintln!("Cannot open saved tabs: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let (actions, received) = bounded(ACTION_QUEUE);
     // One is enough: a wake only says to look.
     let (wake, woken) = bounded(1);
@@ -263,7 +272,7 @@ pub(crate) fn run() -> ExitCode {
         actions: received,
         feeds,
         host: None,
-        startup: Some(crate::embed::prepare()),
+        startup: Some(startup),
         wake,
         woken,
     }));

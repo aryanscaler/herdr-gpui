@@ -308,6 +308,30 @@ fn root_pane(response: &serde_json::Value) -> Option<(&str, Option<&str>)> {
 }
 
 impl SheprdWindow {
+    /// Re-select the captured destination only while its saved route is
+    /// unchanged. A removed or edited device never falls back to Local.
+    pub(crate) fn select_worktree_host(
+        &mut self,
+        endpoint: &str,
+        target: &sheprd_client::ConnectTarget,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self
+            .endpoints
+            .iter()
+            .any(|known| known.id == endpoint && &known.connection.target == target)
+        {
+            return false;
+        }
+        if self.endpoints[self.selected_endpoint].id != endpoint
+            && !self.select_endpoint(endpoint, cx)
+        {
+            return false;
+        }
+        self.refresh_core_session(cx);
+        true
+    }
+
     /// The landing row for a new worktree dialog on the shown host, looking
     /// up its agents off the UI thread. `None` where the host cannot be
     /// scripted, so only its shell could be offered.
@@ -418,12 +442,23 @@ impl SheprdWindow {
                 .map_or_else(String::new, |name| name.to_string_lossy().into_owned())
         });
         let Some(kind) = chosen.and_then(Landing::agent) else {
-            self.open_local_kept_folder(&label, checkout, cx);
+            match self.kept_workspace_at(&checkout) {
+                Some(id) => {
+                    self.focus_kept_workspace(&id, cx);
+                }
+                None => self.new_kept_workspace(Some(&label), Some(checkout), cx),
+            }
             return;
         };
+        let endpoint = self.endpoints[self.selected_endpoint].id.clone();
+        let target = self.endpoints[self.selected_endpoint]
+            .connection
+            .target
+            .clone();
+        let launch_target = target.clone();
         let path = checkout.to_string_lossy().into_owned();
         let started = cx.background_executor().spawn(async move {
-            let host = Host::new(&sheprd_client::ConnectTarget::Local)?;
+            let host = sheprd_remote::work::host_for_kept(&launch_target)?;
             let worktree = sheprd_remote::work::Worktree {
                 path,
                 opened: sheprd_remote::work::Opened::Herdr2,
@@ -444,8 +479,22 @@ impl SheprdWindow {
         });
         cx.spawn_in(window, async move |this, cx| {
             let result = started.await;
-            let _ = this.update_in(cx, |this, window, cx| match result {
-                Ok(sheprd_remote::work::Started::Herdr2 { terminal }) => {
+            let _ = this.update_in(cx, |this, window, cx| {
+                if !this.select_worktree_host(&endpoint, &target, cx) {
+                    this.local_error = Some(crate::Error::StaleWorkspace.localize());
+                    return;
+                }
+                let (started, error) = kept_start_outcome(result);
+                if let Some(error) = error {
+                    tracing::warn!(%error, agent = kind.name(), "Cannot start the new worktree's agent");
+                    this.local_error = Some(fl!(
+                        "worktree-landing-failed",
+                        agent = kind.name(),
+                        error = error.localize()
+                    ));
+                }
+                match started {
+                Some(sheprd_remote::work::Started::Herdr2 { terminal }) => {
                     let Ok(terminal) = sheprd_backend::TerminalId::new(terminal) else {
                         return;
                     };
@@ -453,24 +502,14 @@ impl SheprdWindow {
                         crate::core_terminals::panes::Panes::single(terminal),
                         false,
                     );
-                    // Kept on this computer, whichever host is shown now.
-                    if !this.show_this_computer(cx) {
-                        return;
-                    }
                     this.open_kept_workspace(Some(&label), &checkout, location, window, cx);
                 }
-                Ok(sheprd_remote::work::Started::Herdr1 { .. }) => {}
-                Err(error) => {
-                    tracing::warn!(%error, agent = kind.name(), "Cannot start the new worktree's agent");
-                    this.local_error = Some(fl!(
-                        "worktree-landing-failed",
-                        agent = kind.name(),
-                        error = error.localize()
-                    ));
+                Some(sheprd_remote::work::Started::Herdr1 { .. }) => {}
+                None => {
                     // The checkout is there; its shell still opens.
-                    this.open_local_kept_folder(&label, checkout, cx);
+                    this.new_kept_workspace(Some(&label), Some(checkout), cx);
                 }
-            });
+            }});
         })
         .detach();
     }
@@ -553,6 +592,25 @@ impl SheprdWindow {
                 )
             })
             .into_any_element()
+    }
+}
+
+/// A failed send may have reached the agent. Preserve its known terminal
+/// and show it with the error, rather than hiding it behind a fresh shell.
+fn kept_start_outcome(
+    result: crate::Result<sheprd_remote::work::Started>,
+) -> (Option<sheprd_remote::work::Started>, Option<crate::Error>) {
+    match result {
+        Ok(started) => (Some(started), None),
+        Err(error) => {
+            let started = match &error {
+                crate::Error::Remote(sheprd_remote::Error::Work(
+                    sheprd_remote::work::Error::Unprompted { started, .. },
+                )) => Some(started.clone()),
+                _ => None,
+            };
+            (started, Some(error))
+        }
     }
 }
 

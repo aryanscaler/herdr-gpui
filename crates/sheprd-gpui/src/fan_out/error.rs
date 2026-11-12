@@ -21,7 +21,7 @@ impl Step {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     #[error(
-        "The agent may already be running, but its terminal was not saved. Keep the checkout and inspect it before starting another agent."
+        "The agent may already be running, but its ownership could not be verified. Keep the checkout and inspect it before starting another agent."
     )]
     AgentUncertain,
     #[error(transparent)]

@@ -270,6 +270,8 @@ fn the_orchestrator_repository_may_come_before_the_verb() {
     );
 }
 
+mod orchestrator_restart;
+
 #[test]
 fn an_events_cursor_names_its_app_run() {
     assert_eq!(

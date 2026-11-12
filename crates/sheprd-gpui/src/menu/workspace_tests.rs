@@ -22,6 +22,7 @@ mod merged_removal;
 mod mute;
 mod naming;
 mod pull_requests;
+mod remote_branches;
 #[cfg(all(feature = "container", any(target_os = "linux", target_os = "macos")))]
 mod sandbox_dispatch;
 #[cfg(all(

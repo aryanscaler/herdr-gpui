@@ -33,6 +33,7 @@ pub(crate) fn checkout(n: usize) -> Checkout {
             },
         },
         terminal: None,
+        recoverable: false,
     }
 }
 
@@ -125,7 +126,7 @@ fn only_created_or_half_prompted_lanes_resume_and_never_by_starting_twice() {
     assert_eq!(Checkpoint::CreatingWorktree.resume(), None);
     assert_eq!(Checkpoint::Created.resume(), Some(Resume::Start));
     assert_eq!(Checkpoint::StartingAgent.resume(), Some(Resume::Prompt));
-    assert_eq!(Checkpoint::Prompting.resume(), Some(Resume::Prompt));
+    assert_eq!(Checkpoint::Prompting.resume(), None);
     assert_eq!(Checkpoint::Prompted.resume(), None);
 }
 
@@ -406,6 +407,7 @@ fn the_largest_valid_journal_fits_the_file_limit() {
                 pane_id: field.clone(),
                 herdr_2: true,
                 terminal: Some(field.clone()),
+                recoverable: false,
             }),
         };
         record.lanes = vec![lane; MAX_LANES];

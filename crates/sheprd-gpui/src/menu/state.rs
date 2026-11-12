@@ -290,6 +290,11 @@ impl MenuState {
                 .is_some_and(|target| target.id == workspace)
     }
 
+    /// The workspace the open menu or dialog targets.
+    pub(crate) fn target_workspace(&self) -> Option<&str> {
+        self.target.as_ref().map(|target| target.id.as_str())
+    }
+
     /// The repository the open dialog's host picker ranks hosts for.
     pub(crate) fn dispatch_repo(&self) -> Option<String> {
         self.target

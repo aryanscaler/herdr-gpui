@@ -50,6 +50,8 @@ mod popup;
 #[cfg(any(target_os = "macos", windows))]
 mod preview;
 mod px0;
+#[cfg(any(target_os = "macos", windows))]
+mod shown_pages;
 #[cfg(target_os = "macos")]
 mod snapshot;
 #[cfg(target_os = "macos")]
@@ -61,6 +63,7 @@ mod tab_move;
 mod tab_scroll;
 #[cfg(target_os = "macos")]
 mod underlay;
+mod undo_close;
 mod view;
 #[cfg(test)]
 mod view_tests;

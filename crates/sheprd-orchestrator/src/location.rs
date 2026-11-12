@@ -20,6 +20,14 @@ pub enum Repository {
         destination: String,
         git_dir: String,
     },
+    Wsl {
+        distro: String,
+        git_dir: String,
+    },
+    Remote {
+        route: String,
+        git_dir: String,
+    },
 }
 
 impl Repository {
@@ -31,6 +39,10 @@ impl Repository {
                 destination,
                 git_dir,
             } => format!("ssh://{destination}{git_dir}"),
+            Self::Wsl { distro, git_dir } => {
+                format!("wsl://{}:{distro}{git_dir}", distro.len())
+            }
+            Self::Remote { route, git_dir } => format!("remote://{}:{route}{git_dir}", route.len()),
         }
     }
 

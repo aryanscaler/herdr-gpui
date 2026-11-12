@@ -16,17 +16,23 @@ pub fn provision(
         .ok_or(super::Error::Account)?;
     let name = spec.name.clone().unwrap_or_else(setup::random_name);
     match spec.shape {
-        Shape::Machine => setup::add_device(
+        Shape::Machine => setup::add_device_for(
             AddRequest {
                 settings,
                 target: Target::Create(name),
                 install: spec.install,
             },
+            spec.requirement,
             cancelled,
             report,
         ),
-        Shape::Sandbox => {
-            super::sandbox::add_device(settings, name, spec.install, cancelled, report)
-        }
+        Shape::Sandbox => super::sandbox::add_device_for(
+            settings,
+            name,
+            spec.install,
+            spec.requirement,
+            cancelled,
+            report,
+        ),
     }
 }

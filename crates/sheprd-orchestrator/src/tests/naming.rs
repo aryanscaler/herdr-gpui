@@ -5,6 +5,7 @@ use crate::{
 };
 use sheprd_client::protocol::AgentStatus;
 
+mod core_agents;
 mod titles;
 
 #[test]
@@ -46,6 +47,7 @@ fn workspace(id: &str, branch: &str) -> LiveBranch {
 
 fn agent(workspace: &str, status: AgentStatus) -> LiveAgent {
     LiveAgent {
+        terminals: Terminals::Herdr1,
         endpoint: 0,
         host: None,
         session: None,

@@ -61,6 +61,7 @@ ratex-layout.workspace         = true
 ratex-parser.workspace         = true
 ratex-render.workspace         = true
 ratex-types.workspace          = true
+regex.workspace                = true
 rodio.workspace                = true
 secrecy.workspace              = true
 serde.workspace                = true

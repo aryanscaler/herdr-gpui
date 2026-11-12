@@ -5,6 +5,8 @@
 //! Browser tabs keep their address, title, origin pane, and kind in the
 //! [`Store`]; terminal tabs keep their workspace, custom label, and working
 //! directory so `tab.create` opens a fresh shell where the closed one stood.
+//! With `[undo_close_tab]` on, a terminal tab still in its undo window comes
+//! back first, as it was (see [`super::undo_close`]).
 
 use super::{
     Location, Pick, Scope, Store, Tab, TabId,
@@ -371,6 +373,10 @@ impl SheprdWindow {
     /// Reopens the most recently closed tab of the focused workspace, whether
     /// it was a browser tab or a Herdr terminal tab.
     pub(crate) fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A tab still in its undo window comes back as it was.
+        if self.undo_tab_close(window, cx) {
+            return;
+        }
         let Some((scope, workspace)) = self.browser_key() else {
             return;
         };

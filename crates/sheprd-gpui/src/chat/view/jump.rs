@@ -85,7 +85,7 @@ impl SheprdWindow {
         )
     }
 
-    fn jump_chat_to_end(&mut self, pane_id: &str, cx: &mut Context<Self>) {
+    pub(crate) fn jump_chat_to_end(&mut self, pane_id: &str, cx: &mut Context<Self>) {
         if let Some(pane) = self.chats.pane_mut(pane_id) {
             // A selection holds the list, which could not follow from here.
             pane.selection.clear();

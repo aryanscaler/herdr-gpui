@@ -21,6 +21,7 @@ fn a_stale_public_half_is_refused_before_provisioning_or_saving() {
             name: "box".into(),
             install: true,
         },
+        cloud::Requirement::Either,
         &|| false,
         &|_| panic!("setup must not start"),
         || Ok(Vec::new()),

@@ -5,8 +5,9 @@
 //! held; then the text under the pointer is verified (a path once a check off
 //! the UI thread finds it on disk) and underlined, and only a click with the
 //! modifier held opens it, through the window's own opener. A path is only
-//! a link in a pane of this computer's core: another host's paths are not on
-//! this disk, so there, as in a remote Herdr pane, they are plain text.
+//! a link in a pane of this computer's core: another host's printed paths
+//! are plain text. Explicit remote hyperlinks can reach a configured handler,
+//! but are never checked or opened on this computer's disk.
 
 use super::CoreTerminalView;
 use crate::{
@@ -20,6 +21,8 @@ use sheprd_backend::TerminalId;
 /// A link a click opened in a herdr-core pane, for the window to open.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LinkClick {
+    /// Raw OSC 8 target, or the printed web URL; never a printed file path.
+    pub(crate) handler_url: Option<String>,
     pub(crate) target: RowTarget,
     /// The pane's terminal and its working directory, which a relative path
     /// is read against.
@@ -39,7 +42,7 @@ pub(super) struct Links {
     /// Where the pointer last was, for a check's answer to be applied to.
     pointer: Option<(Point<Pixels>, Modifiers)>,
     /// The link a press with the modifier went down on.
-    pressed: Option<RowLink>,
+    pressed: Option<(RowLink, Option<String>)>,
 }
 
 impl CoreTerminalView {
@@ -52,7 +55,35 @@ impl CoreTerminalView {
             cell.row,
             &self.screen.wraps,
         )
-        .filter(|link| !self.remote || !matches!(link.target, RowTarget::Path { .. }))
+        .filter(|link| {
+            !self.remote
+                || !matches!(
+                    link.target,
+                    RowTarget::Path {
+                        explicit: false,
+                        ..
+                    }
+                )
+        })
+    }
+
+    fn handler_url(&self, cell: Cell, link: &RowLink) -> Option<String> {
+        crate::terminal::frame_hyperlink_at(self.screen.frame.as_deref()?, cell.column, cell.row)
+            .map(str::to_owned)
+            .or_else(|| match &link.target {
+                RowTarget::Web(_) => {
+                    let frame = self.screen.frame.as_deref()?;
+                    let mut raw = String::new();
+                    for (row, columns) in link.rows() {
+                        let offset = usize::from(row) * usize::from(frame.width);
+                        for column in columns {
+                            raw.push_str(&frame.cells.get(offset + usize::from(column))?.symbol);
+                        }
+                    }
+                    Some(raw)
+                }
+                _ => None,
+            })
     }
 
     fn file_link(&self, target: &RowTarget) -> Option<FileLink> {
@@ -101,8 +132,15 @@ impl CoreTerminalView {
             .and_then(|cell| self.link_at(cell))
             .and_then(|link| match &link.target {
                 RowTarget::Web(_) | RowTarget::External(_) => Some(link),
+                RowTarget::OtherHost(_) | RowTarget::Malformed if self.remote => Some(link),
                 RowTarget::OtherHost(_) | RowTarget::Malformed => None,
                 RowTarget::Path { .. } => {
+                    if self.remote {
+                        // Verification here is only of an explicit hyperlink,
+                        // never of a file on this machine. This also lets a
+                        // modifier click escape a mouse-reporting program.
+                        return Some(link);
+                    }
                     let file = self.file_link(&link.target)?;
                     examined = true;
                     self.file_found(file, cx).then_some(link)
@@ -197,9 +235,15 @@ impl CoreTerminalView {
         else {
             return false;
         };
-        // A program reading the mouse keeps every press but one on a link
-        // already verified under the pointer.
-        if self.screen.mouse_reporting && self.links.hovered.as_ref() != Some(&link) {
+        // OSC 8 itself identifies an explicit link, even when a file is
+        // missing or its target is only understood by a handler. Existence
+        // gates the ordinary file opener, not offering this user click.
+        let explicit = self.cell_at(event.position).is_some_and(|cell| {
+            self.screen.frame.as_deref().is_some_and(|frame| {
+                crate::terminal::frame_hyperlink_at(frame, cell.column, cell.row).is_some()
+            })
+        });
+        if self.screen.mouse_reporting && !explicit && self.links.hovered.as_ref() != Some(&link) {
             return false;
         }
         if let Some(file) = self.file_link(&link.target) {
@@ -209,7 +253,10 @@ impl CoreTerminalView {
                 return false;
             }
         }
-        self.links.pressed = Some(link);
+        let url = self
+            .cell_at(event.position)
+            .and_then(|cell| self.handler_url(cell, &link));
+        self.links.pressed = Some((link, url));
         true
     }
 
@@ -221,7 +268,7 @@ impl CoreTerminalView {
         window: &mut Window,
         cx: &mut App,
     ) -> bool {
-        let Some(pressed) = self.links.pressed.take() else {
+        let Some((pressed, handler_url)) = self.links.pressed.take() else {
             return false;
         };
         // `cell_at` holds a point outside the cells on their edge, which a
@@ -236,7 +283,14 @@ impl CoreTerminalView {
         if released.as_ref() != Some(&pressed) || !crate::keymap::secondary(&event.modifiers) {
             return true;
         }
+        let released_url = self
+            .cell_at(event.position)
+            .and_then(|cell| self.handler_url(cell, &pressed));
+        if handler_url != released_url {
+            return true;
+        }
         let click = LinkClick {
+            handler_url,
             target: pressed.target,
             terminal: self.id.clone(),
             cwd: self.cwd.clone(),

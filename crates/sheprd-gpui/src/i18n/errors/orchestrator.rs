@@ -10,6 +10,12 @@ use sheprd_orchestrator::{Error, beads, gitlab, private_file};
 impl Localize for Error {
     fn localize(&self) -> String {
         match self {
+            Self::Retained { source } => {
+                fl!("error-orchestrator-retained", error = source.localize())
+            }
+            Self::ActionLock(error) => {
+                fl!("error-orchestrator-action-lock", error = error.to_string())
+            }
             Self::NoDataDirectory => fl!("error-orchestrator-no-data-directory"),
             Self::Private(error) => error.localize(),
             Self::Database(error) => fl!("error-orchestrator-database", error = error.to_string()),
@@ -83,6 +89,12 @@ impl Localize for Error {
             Self::Teleport(error) => fl!("error-orchestrator-teleport", error = error.localize()),
             Self::PullRequestChanged => fl!("error-orchestrator-pull-request-changed"),
             Self::Work(error) => error.localize(),
+            Self::OwnedAgent(error) => match error {
+                sheprd_remote::work::owned_agent::Error::Uncertain => {
+                    fl!("error-orchestrator-ownership-uncertain")
+                }
+                sheprd_remote::work::owned_agent::Error::Work(error) => error.localize(),
+            },
         }
     }
 }

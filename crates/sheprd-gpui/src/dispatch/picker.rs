@@ -170,7 +170,8 @@ impl Picker {
     /// Whether there is any other host, or a new machine, to choose: one
     /// host alone is no choice.
     pub(crate) fn offers_choice(&self) -> bool {
-        !self.sandboxes.is_empty() || self.candidates.iter().filter(|c| c.online).count() > 1
+        // Keep the picker alive while remote cores are being discovered.
+        !self.sandboxes.is_empty() || self.candidates.len() > 1
     }
 
     pub(crate) fn chosen(&self) -> Option<&Candidate> {

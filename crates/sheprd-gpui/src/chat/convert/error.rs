@@ -24,10 +24,12 @@ pub enum Error {
     NoHome,
     #[error("Sheprd is not connected")]
     NotConnected,
-    #[error("agents move into chats on this machine's Herdr or an SSH host's, on macOS and Linux")]
+    #[error("this pane has no supported chat conversion route")]
     NotReachable,
     #[error(transparent)]
     Program(#[from] crate::chat::StartError),
+    #[error(transparent)]
+    Remote(#[from] super::remote::Error),
     #[error("the window moved to another connection before the chat could start")]
     Stale,
     #[error("{0}")]

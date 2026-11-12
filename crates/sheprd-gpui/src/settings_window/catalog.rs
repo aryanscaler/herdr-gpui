@@ -423,6 +423,12 @@ pub(super) const CATALOG: &[Entry] = &[
     ),
     entry(
         Section::Tabs,
+        "tabs-undo-close",
+        "settings-tabs-undo-close",
+        "settings-tabs-undo-close-description",
+    ),
+    entry(
+        Section::Tabs,
         "tabs-focus-follows-mouse",
         "settings-tabs-focus-follows-mouse",
         "settings-tabs-focus-follows-mouse-description",
@@ -438,6 +444,60 @@ pub(super) const CATALOG: &[Entry] = &[
         "tabs-pane-history",
         "settings-tabs-pane-history",
         "settings-tabs-pane-history-description",
+    ),
+    entry(
+        Section::Chat,
+        "chat-layout",
+        "settings-chat-layout",
+        "settings-chat-layout-description",
+    ),
+    entry(
+        Section::Chat,
+        "chat-full-width",
+        "settings-chat-full-width",
+        "settings-chat-full-width-description",
+    ),
+    entry(
+        Section::Chat,
+        "chat-width",
+        "settings-chat-width",
+        "settings-chat-width-description",
+    ),
+    entry(
+        Section::Chat,
+        "chat-launcher",
+        "settings-chat-launcher",
+        "settings-chat-launcher-description",
+    ),
+    entry(
+        Section::Chat,
+        "chat-glide",
+        "settings-chat-glide",
+        "settings-chat-glide-description",
+    ),
+    entry(
+        Section::Chat,
+        "chat-wrap-code",
+        "settings-chat-wrap-code",
+        "settings-chat-wrap-code-description",
+    ),
+    entry(
+        Section::Chat,
+        "chat-code-line-numbers",
+        "settings-chat-code-line-numbers",
+        "settings-chat-code-line-numbers-description",
+    ),
+    entry(
+        Section::Chat,
+        "chat-code-stripes",
+        "settings-chat-code-stripes",
+        "settings-chat-code-stripes-description",
+    ),
+    entry(
+        Section::Chat,
+        "chat-render-html",
+        "settings-chat-render-html",
+        "settings-chat-render-html-description",
     ),
     entry(
         Section::Code,

@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 
+mod remote_guard;
+
 #[cfg(unix)]
 fn target(path: &str, line: Option<u32>) -> EditorTarget {
     EditorTarget {

@@ -132,6 +132,11 @@ mod tests {
                 Preference::ConfirmClosePane(false),
             ),
             (
+                Section::Tabs,
+                "tabs-undo-close-toggle",
+                Preference::UndoCloseTab(true),
+            ),
+            (
                 Section::General,
                 "general-checkpoints-toggle",
                 Preference::AgentCheckpoints(false),

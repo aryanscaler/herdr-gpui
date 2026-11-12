@@ -273,10 +273,18 @@ pub(super) fn devices(
 pub(super) fn orchestrator(
     caller: &Caller,
     repo: Option<String>,
+    action: Option<sheprd_control_protocol::OrchestratorRun>,
     incoming: socket::Incoming,
     watches: &mut Watches,
     cx: &mut App,
 ) {
+    if action.as_ref().is_some_and(|action| {
+        let (sheprd_control_protocol::OrchestratorRun::Restart { run }
+        | sheprd_control_protocol::OrchestratorRun::Adopt { run }) = action;
+        run.is_empty() || run.len() > 128 || run.chars().any(char::is_control)
+    }) {
+        return incoming.respond(Response::error(ErrorCode::InvalidRequest, "Invalid run ID"));
+    }
     if let Some(repo) = &repo
         && OrchestratorRepo::new(repo.clone()).is_err()
     {
@@ -293,6 +301,16 @@ pub(super) fn orchestrator(
         |_| true,
         move |view, workspace, window, cx| {
             view.open_orchestrator_in(workspace.to_owned(), repo, window, cx);
+            if let Some(action) = &action {
+                return if view.confirm_orchestrator_run(action, cx) {
+                    Response::done("Preparing the run confirmation; the user must confirm")
+                } else {
+                    Response::error(
+                        ErrorCode::Failed,
+                        "This project's run is not loaded or cannot be restarted; open its Issues section and try again",
+                    )
+                };
+            }
             if view.activity.panel == crate::sidebar::ActivityPanel::Issues
                 && view.activity_section().is_some()
             {

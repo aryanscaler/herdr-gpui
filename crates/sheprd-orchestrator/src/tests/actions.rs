@@ -11,6 +11,7 @@ use std::{
 mod agent_name;
 #[cfg(unix)]
 mod bead_dispatch;
+mod cleanup_identity;
 #[cfg(unix)]
 mod herdr2;
 mod parent;
@@ -87,7 +88,7 @@ fn snapshot(workspaces: &[(&str, bool)]) -> String {
                     "repo_key": "/r/.git",
                     "repo_name": "r",
                     "repo_root": "/r",
-                    "checkout_path": format!("/r/{id}"),
+                    "checkout_path": if *id == "w9" { "/tmp/wt/377-icons".to_owned() } else { format!("/r/{id}") },
                     "is_linked_worktree": linked,
                 },
             })

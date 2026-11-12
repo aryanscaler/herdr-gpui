@@ -13,6 +13,7 @@ pub(super) enum Section {
     Indicators,
     Fonts,
     StatusBar,
+    Chat,
     Tabs,
     Code,
     Notifications,
@@ -77,6 +78,7 @@ impl Section {
         Self::Indicators,
         Self::Fonts,
         Self::StatusBar,
+        Self::Chat,
         Self::Tabs,
         Self::Code,
         Self::Notifications,
@@ -103,6 +105,7 @@ impl Section {
             Self::StatusBar => "settings-section-status-bar",
             Self::General => "settings-section-general",
             Self::Tabs => "settings-section-tabs-and-panes",
+            Self::Chat => "settings-section-chat",
             Self::Code => "settings-section-code",
             Self::Notifications => "settings-section-notifications",
             Self::TextShortcuts => "settings-text-shortcuts-section",
@@ -122,6 +125,7 @@ impl Section {
             Self::Indicators => "settings-lead-indicators",
             Self::Fonts => "settings-lead-fonts",
             Self::StatusBar => "settings-lead-status-bar",
+            Self::Chat => "settings-lead-chat",
             Self::Code => "settings-lead-code",
             Self::Integrations => "settings-lead-integrations",
             Self::Plugins => "settings-lead-plugins",
@@ -140,9 +144,12 @@ impl Section {
     pub(super) fn group(self) -> Option<Group> {
         match self {
             Self::General => None,
-            Self::Theme | Self::Sidebar | Self::Indicators | Self::Fonts | Self::StatusBar => {
-                Some(Group::Appearance)
-            }
+            Self::Theme
+            | Self::Sidebar
+            | Self::Indicators
+            | Self::Fonts
+            | Self::StatusBar
+            | Self::Chat => Some(Group::Appearance),
             Self::Tabs | Self::Code | Self::Notifications | Self::TextShortcuts => {
                 Some(Group::Behaviour)
             }
@@ -163,6 +170,7 @@ impl Section {
             Self::StatusBar => "icons/status-bar.svg",
             Self::General => "icons/settings.svg",
             Self::Tabs => "icons/tabs.svg",
+            Self::Chat => "icons/chat.svg",
             Self::Code => "icons/vscode.svg",
             Self::Notifications => "icons/bell.svg",
             Self::TextShortcuts => "icons/note.svg",

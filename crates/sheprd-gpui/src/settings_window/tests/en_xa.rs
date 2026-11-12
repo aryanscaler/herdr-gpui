@@ -120,9 +120,15 @@ fn fonts_page(view: &SettingsWindow, _: &App) -> Vec<String> {
         "println!(\"ready\");",
         "0O 1lI {} [] != <=",
     ];
+    // The chat code block's sample and name are code too.
+    let html = controls::html_preview::SAMPLE
+        .lines()
+        .map(|line| line.trim().to_owned())
+        .chain(["html".to_owned()]);
     families
         .into_iter()
         .chain(specimen.map(String::from))
+        .chain(html)
         .collect()
 }
 
@@ -156,6 +162,7 @@ pages! {
     fonts: Fonts, fonts_page;
     status_bar: StatusBar, none;
     tabs: Tabs, tabs_data;
+    chat: Chat, none;
     code: Code, none;
     notifications: Notifications, none;
     integrations: Integrations, none;

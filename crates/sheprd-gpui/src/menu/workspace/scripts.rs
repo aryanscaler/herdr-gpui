@@ -181,7 +181,9 @@ impl SheprdWindow {
         let read = cx.background_executor().spawn(async move {
             let cancelled = std::sync::atomic::AtomicBool::new(false);
             let resolved = kept
-                .then(|| crate::worktree_scripts::kept_script_checkout(&checkout, &cancelled))
+                .then(|| {
+                    crate::worktree_scripts::kept_script_checkout(&target, &checkout, &cancelled)
+                })
                 .transpose()?;
             let path = resolved
                 .as_ref()

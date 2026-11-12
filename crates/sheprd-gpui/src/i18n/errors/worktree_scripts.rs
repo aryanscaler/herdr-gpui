@@ -19,6 +19,7 @@ impl Localize for Error {
             }
             Self::Request(error) => error.localize(),
             Self::Response => fl!("error-worktree-scripts-response"),
+            Self::SetupExpired => fl!("error-worktree-scripts-setup-expired"),
             Self::Size { limit } => fl!("error-worktree-scripts-size", limit = *limit),
             Self::UnsupportedHost => fl!("error-worktree-scripts-unsupported-host"),
             // keep-sorted end

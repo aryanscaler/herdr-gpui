@@ -114,7 +114,7 @@ fn pane_status<'de, D: serde::Deserializer<'de>>(d: D) -> Result<PaneStatus, D::
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
 pub struct AgentSession {
     pub agent: String,
     pub kind: SessionKind,
@@ -122,7 +122,7 @@ pub struct AgentSession {
     pub value: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionKind {
     Id,

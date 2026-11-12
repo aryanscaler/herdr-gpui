@@ -20,7 +20,7 @@ const IMAGE_LIMIT: usize = super::image_source::MAX_IMAGE_INPUT_BYTES;
 /// when either is present. A Finder file copy also publishes the file name as
 /// text and a preview image; its file URLs are returned as paths, never opened.
 /// Image-only paste ignores files and text. No other URLs or metadata are read.
-pub(super) fn read(image_only: bool) -> Result<Option<ClipboardItem>> {
+pub(crate) fn read(image_only: bool) -> Result<Option<ClipboardItem>> {
     #[cfg(target_os = "macos")]
     {
         macos::read(image_only)

@@ -5,6 +5,7 @@ mod compare;
 mod crash_recovery;
 mod discard_identity;
 mod herdr_2;
+mod hosts;
 mod interrupt;
 mod spread;
 mod wanted;
@@ -63,6 +64,7 @@ fn checkout(n: usize) -> Checkout {
             },
         },
         terminal: None,
+        recoverable: false,
     }
 }
 

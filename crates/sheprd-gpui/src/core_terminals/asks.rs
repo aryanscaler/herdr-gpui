@@ -17,20 +17,35 @@ use std::rc::Rc;
 /// How views made by this window reach it. The window's tick polls its
 /// views while it is being updated, so an ask runs once that update ends,
 /// in the order asked. A closed window answers nothing.
-pub(super) fn window_call(cx: &Context<SheprdWindow>) -> WindowCall {
+pub(super) fn window_call(
+    cx: &Context<SheprdWindow>,
+    host: super::Host,
+    target: Option<sheprd_client::ConnectTarget>,
+) -> WindowCall {
     let owner = cx.entity().downgrade();
     Rc::new(move |ask, window, cx| {
         let owner = owner.clone();
+        let host = host.clone();
+        let target = target.clone();
         window.defer(cx, move |window, cx| {
-            let _ = owner.update(cx, |this, cx| this.core_view_asks(ask, window, cx));
+            let _ = owner.update(cx, |this, cx| {
+                this.core_view_asks(ask, &host, target.as_ref(), window, cx)
+            });
         });
     })
 }
 
 impl SheprdWindow {
-    fn core_view_asks(&mut self, ask: ToWindow, window: &mut Window, cx: &mut Context<Self>) {
+    fn core_view_asks(
+        &mut self,
+        ask: ToWindow,
+        host: &super::Host,
+        target: Option<&sheprd_client::ConnectTarget>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match ask {
-            ToWindow::OpenLink(click) => self.open_core_link(click, window, cx),
+            ToWindow::OpenLink(click) => self.open_core_link(click, host, target, window, cx),
             ToWindow::Copied if self.config.clipboard_toast.enabled => {
                 self.show_flash(Flash::success(fl!("window-find-copied")), cx);
             }

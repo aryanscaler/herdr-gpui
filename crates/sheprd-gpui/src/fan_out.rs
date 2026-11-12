@@ -16,6 +16,7 @@ pub(crate) mod error;
 mod job;
 mod journal;
 mod plan;
+mod presentation;
 mod spread;
 mod state;
 mod ui;

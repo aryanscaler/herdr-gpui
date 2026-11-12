@@ -13,6 +13,74 @@ sheprd-acp --resume ID codex  # the same, but never start a new session instead
 
 `sheprd-acp --help` lists every option and key.
 
+## Herdr-core session helpers
+
+These commands connect to the local core using `HC_SOCKET`, its configured
+socket, or its default endpoint (`HC_SESSION` selects the session):
+
+```sh
+sheprd-acp session-report AGENT < session-event.json
+sheprd-acp session-discover TERMINAL AGENT
+sheprd-acp session-convert TERMINAL AGENT
+```
+
+`session-report` requires `HC_TERMINAL_ID` and `HC_TERMINAL_SOCKET`, uses that
+injected socket instead of any shell `HC_SOCKET`/`HC_SESSION` override, and reads at most 64 KiB of JSON
+from stdin. The core-client validates the event and its process ownership.
+`session-discover` prints the verified session binding as JSON (exit 0).
+It exits 3 only for absent evidence or an explicitly cleared selection; invalid,
+stale, unknown, and process-mismatched evidence fail with exit 1. Other runtime
+failures exit 1; command-line errors exit 2.
+`session-convert` moves an idle agent into a chat and prints its endpoint ID.
+Terminal IDs must be local, not routed addresses. All three accept `--help`
+without reading stdin or connecting to a daemon.
+
+### Installing session reporters
+
+Run `sheprd-acp session-install claude|codex|copilot|opencode|pi|omp|letta` explicitly on each host
+where reporting is wanted. This command authorizes installation on that host;
+discovery, conversion, and normal startup never install anything. Linux/macOS
+use POSIX hooks; Windows uses bounded PowerShell hooks and a CIM process-birth
+probe. Windows runtime verification remains a platform CI/manual check; native
+Windows terminal-to-chat launch still follows the existing unsupported policy.
+
+The installer copies the bundled owned assets into `sheprd-session-report/`
+inside the agent's configuration directory, then adds a registration preserving
+unrelated keys and existing hooks/plugins. Re-running is idempotent. Files are
+atomically replaced with private permissions. Codex uses `$CODEX_HOME` (default
+`~/.codex`), Copilot uses `$COPILOT_HOME` (default `~/.copilot`), and OpenCode V2
+uses `$XDG_CONFIG_HOME/opencode` (default `~/.config/opencode`). Custom paths
+must be absolute and UTF-8. The installer pins its own executable path; reinstall
+after moving it. Claude honors `CLAUDE_CONFIG_DIR`. Pi uses
+`PI_CODING_AGENT_DIR` (default `~/.pi/agent`); OMP uses that override or
+`$HOME/$PI_CONFIG_DIR/agent` (default `~/.omp/agent`). Their separately named
+extensions report exact session-manager paths. Letta's `~/.letta/settings.json`
+hook reports its explicit conversation ID, qualifying `default` with its agent.
+
+### Manual session reporter installation
+
+JSONC/comments or malformed config are refused without modifying the file:
+this build has no comment-preserving JSON editor. For manual installation,
+copy the relevant bundled files from
+`crates/sheprd-client/src/herdr/sessions/assets/` into the configuration
+directory's `sheprd-session-report/` subdirectory, then merge these entries
+using your editor, retaining existing array entries and comments:
+
+- Codex `hooks.json`: append
+  `{"hooks":[{"type":"command","command":"sh '/absolute/path/sheprd-session-report/codex-session-start.sh'","timeout":5}]}`
+  to `hooks.SessionStart`. In `config.toml`, set `hooks = true` under
+  `[features]`, preserving other features.
+- Copilot `settings.json`: append
+  `{"type":"command","bash":"sh '/absolute/path/sheprd-session-report/copilot-session-start.sh'","timeoutSec":5}`
+  directly to `hooks.SessionStart`.
+- OpenCode V2: copy all three files in `assets/opencode/` to the owned
+  directory, and append `{"package":"/absolute/path/sheprd-session-report"}`
+  to `plugins` in `cli.json`. This is a TUI-only package, not a server plugin.
+
+Use actual absolute paths and shell-escape apostrophes when needed. Restart the
+agent after installation. `HC_TERMINAL_ID` must be present for reports to bind
+to a core terminal; installing a reporter does not create session evidence.
+
 ## Why a program in the pane
 
 Herdr owns terminals, not conversations. The agent's structured conversation
@@ -214,6 +282,13 @@ checklist says only what is done, so no step shows as in progress. Gemini's
 tool calls carry no input to read and the pi translator reads no list, so
 neither shows a plan.
 
+OpenCode V2 release builds default `experimental.todo` to false. If no to-do
+tool is exposed to the model, Sheprd cannot supply a plan from its prose.
+Enable that setting in OpenCode to make `todowrite` available; Sheprd does not
+change the agent's configuration. Structured pending, in-progress, and completed
+items appear in **Plan**; cancelled items are omitted. Child-session plans and
+to-do calls never replace the parent conversation's plan.
+
 ### Codex and pi without an adapter
 
 The same holds for two more agents, each through a translator of its own
@@ -311,7 +386,28 @@ session's earlier prompts, whichever client sent them.
     from then on, until it completes. A sub-agent can be stopped, by
     interrupting its thread's turn, once that turn is known; a command
     cannot, as Codex has no request for one inside a thread.
-  - **Copilot** and **OpenCode**: a call whose input names an agent and a
+  - **OpenCode with child-session updates**: the handshake negotiates
+     `clientCapabilities._meta["opencode/child-session-updates"]`; a peer must
+     advertise the same capability. Its `opencode/session/child_update`
+     notifications create session-identity cards for foreground and background
+     children. Explicit `completed`, `failed`, and `interrupted` statuses end
+     them, including after the parent prompt returns or is cancelled. Completing
+     the launch tool never ends a child. Concurrent and nested children retain
+     their own steps through the notification's child ID and OpenCode's
+     session-prefixed tool IDs. An explicit new `running` execution can reopen
+     a continued child. The existing bounded activity/step limits apply; no
+     unbounded child-session registry or polling worker is added. Losing the
+     ACP process settles running activities as stopped. No Stop button is
+     offered because the extension supplies no per-child stop request.
+     This was checked against OpenCode 2.0.24's live handshake and upstream
+     [child wire contract](https://github.com/anomalyco/opencode/blob/966168800cb80f336cb4267f0484f193a15f1292/packages/cli/src/acp/child.ts),
+     [capability negotiation](https://github.com/anomalyco/opencode/blob/966168800cb80f336cb4267f0484f193a15f1292/packages/cli/src/acp/capabilities.ts),
+     and [cross-turn event consumer](https://github.com/anomalyco/opencode/blob/966168800cb80f336cb4267f0484f193a15f1292/packages/cli/src/acp/turn.ts).
+     Only events delivered by the peer are followed; this does not reconstruct
+     background jobs predating the ACP attachment or infer a terminal state
+     when a live peer stops reporting a child.
+  - **Copilot** and **older OpenCode without the extension**: a call whose
+    input names an agent and a
     prompt is a sub-agent, ending with its call, or with its turn if the agent
     never says. One sent to the background stays an ordinary card, as its end
     cannot be known. OpenCode marks a child session's updates in `_meta`: its

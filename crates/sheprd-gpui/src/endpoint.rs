@@ -189,6 +189,12 @@ impl Endpoint {
         self.initial_surface
     }
 
+    /// Test seam: marks the surface requested, as the handshake's reply does.
+    #[cfg(test)]
+    pub(crate) fn request_surface_for_test(&mut self) {
+        self.initial_surface = true;
+    }
+
     /// Trades this endpoint's connection, and its projection, for another
     /// client of the same daemon that said hello with an active surface, as
     /// an editor group's own connection does. The caller keeps the one this

@@ -105,12 +105,33 @@ fn malformed_or_unrecognized_fragments_do_not_color_following_signs() {
         "@@ -1 +4294967296 @@",
         "@@ - +1 @@",
     ] {
+        // The broken header is still a header, so the block is not bare.
         let source = format!("{header}\n+ordinary\n-ordinary");
         let classified = rows(&source, MAX_ROWS);
         assert_eq!(classified[1], unknown(), "{header}");
         assert_eq!(classified[2], unknown(), "{header}");
     }
-    assert_eq!(kinds("+ordinary\n-ordinary\n context"), [Kind::Context; 3]);
+}
+
+#[test]
+fn a_headerless_diff_colors_each_line_by_its_sign() {
+    assert_eq!(
+        kinds(" fn greet() {\n-    old();\n+    new();\n\n }"),
+        [
+            Kind::Context,
+            Kind::Removed,
+            Kind::Added,
+            Kind::Context,
+            Kind::Context
+        ]
+    );
+    let classified = rows("+added\n-removed", MAX_ROWS);
+    assert!(
+        classified
+            .iter()
+            .all(|row| row.prefix == 1 && row.path.is_none())
+    );
+    assert_eq!(rows("plain", MAX_ROWS)[0], unknown());
 }
 
 #[test]

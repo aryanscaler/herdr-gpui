@@ -39,6 +39,15 @@ pub fn add_device(
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<SavedDevice> {
+    add_device_for(request, cloud::Requirement::Either, cancelled, report)
+}
+
+pub(super) fn add_device_for(
+    request: AddRequest,
+    requirement: cloud::Requirement,
+    cancelled: &dyn Fn() -> bool,
+    report: &dyn Fn(cloud::Step),
+) -> crate::Result<SavedDevice> {
     if cancelled() {
         return Err(super::Error::Cancelled.into());
     }
@@ -91,7 +100,7 @@ pub fn add_device(
         report(cloud::Step::Starting);
         let ip = api::wait_running_ip(&client, &vm_name, cancelled)?;
         let gateway = Gateway::new(&settings.admin_username, &ip)?;
-        ensure_herdr(&gateway, &vm_name, install, cancelled, report)
+        ensure_herdr(&gateway, &vm_name, install, requirement, cancelled, report)
     };
     let discard = || {
         if matches!(&target, Target::Create(_)) {
@@ -145,6 +154,7 @@ fn ensure_herdr(
     gateway: &Gateway,
     vm_name: &str,
     install: bool,
+    requirement: cloud::Requirement,
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<()> {
@@ -153,7 +163,7 @@ fn ensure_herdr(
         return Err(super::Error::Cancelled.into());
     }
 
-    let installed = wait_installed(gateway, cancelled)?;
+    let installed = wait_installed(gateway, requirement, cancelled)?;
     if !installed {
         if !install {
             return Err(cloud::Error::Install(install::Failure::NotInstalled {
@@ -163,12 +173,12 @@ fn ensure_herdr(
             .into());
         }
         report(cloud::Step::InstallingHerdr);
-        gateway.with_command(|command| install::install(command, &cancelled))??;
-        if !gateway.with_command(|command| install::installed(command, &cancelled))?? {
+        gateway.with_command(|command| requirement.install(command, &cancelled))??;
+        if !gateway.with_command(|command| requirement.installed(command, &cancelled))?? {
             return Err(cloud::Error::Install(install::Failure::Missing).into());
         }
     }
-    if install {
+    if install && requirement == cloud::Requirement::Either {
         gateway
             .with_command(|command| {
                 install::add_core(Ok::<_, std::convert::Infallible>(command), &cancelled)
@@ -178,13 +188,17 @@ fn ensure_herdr(
     Ok(())
 }
 
-fn wait_installed(gateway: &Gateway, cancelled: &dyn Fn() -> bool) -> crate::Result<bool> {
+fn wait_installed(
+    gateway: &Gateway,
+    requirement: cloud::Requirement,
+    cancelled: &dyn Fn() -> bool,
+) -> crate::Result<bool> {
     let deadline = Instant::now() + SSH_WAIT_TIMEOUT;
     loop {
         if cancelled() {
             return Err(super::Error::Cancelled.into());
         }
-        let result = gateway.with_command(|command| install::installed(command, &cancelled))?;
+        let result = gateway.with_command(|command| requirement.installed(command, &cancelled))?;
         match result {
             Ok(installed) => return Ok(installed),
             Err(cloud::Error::Cancelled) => return Err(super::Error::Cancelled.into()),

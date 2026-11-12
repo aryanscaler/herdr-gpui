@@ -170,6 +170,7 @@ fn headings_take_the_accent_and_quotes_own_a_readable_surface(cx: &mut TestAppCo
             let on_ground = Accents::on(&view.theme, view.theme.background);
             for accents in [None, Some(on_ground)] {
                 let mut context = RichContext {
+                    pane_id: "fixture",
                     accents,
                     visuals: &visuals,
                     links: Links::new(view, "fixture", cx),

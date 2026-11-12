@@ -13,7 +13,12 @@ pub(super) const EFFORT: &str = "effort";
 const MAX_MODELS: usize = 64;
 
 /// Codex's approval presets, as its own terminal view offers them.
-const MODES: [(&str, &str, &str); 3] = [
+const MODES: &[(&str, &str, &str)] = &[
+    (
+        "configured",
+        "Session Policy",
+        "Keep the session's current approval and sandbox policy",
+    ),
     (
         "read-only",
         "Read Only",
@@ -30,7 +35,7 @@ const MODES: [(&str, &str, &str); 3] = [
         "Edit and run anywhere, network included, without asking",
     ),
 ];
-const DEFAULT_MODE: &str = "auto";
+const DEFAULT_MODE: &str = "configured";
 
 #[derive(Clone, Debug)]
 struct Model {
@@ -54,7 +59,7 @@ pub(super) struct Settings {
 impl Settings {
     /// From `model/list`, with the model and effort the thread started with.
     pub(super) fn new(models: &Value, thread: &Value) -> Self {
-        let models: Vec<Model> = models
+        let mut models: Vec<Model> = models
             .get("data")
             .and_then(Value::as_array)
             .into_iter()
@@ -80,19 +85,33 @@ impl Settings {
             })
             .take(MAX_MODELS)
             .collect();
-        let started = thread.get("model").and_then(Value::as_str);
-        // The thread's model when Codex offers it; else the one it marks the
-        // default, since a configured model may not be one this account has.
-        let model = started
-            .filter(|started| models.iter().any(|model| model.id == *started))
-            .map(str::to_owned)
-            .or_else(|| {
-                models
-                    .iter()
-                    .find(|model| model.default)
-                    .or_else(|| models.first())
-                    .map(|model| model.id.clone())
+        let started = thread
+            .get("model")
+            .and_then(Value::as_str)
+            .filter(|model| !model.is_empty());
+        // A resumed/configured model can be absent from the catalog (custom or
+        // hidden models). Keep the server's actual choice instead of silently
+        // substituting the catalog default on the first chat turn.
+        if let Some(started) =
+            started.filter(|started| !models.iter().any(|model| model.id == *started))
+        {
+            models.truncate(MAX_MODELS.saturating_sub(1));
+            models.push(Model {
+                default: false,
+                default_effort: None,
+                description: None,
+                efforts: Vec::new(),
+                id: started.to_owned(),
+                name: started.to_owned(),
             });
+        }
+        let model = started.map(str::to_owned).or_else(|| {
+            models
+                .iter()
+                .find(|model| model.default)
+                .or_else(|| models.first())
+                .map(|model| model.id.clone())
+        });
         let mut settings = Self {
             effort: thread
                 .get("reasoningEffort")
@@ -135,7 +154,10 @@ impl Settings {
                 }),
             ));
         }
-        if let (Some(effort), Some(model)) = (&self.effort, self.current()) {
+        if let (Some(effort), Some(model)) = (
+            &self.effort,
+            self.current().filter(|model| !model.efforts.is_empty()),
+        ) {
             options.push(out::select(
                 EFFORT,
                 "Reasoning",
@@ -197,6 +219,9 @@ impl Settings {
         {
             return;
         }
+        if model.efforts.is_empty() {
+            return;
+        }
         self.effort = model
             .default_effort
             .clone()
@@ -206,13 +231,13 @@ impl Settings {
 
     /// What `turn/start` carries for the chosen settings.
     pub(super) fn turn(&self) -> serde_json::Map<String, Value> {
-        let (approval, sandbox) = match self.mode.as_str() {
-            "read-only" => (
+        let policy = match self.mode.as_str() {
+            "read-only" => Some((
                 "on-request",
                 json!({"type": "readOnly", "networkAccess": false}),
-            ),
-            "full-access" => ("never", json!({"type": "dangerFullAccess"})),
-            _ => (
+            )),
+            "full-access" => Some(("never", json!({"type": "dangerFullAccess"}))),
+            "auto" => Some((
                 "on-request",
                 json!({
                     "type": "workspaceWrite",
@@ -221,11 +246,18 @@ impl Settings {
                     "excludeTmpdirEnvVar": false,
                     "excludeSlashTmp": false,
                 }),
-            ),
+            )),
+            // The server has the effective policy from thread/resume and its
+            // config, including custom roots and approval choices. Omitting
+            // overrides preserves it; defaulting to workspaceWrite widens a
+            // read-only terminal session on the very first chat prompt.
+            _ => None,
         };
         let mut fields = serde_json::Map::new();
-        fields.insert("approvalPolicy".to_owned(), json!(approval));
-        fields.insert("sandboxPolicy".to_owned(), sandbox);
+        if let Some((approval, sandbox)) = policy {
+            fields.insert("approvalPolicy".to_owned(), json!(approval));
+            fields.insert("sandboxPolicy".to_owned(), sandbox);
+        }
         if let Some(model) = &self.model {
             fields.insert("model".to_owned(), json!(model));
         }

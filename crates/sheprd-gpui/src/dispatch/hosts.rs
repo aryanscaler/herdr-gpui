@@ -2,10 +2,8 @@
 //! could go to from the endpoints, describing the chosen one to Teleport's
 //! scripts, and following a dispatched job to its new workspace.
 //!
-//! This computer also takes work while it keeps its new workspaces for
-//! Herdr 2, with or without Herdr 1 running: Git makes the checkout there and
-//! the window keeps the workspace. Another host's herdr-core takes no
-//! dispatch yet, so such a host is offline without Herdr 1's snapshot.
+//! Hosts keeping their workspaces for Herdr 2 take work without Herdr 1:
+//! Git makes the checkout there and the window keeps its workspace.
 
 use super::{Candidate, Dispatched, History, Load, Picker, Repository, Sandbox, Setup};
 use crate::{
@@ -20,8 +18,36 @@ use gpui::{App, Context, Window};
 use sheprd_client::protocol::{AgentStatus, ClientShellSnapshot};
 use std::time::Instant;
 
-/// Host scripts need a POSIX client; see `sheprd_client::run_script`.
-const SCRIPTABLE_CLIENT: bool = cfg!(any(target_os = "linux", target_os = "macos"));
+/// Windows can run scripts through SSH, WSL and cloud connectors, but has
+/// no native local POSIX shell. Check the route rather than hiding every host.
+pub(crate) fn scriptable(target: &sheprd_client::ConnectTarget) -> bool {
+    scriptable_for(target, sheprd_session::Keeper::Herdr1)
+}
+
+pub(crate) fn scriptable_for(
+    target: &sheprd_client::ConnectTarget,
+    keeper: sheprd_session::Keeper,
+) -> bool {
+    host_for_keeper(target, keeper).is_some()
+}
+
+fn host_for_keeper(
+    target: &sheprd_client::ConnectTarget,
+    keeper: sheprd_session::Keeper,
+) -> Option<teleport::Host> {
+    if matches!(target, sheprd_client::ConnectTarget::Wsl { .. }) && !cfg!(windows) {
+        return None;
+    }
+    if !(cfg!(any(target_os = "linux", target_os = "macos"))
+        || (cfg!(windows) && target.is_remote()))
+    {
+        return None;
+    }
+    match keeper {
+        sheprd_session::Keeper::App => sheprd_remote::work::host_for_kept(target).ok(),
+        sheprd_session::Keeper::Herdr1 => host_for(target).ok(),
+    }
+}
 
 fn working(snapshot: &ClientShellSnapshot) -> u32 {
     snapshot
@@ -58,6 +84,27 @@ fn repository(
 }
 
 impl SheprdWindow {
+    fn dispatch_source_keeper(&self) -> sheprd_session::Keeper {
+        let kept = self
+            .menu
+            .target_workspace()
+            .is_some_and(|workspace| self.is_kept_workspace(workspace))
+            || self.kept_in_front().is_some();
+        if kept {
+            sheprd_session::Keeper::App
+        } else {
+            sheprd_session::Keeper::Herdr1
+        }
+    }
+
+    fn dispatch_keeper(&self, endpoint_id: &str) -> sheprd_session::Keeper {
+        if self.dispatch_keeps(endpoint_id) {
+            sheprd_session::Keeper::App
+        } else {
+            sheprd_session::Keeper::Herdr1
+        }
+    }
+
     /// The connected snapshot of endpoint `index`, reading the selected one
     /// from the window's own copy.
     pub(crate) fn endpoint_snapshot(&self, index: usize) -> Option<&ClientShellSnapshot> {
@@ -71,12 +118,47 @@ impl SheprdWindow {
             .filter(|_| live.status.is_connected())
     }
 
+    /// Snapshot paths and load must belong to the host the scripts address.
+    /// A socket can be forwarded, and an unverified local peer proves no
+    /// ownership of this computer's files.
+    fn dispatch_snapshot(&self, index: usize) -> Option<&ClientShellSnapshot> {
+        let endpoint = &self.endpoints[index];
+        let live = if index == self.selected_endpoint {
+            &self.live
+        } else {
+            &endpoint.live
+        };
+        self.endpoint_snapshot(index).filter(|_| {
+            host_for(&endpoint.connection.target).is_ok()
+                && (endpoint.connection.target.is_remote() || live.local_daemon_peer)
+        })
+    }
+
     /// Whether new work dispatched to `endpoint_id` lands in a workspace the
-    /// app keeps for Herdr 2: this computer, while its new workspaces are.
+    /// app keeps for Herdr 2, independent of the window's selected host.
     pub(crate) fn dispatch_keeps(&self, endpoint_id: &str) -> bool {
-        self.core_host()
-            .is_some_and(|index| self.endpoints[index].id == endpoint_id)
-            && self.local_workspaces_use_core()
+        let Some(index) = self
+            .endpoints
+            .iter()
+            .position(|endpoint| endpoint.id == endpoint_id)
+        else {
+            return false;
+        };
+        if Some(index) == self.core_host() {
+            return self.local_workspaces_use_core();
+        }
+        let endpoint = &self.endpoints[index];
+        let host = Host::of(&crate::browser::scope(endpoint));
+        let live = if index == self.selected_endpoint {
+            &self.live
+        } else {
+            &endpoint.live
+        };
+        !self.core_terminals.lacks_core(&host)
+            && (self.config.herdr_2_terminals
+                || live.herdr_1_unavailable()
+                || (self.endpoint_snapshot(index).is_none()
+                    && self.core_terminals.is_connected(&host)))
     }
 
     /// The repositories open in the workspaces the app keeps on endpoint
@@ -84,7 +166,12 @@ impl SheprdWindow {
     /// checkout's workspace when that is kept, as [`open_repositories`]
     /// reads Herdr 1's.
     fn kept_repositories(&self, index: usize) -> Vec<teleport::job::Repository> {
-        let mut found: Vec<teleport::job::Repository> = Vec::new();
+        // Git checkouts opened in Herdr 1 are valid inputs to Herdr 2 too.
+        // The kept preparation path consumes their Git keys, never their IDs.
+        let mut found = self
+            .dispatch_snapshot(index)
+            .map(open_repositories)
+            .unwrap_or_default();
         let Some(session) = self.sessions(index).core else {
             return found;
         };
@@ -110,7 +197,7 @@ impl SheprdWindow {
     /// shown host cannot be scripted, since its commit could not be shipped.
     pub(crate) fn dispatch_candidates(&self, repo: &str, cx: &App) -> Vec<Candidate> {
         let current = &self.endpoints[self.selected_endpoint];
-        if !SCRIPTABLE_CLIENT || host_for(&current.connection.target).is_err() {
+        if !scriptable_for(&current.connection.target, self.dispatch_source_keeper()) {
             return Vec::new();
         }
         let history = cx.try_global::<History>();
@@ -119,13 +206,19 @@ impl SheprdWindow {
             .enumerate()
             .filter(|(index, endpoint)| {
                 *index == self.selected_endpoint
-                    || (endpoint.enabled && host_for(&endpoint.connection.target).is_ok())
+                    || (endpoint.enabled
+                        && scriptable_for(
+                            &endpoint.connection.target,
+                            self.dispatch_keeper(&endpoint.id),
+                        ))
             })
             .map(|(index, endpoint)| {
-                let snapshot = self.endpoint_snapshot(index);
-                let kept = self
-                    .dispatch_keeps(&endpoint.id)
-                    .then(|| self.kept_repositories(index));
+                let snapshot = self.dispatch_snapshot(index);
+                let host = Host::of(&crate::browser::scope(endpoint));
+                let kept = (self.dispatch_keeps(&endpoint.id)
+                    && (Some(index) == self.core_host()
+                        || self.core_terminals.is_connected(&host)))
+                .then(|| self.kept_repositories(index));
                 // Of cloud machines, only Azure's load is probed to rank by.
                 let load = crate::usage::Host::load_of(&endpoint.connection.target)
                     .and_then(|host| self.system_load.get(&host))
@@ -139,7 +232,11 @@ impl SheprdWindow {
                 Candidate {
                     endpoint_id: endpoint.id.clone(),
                     label: endpoint.label.clone(),
-                    online: snapshot.is_some() || kept.is_some(),
+                    online: if self.dispatch_keeps(&endpoint.id) {
+                        kept.is_some()
+                    } else {
+                        snapshot.is_some()
+                    },
                     current: index == self.selected_endpoint,
                     load,
                     // Agents in Herdr's panes and in the host's herdr-core.
@@ -160,7 +257,7 @@ impl SheprdWindow {
     /// offers nothing they never set up.
     pub(crate) fn dispatch_sandboxes(&self) -> Vec<Sandbox> {
         let current = &self.endpoints[self.selected_endpoint];
-        if !SCRIPTABLE_CLIENT || host_for(&current.connection.target).is_err() {
+        if !scriptable_for(&current.connection.target, self.dispatch_source_keeper()) {
             return Vec::new();
         }
         #[cfg(feature = "cloud")]
@@ -188,11 +285,16 @@ impl SheprdWindow {
         repo_label: &str,
     ) -> Option<FreshOrigin> {
         let selected = &self.endpoints[self.selected_endpoint];
+        let keeper = if self.is_kept_workspace(workspace_id) {
+            sheprd_session::Keeper::App
+        } else {
+            sheprd_session::Keeper::Herdr1
+        };
         Some(FreshOrigin {
             place: Place {
                 endpoint_id: selected.id.clone(),
                 label: selected.label.clone(),
-                host: host_for(&selected.connection.target).ok()?,
+                host: host_for_keeper(&selected.connection.target, keeper)?,
             },
             workspace_id: workspace_id.to_owned(),
             repo_key: repo_key.to_owned(),
@@ -204,6 +306,18 @@ impl SheprdWindow {
     /// repositories its snapshot shows when it is connected, or on this
     /// computer keeping its workspaces for Herdr 2, the kept ones.
     pub(crate) fn dispatch_destination(&self, endpoint_id: &str) -> Option<HostRepositories> {
+        let index = self
+            .endpoints
+            .iter()
+            .position(|endpoint| endpoint.id == endpoint_id)?;
+        let endpoint = &self.endpoints[index];
+        if !scriptable_for(
+            &endpoint.connection.target,
+            self.dispatch_keeper(endpoint_id),
+        ) || (!endpoint.enabled && index != self.selected_endpoint)
+        {
+            return None;
+        }
         self.destination_of(endpoint_id, self.dispatch_keeps(endpoint_id))
     }
 
@@ -223,7 +337,14 @@ impl SheprdWindow {
             place: Place {
                 endpoint_id: endpoint.id.clone(),
                 label: endpoint.label.clone(),
-                host: host_for(&endpoint.connection.target).ok()?,
+                host: host_for_keeper(
+                    &endpoint.connection.target,
+                    if kept {
+                        sheprd_session::Keeper::App
+                    } else {
+                        sheprd_session::Keeper::Herdr1
+                    },
+                )?,
             },
             repositories: if kept {
                 Some(self.kept_repositories(index))
@@ -243,6 +364,7 @@ impl SheprdWindow {
     /// even with the CPU display off.
     pub(crate) fn dispatch_sampling(&self) -> bool {
         self.menu.dispatch.is_some()
+            || self.orchestrator_sampling
             || self
                 .fan_out
                 .as_ref()
@@ -294,14 +416,9 @@ impl SheprdWindow {
         }
         let composing = self.fan_out.as_ref().filter(|fan_out| fan_out.composing());
         if let Some(repo) = composing.map(|fan_out| fan_out.repo_label().to_owned()) {
-            let mut candidates = self.dispatch_candidates(&repo, cx);
-            // Fan-out sets other hosts up through a Herdr 1 workspace, so
-            // this computer's Herdr 2 takes no lanes from elsewhere yet.
-            for candidate in &mut candidates {
-                if !candidate.current && self.dispatch_keeps(&candidate.endpoint_id) {
-                    candidate.online = false;
-                }
-            }
+            // Fan-out resolves the same typed destination and prepared
+            // repository as dispatch, so both generations are eligible.
+            let candidates = self.dispatch_candidates(&repo, cx);
             if let Some(fan_out) = &mut self.fan_out
                 && fan_out.update_hosts(candidates, now)
             {
@@ -328,11 +445,26 @@ impl SheprdWindow {
             }
             return;
         };
+        let result = match result {
+            Ok(arrival) => {
+                let missing = matches!(&arrival, Dispatched::Kept { endpoint_id, .. }
+                    if !self.endpoints.iter().any(|endpoint| endpoint.id == *endpoint_id));
+                if !missing {
+                    Ok(arrival)
+                } else if let Some(arrival) = job.await_destination(arrival, now) {
+                    Ok(arrival)
+                } else {
+                    return;
+                }
+            }
+            result => result,
+        };
         let (host, repo) = (job.host.clone(), job.repo.clone());
         self.dispatch_job = None;
         match result {
             Ok(Dispatched::Kept {
                 endpoint_id,
+                host_identity,
                 path,
                 label,
                 checkout,
@@ -341,11 +473,27 @@ impl SheprdWindow {
                 if dialog {
                     self.dismiss_menu(window, cx);
                 }
+                if !self.open_dispatched_kept(
+                    &endpoint_id,
+                    &host_identity,
+                    label,
+                    path.clone().into(),
+                    cx,
+                ) {
+                    self.show_flash(
+                        Flash::warning(fl!(
+                            "dispatch-created-unopened",
+                            host = host.clone(),
+                            path = path
+                        )),
+                        cx,
+                    );
+                    return;
+                }
                 self.show_flash(
                     Flash::success(fl!("dispatch-created", host = host.clone())),
                     cx,
                 );
-                self.open_dispatched_kept(label, path.into(), cx);
                 // Like a local creation, a new worktree runs its setup script
                 // once its kept workspace has opened.
                 if let Some(checkout) = checkout {
@@ -414,19 +562,41 @@ impl SheprdWindow {
 }
 
 impl SheprdWindow {
-    /// Shows this computer with the kept workspace at `path` a dispatch
+    /// Shows the destination with the kept workspace at `path` a dispatch
     /// made, named `label`, else for its folder.
     fn open_dispatched_kept(
         &mut self,
+        endpoint_id: &str,
+        host_identity: &str,
         label: Option<String>,
         path: std::path::PathBuf,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
+        let Some(endpoint) = self
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.id == endpoint_id)
+        else {
+            return false;
+        };
+        if !host_for_keeper(&endpoint.connection.target, sheprd_session::Keeper::App)
+            .is_some_and(|host| host.identity() == host_identity)
+            || !self.select_endpoint(endpoint_id, cx)
+        {
+            return false;
+        }
+        self.refresh_core_session(cx);
         let label = label.unwrap_or_else(|| {
             path.file_name()
                 .map_or_else(String::new, |name| name.to_string_lossy().into_owned())
         });
-        self.open_local_kept_folder(&label, path, cx);
+        match self.kept_workspace_at(&path) {
+            Some(id) => {
+                self.focus_kept_workspace(&id, cx);
+            }
+            None => self.new_kept_workspace(Some(&label), Some(path), cx),
+        }
+        true
     }
 }
 

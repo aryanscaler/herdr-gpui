@@ -1,6 +1,5 @@
-//! Fan-outs from a workspace the app keeps for Herdr 2: lanes stay on this
-//! computer, each agent's shell is shown in a kept workspace of its own, and
-//! removed lanes close theirs.
+//! Fan-outs from kept Herdr 2 workspaces: each owned agent terminal is shown
+//! once in its host's kept workspace, and removed lanes close theirs.
 
 use super::*;
 
@@ -21,6 +20,7 @@ fn kept_checkout(n: usize) -> Checkout {
             opened: work::Opened::Herdr2,
         },
         terminal: None,
+        recoverable: false,
     }
 }
 
@@ -77,6 +77,8 @@ fn a_started_shell_is_shown_once_and_a_removed_lane_closes() {
     assert_eq!(
         shown,
         [Shown {
+            endpoint: "local".into(),
+            host: origin().host,
             label: fan_out.lanes[1].lane.branch.clone(),
             path: "/tmp/lane-1".into(),
             terminal: "t1".into(),
@@ -91,12 +93,23 @@ fn a_started_shell_is_shown_once_and_a_removed_lane_closes() {
     assert_eq!(
         kept,
         Some(Kept::Herdr2 {
+            endpoint: "local".into(),
+            host: origin().host,
             label: fan_out.lanes[2].lane.branch.clone(),
             path: "/tmp/lane-2".into(),
         })
     );
     let (_, closed) = fan_out.take_kept();
-    assert_eq!(closed, ["/tmp/lane-0", "/tmp/lane-1"]);
+    assert_eq!(
+        closed
+            .into_iter()
+            .map(|checkout| (checkout.endpoint_id.clone(), checkout.path().to_owned()))
+            .collect::<Vec<_>>(),
+        [
+            ("local".into(), "/tmp/lane-0".into()),
+            ("local".into(), "/tmp/lane-1".into())
+        ]
+    );
 }
 
 #[test]

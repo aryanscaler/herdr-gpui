@@ -18,12 +18,13 @@ pub fn provision(
     let name = spec.name.clone().unwrap_or_else(setup::random_name);
     let _turn = CREATING.lock().unwrap_or_else(PoisonError::into_inner);
     let key = setup::generate_key(&name, cancelled)?;
-    setup::add_device(
+    setup::add_device_for(
         AddRequest {
             key,
             name,
             install: spec.install,
         },
+        spec.requirement,
         cancelled,
         report,
     )

@@ -9,6 +9,7 @@ use sheprd_client::protocol::AgentStatus;
 mod author_column;
 mod azure_browse;
 mod browse_pages;
+mod cli_project;
 mod clicks;
 mod conversation;
 mod conversation_list;
@@ -111,6 +112,9 @@ fn run(id: &str, item: &Item, state: RunState, started: &str) -> Run {
 
 fn session(run: &Run, pane: &str) -> HerdrSession {
     HerdrSession {
+        checkout_token: None,
+        adopted: None,
+        target: None,
         run_id: run.id.clone(),
         host: None,
         session: None,
@@ -125,6 +129,7 @@ fn session(run: &Run, pane: &str) -> HerdrSession {
 
 fn live(run: &Run, pane: &str, status: AgentStatus) -> LiveAgent {
     LiveAgent {
+        terminals: crate::orchestrator::Terminals::Herdr1,
         endpoint: 0,
         host: None,
         session: None,

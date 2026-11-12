@@ -25,6 +25,8 @@ pub enum Error {
     Request(#[source] std::sync::Arc<crate::Error>),
     #[error("Unexpected daemon response while opening the script's tab")]
     Response,
+    #[error("The queued setup expired; run the setup script from the worktree menu")]
+    SetupExpired,
     #[error(".herdr/worktree.toml exceeds {limit} bytes")]
     Size { limit: u64 },
     #[error("Worktree scripts cannot be read from a WSL distribution yet")]

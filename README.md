@@ -473,6 +473,9 @@ native cell presentation. Each daemon owns its terminal processes; the app
 keeps its own views and preferences. Closing or detaching the GUI leaves the
 daemons and their terminals running. Existing Herdr 1 sessions stay on Herdr 1.
 
+See the [Herdr 2 acceptance matrix](docs/herdr2-acceptance.md) for the audited
+feature scope, remaining gaps, implementation owners, and pending runtime QA.
+
 ### macOS Git permission errors
 
 If Git in a Sheprd terminal reports `Operation not permitted`, restarting the

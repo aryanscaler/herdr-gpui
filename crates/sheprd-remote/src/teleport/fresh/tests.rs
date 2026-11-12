@@ -180,3 +180,4 @@ fn an_origin_names_its_repository_as_teleport_resolves_it() {
 }
 
 mod dispatch;
+mod routing;

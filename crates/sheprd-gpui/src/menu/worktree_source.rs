@@ -502,6 +502,14 @@ impl SheprdWindow {
 
     /// Move to `tab`, focusing whichever field that tab types into and starting
     /// its listing if it has none yet.
+    pub(crate) fn show_existing_worktrees(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_worktree_tab(Tab::Existing, window, cx);
+    }
+
     pub(super) fn select_worktree_tab(
         &mut self,
         tab: Tab,
@@ -608,11 +616,14 @@ impl SheprdWindow {
         cx.notify();
     }
 
-    /// Read the repository's branches off the UI thread. Local Git only reads
-    /// a repository on this machine, so it is limited to the owned local
-    /// daemon.
+    /// Read branches on the selected host off the UI thread.
     fn list_branches(&mut self, cx: &mut Context<Self>) {
-        let input = self.local_repository_input();
+        let input = self.branch_repository_input();
+        let target = self.endpoints[self.selected_endpoint]
+            .connection
+            .target
+            .clone();
+        let endpoint = self.menu.endpoint_target;
         let Some(source) = &mut self.menu.worktree else {
             return;
         };
@@ -623,15 +634,28 @@ impl SheprdWindow {
                 return;
             }
         };
-        let work = cx
-            .background_executor()
-            .spawn(async move { repo_items::list_branches(&input, &|| false) });
+        let work = cx.background_executor().spawn(async move {
+            repo_items::list_branches_on(
+                &target,
+                &input,
+                &std::sync::atomic::AtomicBool::new(false),
+            )
+        });
+        let request = source.search.entity_id();
         source.branches.loading = true;
         source.branches.message = None;
         source.branches.task = Some(cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |this, cx| {
-                let Some(source) = &mut this.menu.worktree else {
+                if this.menu.endpoint_target != endpoint {
+                    return;
+                }
+                let Some(source) = this
+                    .menu
+                    .worktree
+                    .as_mut()
+                    .filter(|source| source.search.entity_id() == request)
+                else {
                     return;
                 };
                 let branches = &mut source.branches;
@@ -672,17 +696,32 @@ impl SheprdWindow {
         }
     }
 
-    /// The repository to read locally, under the same endpoint and staleness
-    /// rules the PR section already enforces. A workspace the daemon has no
-    /// worktree metadata for is read from its own directory.
-    fn local_repository_input(&self) -> crate::Result<crate::pull_request::Input> {
+    /// The repository for the host-scoped branch reader. Herdr 1 retains its
+    /// verified local route; app-kept folders can be on any supported host.
+    pub(in crate::menu) fn branch_repository_input(
+        &self,
+    ) -> crate::Result<crate::pull_request::Input> {
         if self.menu.target.is_none() || !self.menu_target_current() {
             return Err(crate::Error::StaleWorkspace);
         }
-        // A kept workspace is in a folder on this computer.
-        if self.kept_checkout().is_none()
-            && (self.selected_endpoint != 0 || !self.live.local_daemon_peer)
-        {
+        if let Some(checkout) = self.kept_checkout() {
+            let target = self
+                .menu
+                .target
+                .as_ref()
+                .ok_or(crate::Error::StaleWorkspace)?;
+            let sessions = self.sessions(self.selected_endpoint);
+            let workspace = sessions
+                .core
+                .as_ref()
+                .and_then(|session| session.workspace(&target.id))
+                .ok_or(crate::Error::StaleWorkspace)?;
+            let mut input = crate::pull_request::kept_input(workspace, self.selected_is_remote())
+                .ok_or(crate::Error::StaleWorkspace)?;
+            input.checkout = Some(checkout);
+            return Ok(input);
+        }
+        if self.selected_endpoint != 0 || !self.live.local_daemon_peer {
             return Err(sheprd_github::pull_request::Error::UntrustedEndpoint.into());
         }
         self.menu_target_input(&crate::pull_request::Origin::Local)

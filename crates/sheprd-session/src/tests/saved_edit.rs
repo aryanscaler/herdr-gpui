@@ -48,7 +48,7 @@ fn a_split_keeps_every_field_it_does_not_name() {
     assert_eq!(tab.panes.terminals(), [&id("t1"), &id("t2")]);
     let edited = value(&edited);
     let location = &edited["tabs"][0]["location"];
-    assert_eq!(location["active"], "t1");
+    assert_eq!(location["active"], "t2");
     assert!(location.get("terminal").is_none(), "renamed to `panes`");
     assert_eq!(edited["tabs"][0]["zoom"], 1.5);
     assert_eq!(edited["future"]["kept"], true);

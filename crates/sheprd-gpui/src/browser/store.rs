@@ -261,28 +261,34 @@ fn parse(bytes: &[u8]) -> crate::Result<Saved> {
 /// an edit of the saved tabs it made while the app was closed.
 const OWN_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Takes the lock beside the saved tabs at `path`, waiting briefly for the
-/// daemon's edit to end. Without it the app still starts, as before.
-fn own(path: &std::path::Path) -> Option<std::fs::File> {
+/// Takes ownership before reading or starting a writer. A slow phone split
+/// can outlast the startup budget; failing to acquire must never fall through
+/// to unlocked reads/writes that could erase its eventual commit.
+fn own(path: &std::path::Path, wait: std::time::Duration) -> std::io::Result<std::fs::File> {
     let lock = sheprd_session::saved::lock_path(path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(&lock)
-        .inspect_err(|error| tracing::warn!(%error, "Cannot open the browser-tab lock"))
-        .ok()?;
+        .open(&lock)?;
     let started = std::time::Instant::now();
     loop {
         match file.try_lock() {
-            Ok(()) => return Some(file),
-            Err(std::fs::TryLockError::WouldBlock) if started.elapsed() < OWN_WAIT => {
+            Ok(()) => return Ok(file),
+            Err(std::fs::TryLockError::WouldBlock) if started.elapsed() < wait => {
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
-            Err(error) => {
-                tracing::warn!(%error, "Cannot hold the browser-tab lock");
-                return None;
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    // i18n: data
+                    "Saved tabs are being changed by another client; try opening Sheprd again shortly",
+                ));
             }
+            Err(std::fs::TryLockError::Error(error)) => return Err(error),
         }
     }
 }
@@ -294,9 +300,12 @@ impl Store {
 
     /// Called before starting GPUI, like the window state. A missing or
     /// damaged file starts with no tabs.
-    pub(crate) fn load() -> Self {
-        let path = Self::path();
-        let owner = path.as_deref().and_then(own);
+    pub(crate) fn load() -> std::io::Result<Self> {
+        Self::load_at(Self::path(), OWN_WAIT)
+    }
+
+    fn load_at(path: Option<PathBuf>, wait: std::time::Duration) -> std::io::Result<Self> {
+        let owner = path.as_deref().map(|path| own(path, wait)).transpose()?;
         let saved = path
             .as_deref()
             .map(|path| {
@@ -329,7 +338,7 @@ impl Store {
         let mut store = Self::with_tabs(tabs, writer);
         store.workspaces = workspaces;
         store._owner = owner;
-        store
+        Ok(store)
     }
 
     fn with_tabs(mut tabs: Vec<Tab>, writer: Option<state_file::Writer<Saved>>) -> Self {

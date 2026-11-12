@@ -40,7 +40,13 @@ fn herdr_is_installed_before_a_session_only_when_approved_and_only_if_it_took() 
     let home = tempfile::tempdir().unwrap();
     let installed = || home.path().join("herdr").exists();
 
-    let declined = ensure_herdr(vm(home.path(), true), false, &|| false, &report);
+    let declined = ensure_herdr(
+        vm(home.path(), true),
+        false,
+        cloud::Requirement::Either,
+        &|| false,
+        &report,
+    );
     assert!(matches!(
         declined,
         Err(Error::Cloud(cloud::Error::Install(
@@ -53,7 +59,13 @@ fn herdr_is_installed_before_a_session_only_when_approved_and_only_if_it_took() 
     assert!(!installed() && steps.borrow().is_empty());
 
     // An installer that leaves no Herdr is an error, not a ready device.
-    let failed = ensure_herdr(vm(home.path(), false), true, &|| false, &|_| {});
+    let failed = ensure_herdr(
+        vm(home.path(), false),
+        true,
+        cloud::Requirement::Either,
+        &|| false,
+        &|_| {},
+    );
     assert!(matches!(
         failed,
         Err(Error::Cloud(cloud::Error::Install(
@@ -61,13 +73,27 @@ fn herdr_is_installed_before_a_session_only_when_approved_and_only_if_it_took() 
         )))
     ));
 
-    ensure_herdr(vm(home.path(), true), true, &|| false, &report).unwrap();
+    ensure_herdr(
+        vm(home.path(), true),
+        true,
+        cloud::Requirement::Either,
+        &|| false,
+        &report,
+    )
+    .unwrap();
     assert!(installed());
     assert_eq!(*steps.borrow(), [cloud::Step::InstallingHerdr]);
 
     // Already there: the probe passes and the installer is not run again.
     steps.borrow_mut().clear();
-    ensure_herdr(vm(home.path(), false), true, &|| false, &report).unwrap();
+    ensure_herdr(
+        vm(home.path(), false),
+        true,
+        cloud::Requirement::Either,
+        &|| false,
+        &report,
+    )
+    .unwrap();
     assert!(steps.borrow().is_empty());
 }
 

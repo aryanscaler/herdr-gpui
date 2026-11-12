@@ -460,7 +460,15 @@ pub(crate) fn run() -> std::process::ExitCode {
         }
     };
     let failed = startup_failed.clone();
-    let stores = Stores::load(mode == LaunchMode::Normal);
+    let stores = match Stores::load(mode == LaunchMode::Normal) {
+        Ok(stores) => stores,
+        Err(error) => {
+            tracing::error!(%error, "Cannot acquire saved-tab ownership");
+            // i18n: data
+            eprintln!("Cannot open saved tabs: {error}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
     crate::composition::application(appearance.dark.config.backdrop.translucent())
         .with_assets(icons::Icons)
         .run(move |cx| {

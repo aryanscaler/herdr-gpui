@@ -12,6 +12,7 @@
 //! screens.
 
 mod adopt;
+mod agent_row;
 mod asks;
 mod attention;
 mod checkouts;
@@ -20,6 +21,7 @@ mod context;
 mod effects;
 mod error;
 mod fallback;
+pub(crate) mod files;
 mod folders;
 mod history;
 mod hosts;
@@ -40,6 +42,7 @@ mod selection;
 mod session;
 mod sidebar;
 mod split;
+mod start;
 mod tabs;
 mod view;
 mod worker;
@@ -79,7 +82,7 @@ pub(crate) const WORKSPACE: &str = "herdr-2";
 /// store tab, whose IDs count up from zero, ever reaches it.
 pub(crate) const SHELL_TAB: u64 = u64::MAX;
 
-type Started = std::sync::mpsc::Receiver<Result<TerminalInfo, sheprd_core_client::Error>>;
+type Started = std::sync::mpsc::Receiver<start::Outcome>;
 
 /// What a terminal being started is for.
 #[derive(Clone, Debug)]
@@ -151,12 +154,10 @@ struct TabPanes {
 }
 
 impl TabPanes {
-    /// Whether chats are drawn over the tab's panes: it drives its
-    /// terminals, and they run in this computer's core. A chat runs
-    /// `herdr-acp`, whose program and socket are this computer's, so a tab
-    /// on another host shows its terminals only.
+    /// Only driven tabs draw interactive chats. Their owning host determines
+    /// the ACP launch and attach route; mirrors remain terminal-only.
     fn holds_chats(&self) -> bool {
-        !self.observe && self.host == Host::Local
+        !self.observe
     }
 
     fn new(host: Host, panes: Panes, observe: bool) -> Self {
@@ -444,12 +445,12 @@ impl CoreTerminals {
     }
 
     /// What this computer's core reports of the terminals in the panes of
-    /// tabs that hold chats, which a chat may be drawn over. A mirror only
-    /// watches, and a tab on another host runs no chat.
+    /// tabs that hold chats. Local-only readers use this iterator; native
+    /// chat discovery uses `routed_chat_terminals` to retain host identity.
     pub(crate) fn chat_terminals(&self) -> impl Iterator<Item = &TerminalInfo> {
         self.tabs
             .values()
-            .filter(|shown| shown.holds_chats())
+            .filter(|shown| shown.holds_chats() && shown.host == Host::Local)
             .flat_map(|shown| shown.panes.terminals())
             .filter_map(|terminal| self.infos.get(terminal))
     }
@@ -520,7 +521,7 @@ impl CoreTerminals {
     }
 
     /// Whether `tab` is a herdr-core tab that holds chats: it drives its
-    /// terminals, rather than a mirror that only watches, on this computer.
+    /// terminals, rather than a mirror that only watches, on any host.
     pub(crate) fn drives(&self, tab: TabId) -> bool {
         self.tabs.get(&tab).is_some_and(TabPanes::holds_chats)
     }
@@ -555,7 +556,9 @@ impl CoreTerminals {
     pub(crate) fn tab_of(&self, terminal: &TerminalId) -> Option<TabId> {
         self.tabs
             .iter()
-            .find(|(_, shown)| shown.holds_chats() && shown.panes.contains(terminal))
+            .find(|(_, shown)| {
+                shown.host == Host::Local && shown.holds_chats() && shown.panes.contains(terminal)
+            })
             .map(|(id, _)| *id)
     }
 
@@ -715,15 +718,22 @@ impl SheprdWindow {
             .name("herdr-core-spawn".into())
             .spawn(move || {
                 let started = backend.spawn(&spawn);
-                // The program removes its file; a failed start leaves it
-                // here, where dropping it removes it.
-                if started.is_ok()
+                let succeeded = started.is_ok();
+                let handed = start::deliver(started, send, |terminal| {
+                    // The receiver vanished with its host/window. End only
+                    // the terminal this worker created, on its captured core;
+                    // never retry its ID against a replacement saved host.
+                    if let Err(error) = backend.kill(terminal) {
+                        tracing::warn!(%error, %terminal, "Could not end an abandoned herdr-core start");
+                    }
+                });
+                // Keep a program's handoff file only after its window accepts
+                // the start; failed/cancelled starts retain local cleanup.
+                if handed && succeeded
                     && let Some(file) = file
-                    && let Err(error) = file.keep()
-                {
+                    && let Err(error) = file.keep() {
                     tracing::warn!(%error, "Could not hand a file to a herdr-core program");
                 }
-                let _ = send.send(started);
             });
         match spawned {
             Ok(_) => terminals.starting = Some((purpose, host, receive)),
@@ -797,7 +807,10 @@ impl SheprdWindow {
         // against its folder, which this computer's core reports.
         let fallback = self.core_fallback_view();
         self.answer_phone_split(cx);
-        let listed = self.core_terminals.poll_infos(std::time::Instant::now());
+        let dispatching = self.dispatch_sampling();
+        let listed = self
+            .core_terminals
+            .poll_infos(std::time::Instant::now(), dispatching);
         self.adopt_labelled_terminals(listed, cx);
         if listed {
             self.hear_core_agents(cx);
@@ -837,7 +850,7 @@ impl SheprdWindow {
             return;
         };
         let outcome = match started.try_recv() {
-            Ok(outcome) => outcome,
+            Ok(outcome) => outcome.take(),
             Err(std::sync::mpsc::TryRecvError::Empty) => return,
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                 self.core_terminals.starting = None;
@@ -872,10 +885,12 @@ impl SheprdWindow {
                 self.end_core_terminal(&host, info.id);
             }
             Purpose::Tab { scope, workspace } => {
+                let terminal = info.id.clone();
                 let location = Location::core_terminal(Panes::single(info.id), false);
                 let Some(id) = Store::update(cx, |store| {
                     store.open(scope, &workspace, Some(location), None)
                 }) else {
+                    self.end_core_terminal(&host, terminal);
                     self.show_flash(Flash::warning(fl!("core-terminals-too-many-tabs")), cx);
                     return;
                 };
@@ -911,7 +926,7 @@ impl SheprdWindow {
     }
 
     /// The view of `tab`'s active pane.
-    fn core_pane_view(&self, tab: TabId) -> Option<&Entity<CoreTerminalView>> {
+    pub(crate) fn core_pane_view(&self, tab: TabId) -> Option<&Entity<CoreTerminalView>> {
         let active = &self.core_terminals.tabs.get(&tab)?.active;
         self.core_terminals.views.get(&(tab, active.clone()))
     }

@@ -41,6 +41,10 @@ fn only_kept_linked_checkouts_with_a_merged_pull_request_qualify() {
     assert_eq!(found[0].workspace, "kept-lane");
     assert_eq!(found[0].number, pr.number);
     assert_eq!(found[0].input.repo_key, Some(format!("{ROOT}/app/.git")));
+    assert_eq!(
+        found[0].input.checkout.as_deref(),
+        Some(workspaces[1].cwd.as_str())
+    );
     let open = merged(State::Open);
     assert_eq!(kept_candidates(&workspaces, |_| Some(&open)).count(), 0);
 }

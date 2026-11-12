@@ -37,13 +37,19 @@ pub(crate) struct Kept {
     /// Every archive running, one per kept workspace.
     archives: Vec<Archive>,
     /// New checkouts' setups, oldest first, each waiting for its workspace.
-    setups: VecDeque<(Launch, Instant)>,
+    setups: VecDeque<(Launch, Instant, sheprd_client::ConnectTarget)>,
 }
 
 /// An archive script running in a kept workspace's tab; its checkout is
 /// removed once the script succeeds, and stays when it fails.
 #[derive(Debug)]
 struct Archive {
+    /// Preserve a known exit while checkout metadata is unavailable; the
+    /// terminal view may be pruned before its host answers Git again.
+    ended: Option<Ended>,
+    identity: Option<(String, Option<String>)>,
+    scope: crate::browser::Scope,
+    target: sheprd_client::ConnectTarget,
     /// This attempt's own label value, so a retry never takes the terminal
     /// of an earlier attempt, and its exit, for its own.
     attempt: String,
@@ -58,6 +64,7 @@ struct Archive {
 }
 
 /// What became of a followed archive this tick.
+#[derive(Clone, Copy, Debug)]
 enum Ended {
     /// Its terminal never showed up, or its workspace closed: let it go.
     Gone,
@@ -110,6 +117,18 @@ impl SheprdWindow {
         self.start_in_kept_workspace(&launch.workspace, spawn, cx)?;
         if archive {
             self.kept_scripts.archives.push(Archive {
+                ended: None,
+                identity: Some((
+                    launch.repo_key.clone(),
+                    self.sessions(self.selected_endpoint)
+                        .workspace(&launch.workspace)
+                        .and_then(|workspace| workspace.branch.clone()),
+                )),
+                scope: crate::browser::scope(&self.endpoints[self.selected_endpoint]),
+                target: self.endpoints[self.selected_endpoint]
+                    .connection
+                    .target
+                    .clone(),
                 attempt,
                 workspace: launch.workspace.clone(),
                 path: checkout.path.clone(),
@@ -125,11 +144,19 @@ impl SheprdWindow {
     /// Runs `launch`, a new checkout's setup, once the kept workspace for
     /// its folder has opened, after any setup queued before it.
     pub(crate) fn queue_kept_setup(&mut self, launch: Launch) {
+        let Some(target) = self
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.id == launch.endpoint_id)
+            .map(|endpoint| endpoint.connection.target.clone())
+        else {
+            return;
+        };
         let setups = &mut self.kept_scripts.setups;
         if setups.len() >= MAX_FOLLOWED {
             setups.pop_front();
         }
-        setups.push_back((launch, Instant::now()));
+        setups.push_back((launch, Instant::now(), target));
     }
 
     /// Starts a queued setup once its workspace is kept, and removes an
@@ -140,8 +167,12 @@ impl SheprdWindow {
     }
 
     /// The workspace this computer keeps at `path`, whichever host is shown.
-    fn local_kept_at(&self, path: &str, cx: &Context<Self>) -> Option<String> {
-        let scope = self.local_kept_scope()?;
+    fn launch_kept_at(&self, launch: &Launch, path: &str, cx: &Context<Self>) -> Option<String> {
+        let endpoint = self
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.id == launch.endpoint_id)?;
+        let scope = crate::browser::scope(endpoint);
         self.kept_workspace_in(&scope, Path::new(path), cx)
     }
 
@@ -152,27 +183,46 @@ impl SheprdWindow {
         let setups = std::mem::take(&mut self.kept_scripts.setups);
         let mut waiting = VecDeque::with_capacity(setups.len());
         let mut ready = None;
-        for (launch, queued) in setups {
+        for (launch, queued, target) in setups {
+            // Expiry also applies once the workspace exists: a setup must
+            // not run hours later merely because its host was not selected.
+            if queued.elapsed() > SETUP_WAIT {
+                self.local_error = Some(super::Error::SetupExpired.localize());
+                cx.notify();
+                continue;
+            }
+            if !self.endpoints.iter().any(|endpoint| {
+                endpoint.id == launch.endpoint_id && endpoint.connection.target == target
+            }) {
+                continue;
+            }
             let workspace = launch
                 .checkout
                 .as_ref()
-                .and_then(|checkout| self.local_kept_at(&checkout.path, cx));
+                .and_then(|checkout| self.launch_kept_at(&launch, &checkout.path, cx));
             match workspace {
-                Some(workspace) if ready.is_none() => ready = Some((launch, queued, workspace)),
-                Some(_) => waiting.push_back((launch, queued)),
-                // The agent it lands with did not start.
-                None if queued.elapsed() > SETUP_WAIT => {}
-                None => waiting.push_back((launch, queued)),
+                Some(workspace)
+                    if ready.is_none()
+                        && self.endpoints[self.selected_endpoint].id == launch.endpoint_id =>
+                {
+                    ready = Some((launch, queued, target, workspace))
+                }
+                Some(_) => waiting.push_back((launch, queued, target)),
+                None => waiting.push_back((launch, queued, target)),
             }
         }
         self.kept_scripts.setups = waiting;
-        let Some((mut launch, queued, workspace)) = ready else {
+        let Some((mut launch, queued, target, workspace)) = ready else {
             return;
         };
         // Scripts run in the shown host's tabs, one at a time; this one
         // keeps its place at the front until both allow it.
-        if self.selected_is_remote() || self.script_slot_busy() {
-            self.kept_scripts.setups.push_front((launch, queued));
+        if self.endpoints[self.selected_endpoint].id != launch.endpoint_id
+            || self.script_slot_busy()
+        {
+            self.kept_scripts
+                .setups
+                .push_front((launch, queued, target));
             return;
         }
         // Queued under the selection of its time: it runs on this
@@ -202,6 +252,8 @@ impl SheprdWindow {
         archives.retain_mut(|archive| match self.kept_archive_state(archive, cx) {
             Some(end) => {
                 ended.push((
+                    archive.scope.clone(),
+                    archive.target.clone(),
                     archive.workspace.clone(),
                     archive.path.clone(),
                     archive.force,
@@ -212,10 +264,12 @@ impl SheprdWindow {
             None => true,
         });
         self.kept_scripts.archives = archives;
-        for (workspace, path, force, end) in ended {
+        for (scope, target, workspace, path, force, end) in ended {
             match end {
                 Ended::Gone => {}
-                Ended::Succeeded => self.remove_kept_checkout(workspace, path, force, cx),
+                Ended::Succeeded => {
+                    self.remove_archived_kept_checkout(&scope, &target, workspace, path, force, cx)
+                }
                 Ended::Failed => {
                     // The tab stays on the script's output, and the checkout
                     // with it.
@@ -228,36 +282,99 @@ impl SheprdWindow {
 
     /// How `archive` ended, `None` while it runs.
     fn kept_archive_state(&self, archive: &mut Archive, cx: &Context<Self>) -> Option<Ended> {
+        let Some(index) = self.endpoints.iter().position(|endpoint| {
+            crate::browser::scope(endpoint) == archive.scope
+                && endpoint.connection.target == archive.target
+        }) else {
+            return Some(Ended::Gone);
+        };
+        let kept = cx
+            .try_global::<crate::browser::Store>()
+            .is_some_and(|store| {
+                store
+                    .kept_workspace(&archive.scope, &archive.workspace)
+                    .is_some()
+            });
+        if !kept {
+            return Some(Ended::Gone);
+        }
+        let identity = archive
+            .identity
+            .as_ref()
+            .map_or(Identity::Same, |(key, branch)| {
+                let sessions = self.sessions(index);
+                let current = sessions
+                    .core
+                    .as_ref()
+                    .and_then(|session| session.workspace(&archive.workspace));
+                checkout_identity(current, key, branch.as_deref())
+            });
+        if identity == Identity::Changed {
+            return Some(Ended::Gone);
+        }
+        let identity_ready = identity == Identity::Same;
+        let host = crate::core_terminals::Host::of(&archive.scope);
         if archive.terminal.is_none() {
-            archive.terminal = self.local_terminal_labelled(ARCHIVE_LABEL, &archive.attempt);
+            archive.terminal = self.host_terminal_labelled(&host, ARCHIVE_LABEL, &archive.attempt);
         }
         let Some(terminal) = &archive.terminal else {
             return (archive.started.elapsed() > ARCHIVE_START_WAIT).then_some(Ended::Gone);
         };
+        if archive.ended.is_none() {
+            archive.ended = self.host_terminal_exit(&host, terminal, cx).map(|exit| {
+                if exit.code == Some(0) {
+                    Ended::Succeeded
+                } else {
+                    Ended::Failed
+                }
+            });
+        }
         // A tab closed on the script cancels it: nothing is removed, and
         // the next archive of the workspace may start. One never shown
         // within the start wait was not opened at all.
-        let shown = self.local_terminal_shown(terminal);
+        let shown = self.host_terminal_shown(&host, terminal);
         if shown {
             archive.shown = true;
-        } else if archive.shown || archive.started.elapsed() > ARCHIVE_START_WAIT {
+        } else if archive.ended.is_none()
+            && (archive.shown || archive.started.elapsed() > ARCHIVE_START_WAIT)
+        {
             return Some(Ended::Gone);
         }
-        // Closed with its workspace: nothing is left to remove for.
-        let kept = self.local_kept_scope().is_some_and(|scope| {
-            cx.try_global::<crate::browser::Store>()
-                .is_some_and(|store| store.kept_workspace(&scope, &archive.workspace).is_some())
-        });
-        if !kept {
-            return Some(Ended::Gone);
+        match archive.ended {
+            Some(Ended::Succeeded) if !identity_ready => None,
+            ended => ended,
         }
-        let exit = self.core_terminal_exit(terminal, cx)?;
-        Some(if exit.code == Some(0) {
-            Ended::Succeeded
-        } else {
-            Ended::Failed
-        })
     }
+}
+
+/// What a kept workspace's checkout is now, against the one its archive
+/// started in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Identity {
+    Same,
+    /// The workspace holds another branch or checkout: nothing of the
+    /// archived checkout is left to remove for.
+    Changed,
+    /// The workspace or its worktree is not known yet, as while a remote
+    /// Git lookup fails: a failed query is no evidence of a replacement, so
+    /// the archive keeps waiting rather than dropping a deletion asked for.
+    Unknown,
+}
+
+fn checkout_identity(
+    workspace: Option<&sheprd_session::Workspace>,
+    key: &str,
+    branch: Option<&str>,
+) -> Identity {
+    let Some((workspace, tree)) =
+        workspace.and_then(|workspace| Some((workspace, workspace.worktree.as_ref()?)))
+    else {
+        return Identity::Unknown;
+    };
+    if workspace.branch.as_deref() != branch || !tree.linked || tree.key != key {
+        return Identity::Changed;
+    }
+    Identity::Same
 }
 
 // For the kept workspaces' tests, which need host scripts.
@@ -272,10 +389,35 @@ impl SheprdWindow {
     }
 
     pub(crate) fn follow_archive_for_test(&mut self, workspace: String, terminal: TerminalId) {
+        let path = self
+            .sessions(self.selected_endpoint)
+            .core
+            .as_ref()
+            .and_then(|session| session.workspace(&workspace))
+            .map(|workspace| workspace.cwd.clone())
+            .unwrap_or_else(|| "/nonexistent/archive-checkout".into());
+        let identity = self
+            .sessions(self.selected_endpoint)
+            .core
+            .as_ref()
+            .and_then(|session| {
+                let workspace = session.workspace(&workspace)?;
+                Some((
+                    workspace.worktree.as_ref()?.key.clone(),
+                    workspace.branch.clone(),
+                ))
+            });
         self.kept_scripts.archives.push(Archive {
+            ended: None,
+            identity,
+            scope: crate::browser::scope(&self.endpoints[self.selected_endpoint]),
+            target: self.endpoints[self.selected_endpoint]
+                .connection
+                .target
+                .clone(),
             attempt: "test-attempt".into(),
             workspace,
-            path: "/nonexistent/archive-checkout".into(),
+            path,
             force: false,
             started: Instant::now(),
             terminal: Some(terminal),
@@ -285,7 +427,10 @@ impl SheprdWindow {
 
     /// The setup waiting longest for its kept workspace, if any.
     pub(crate) fn queued_kept_setup(&self) -> Option<&Launch> {
-        self.kept_scripts.setups.front().map(|(launch, _)| launch)
+        self.kept_scripts
+            .setups
+            .front()
+            .map(|(launch, _, _)| launch)
     }
 
     /// The attempt label and terminal of the archive of `workspace`.
@@ -314,7 +459,18 @@ impl SheprdWindow {
         self.kept_scripts
             .setups
             .iter()
-            .map(|(launch, _)| launch)
+            .map(|(launch, _, _)| launch)
             .collect()
     }
+
+    pub(crate) fn age_kept_setups(&mut self) {
+        if let Some(aged) = Instant::now().checked_sub(SETUP_WAIT * 2) {
+            for (_, queued, _) in &mut self.kept_scripts.setups {
+                *queued = aged;
+            }
+        }
+    }
 }
+
+#[cfg(test)]
+mod tests;

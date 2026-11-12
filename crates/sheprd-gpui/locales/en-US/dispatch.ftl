@@ -23,6 +23,7 @@ dispatch-new-sandbox = New { $noun ->
     }
 dispatch-sandbox-own = Its own files and limits
 dispatch-sandbox-made = Made when you create
+dispatch-created-unopened = Created { $path } on { $host }, but the destination changed or could not be shown. The checkout remains on that host.
 
 # A host tile's facts.
 dispatch-cores-free =

@@ -60,10 +60,20 @@ pub fn add_device(
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<SavedDevice> {
+    add_device_for(request, cloud::Requirement::Either, cancelled, report)
+}
+
+pub(super) fn add_device_for(
+    request: AddRequest,
+    requirement: cloud::Requirement,
+    cancelled: &dyn Fn() -> bool,
+    report: &dyn Fn(cloud::Step),
+) -> crate::Result<SavedDevice> {
     let dir = ssh::state_dir()?;
     Ok(add_device_in(
         &dir,
         request,
+        requirement,
         cancelled,
         report,
         cloud::load,
@@ -74,6 +84,7 @@ pub fn add_device(
 fn add_device_in(
     dir: &Path,
     request: AddRequest,
+    requirement: cloud::Requirement,
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
     load: impl FnOnce() -> cloud::Result<Vec<SavedDevice>>,
@@ -100,7 +111,7 @@ fn add_device_in(
             ));
         }
     }
-    ensure_herdr(headless, install, cancelled, report)?;
+    ensure_herdr(headless, install, requirement, cancelled, report)?;
     // Setting a device up again keeps its name.
     let device = SavedDevice {
         provider: CloudProvider::Railway,
@@ -172,10 +183,11 @@ fn hidden<T>(result: cloud::Result<T>) -> Result<T> {
 fn ensure_herdr(
     session: impl Fn() -> Result<Command>,
     install: bool,
+    requirement: cloud::Requirement,
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> Result<()> {
-    if !hidden(install::installed(session()?, &cancelled))? {
+    if !hidden(requirement.installed(session()?, &cancelled))? {
         if !install {
             return Err(cloud::Error::Install(install::Failure::NotInstalled {
                 machine: None,
@@ -184,13 +196,13 @@ fn ensure_herdr(
             .into());
         }
         report(cloud::Step::InstallingHerdr);
-        hidden(install::install(session()?, &cancelled))?;
+        hidden(requirement.install(session()?, &cancelled))?;
         // The installer's own success is not proof the bridge will find it.
-        if !hidden(install::installed(session()?, &cancelled))? {
+        if !hidden(requirement.installed(session()?, &cancelled))? {
             return Err(cloud::Error::Install(install::Failure::Missing).into());
         }
     }
-    if install {
+    if install && requirement == cloud::Requirement::Either {
         hidden(install::add_core(session(), &cancelled))?;
     }
     Ok(())

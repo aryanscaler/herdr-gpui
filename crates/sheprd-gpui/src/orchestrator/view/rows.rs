@@ -7,6 +7,7 @@ use super::tasks::TaskFilters;
 use crate::i18n::fl;
 use crate::orchestrator::{
     Backend, CheckState, HerdrSession, Item, Pane, PrStatus, Provider, Review, Run, RunState,
+    Terminals,
 };
 use sheprd_client::protocol::AgentStatus;
 use std::{
@@ -167,20 +168,21 @@ impl Status {
 pub(crate) use sheprd_orchestrator::model::LiveAgent;
 
 /// The live agent a run's session names, if a connected host shows it.
-/// Live agents are Herdr 1's: a Herdr 2 run shows its recorded state.
 pub(crate) fn live_for<'a>(session: &HerdrSession, live: &'a [LiveAgent]) -> Option<&'a LiveAgent> {
-    let Pane::Herdr1 {
-        workspace_id,
-        pane_id,
-    } = &session.pane
-    else {
-        return None;
+    let (terminals, workspace_id, pane_id) = match &session.pane {
+        Pane::Pending => return None,
+        Pane::Herdr1 {
+            workspace_id,
+            pane_id,
+        } => (Terminals::Herdr1, workspace_id.as_str(), pane_id.as_str()),
+        Pane::Herdr2 { terminal } => (Terminals::Herdr2, "", terminal.as_str()),
     };
     live.iter().find(|agent| {
-        agent.host == session.host
+        agent.terminals == terminals
+            && agent.host == session.host
             && agent.session == session.session
-            && agent.pane_id == *pane_id
-            && agent.workspace_id == *workspace_id
+            && agent.pane_id == pane_id
+            && agent.workspace_id == workspace_id
     })
 }
 
@@ -232,7 +234,8 @@ impl<'a> Runs<'a> {
             .as_ref()
             .filter(|workspace| workspace.backend == Backend::Herdr)?;
         self.live.iter().find(|agent| {
-            agent.host == workspace.host
+            agent.terminals == Terminals::Herdr1
+                && agent.host == workspace.host
                 && agent.workspace_id == workspace.id
                 && if self.runs[run].owner == crate::orchestrator::Owner::Branch {
                     self.runs[run].id

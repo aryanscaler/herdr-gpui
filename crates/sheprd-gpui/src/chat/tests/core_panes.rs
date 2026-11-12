@@ -12,6 +12,8 @@ use sheprd_backend::{RunState, TerminalId, TerminalInfo};
 use sheprd_client::{ConnectTarget, protocol::AgentStatus};
 use std::collections::BTreeMap;
 
+mod remote;
+
 fn id(name: &str) -> TerminalId {
     TerminalId::new(name).unwrap()
 }
@@ -20,7 +22,11 @@ fn info(name: &str, endpoint: Option<&str>) -> TerminalInfo {
     TerminalInfo {
         agent: AgentStatus::Unknown,
         cwd: None,
-        foreground: None,
+        foreground: endpoint.map(|_| sheprd_backend::Process {
+            name: "sheprd-acp".into(),
+            pid: 42,
+            argv: vec!["sheprd-acp".into()],
+        }),
         id: id(name),
         labels: endpoint
             .map(|endpoint| {
@@ -43,7 +49,14 @@ const MIRROR: u64 = 2;
 fn attached(
     cx: &mut TestAppContext,
 ) -> (Entity<SheprdWindow>, Peer, Program, &mut VisualTestContext) {
-    let (view, _peer, cx) = open(cx, ConnectTarget::Local);
+    attached_on(cx, ConnectTarget::Local)
+}
+
+fn attached_on(
+    cx: &mut TestAppContext,
+    target: ConnectTarget,
+) -> (Entity<SheprdWindow>, Peer, Program, &mut VisualTestContext) {
+    let (view, _peer, cx) = open(cx, target.clone());
     let program = Program::new();
     let endpoint = "fedcba9876543210fedcba9876543210";
     view.update(cx, |view, _| {
@@ -68,6 +81,19 @@ fn attached(
             true,
             Vec::new(),
         );
+        if target.is_remote() {
+            // This fixture has no Herdr 1 or live core transport. Discovery
+            // uses the seeded core metadata; no installed-agent probe runs.
+            view.live.status = crate::state::ConnectionStatus::Disconnected;
+            let scope = crate::browser::scope(&view.endpoints[view.selected_endpoint]);
+            for tab in [DRIVEN, MIRROR] {
+                view.core_terminals.rehost_for_test(
+                    TabId::test(tab),
+                    scope.clone(),
+                    target.clone(),
+                );
+            }
+        }
     });
     let path = program.path.clone();
     let poll = |cx: &mut VisualTestContext| {
@@ -95,7 +121,7 @@ fn attached(
         poll(cx);
         view.read_with(cx, |view, _| {
             view.chats
-                .pane(&key(&id("t1")))
+                .pane(&view.core_chat_key(TabId::test(DRIVEN), &id("t1")))
                 .is_some_and(|chat| chat.available() && chat.composer.is_some())
         })
     });

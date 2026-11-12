@@ -5,7 +5,7 @@
 //! Git makes the worktree through `work::create`. The app then keeps the
 //! workspace that shows the folder answered.
 
-use super::{Origin, ship};
+use super::{Origin, Prepared, ship};
 use crate::{
     teleport::{
         error::{Result, Step},
@@ -65,6 +65,31 @@ fn find(
     }
 }
 
+/// Prepare a Git checkout without querying or opening a Herdr 1 workspace.
+pub(super) fn prepare(
+    origin: &Origin,
+    destination: &HostRepositories,
+    commit: &str,
+    report: &mut impl FnMut(Step),
+    cancelled: &AtomicBool,
+) -> Result<Prepared> {
+    let found = find(origin, destination, report, cancelled)?;
+    let host = destination.place.host.clone();
+    let reference = ship(origin, &host, &found.key, commit, report, cancelled)?;
+    Ok(Prepared {
+        repository: job::Repository {
+            key: found.key,
+            label: origin.repo_label.clone(),
+            workspace_id: String::new(),
+        },
+        work_repository: work::Repository::Herdr2 {
+            checkout: found.path,
+        },
+        host,
+        reference,
+    })
+}
+
 /// A new worktree of `origin`'s repository on `destination`, branched as
 /// `branch` from the commit `base` names on the origin. Answers it as its
 /// setup script needs it.
@@ -77,26 +102,24 @@ pub fn dispatch_kept_worktree(
     cancelled: &AtomicBool,
 ) -> Result<super::NewCheckout> {
     let commit = super::base_commit(origin, base, cancelled)?;
-    let found = find(origin, destination, &mut report, cancelled)?;
+    let prepared = prepare(origin, destination, &commit, &mut report, cancelled)?;
     let to = &destination.place.host;
-    let reference = ship(origin, to, &found.key, &commit, &mut report, cancelled)?;
     report(Step::CreateWorktree);
-    let repository = work::Repository::Herdr2 {
-        checkout: found.path.clone(),
-    };
     let new = work::NewWorktree {
         branch,
         base: &commit,
         label: None,
     };
-    let created = work::create(to, &repository, &new, cancelled);
-    if let Some(reference) = &reference {
-        git::drop_reference(to, &found.key, reference, &AtomicBool::new(false));
-    }
+    let created = work::create(to, prepared.work_repository(), &new, cancelled);
+    prepared.finish(&AtomicBool::new(false));
+    let root = match prepared.work_repository() {
+        work::Repository::Herdr2 { checkout } => Some(checkout.clone()),
+        work::Repository::Herdr1 { .. } => None,
+    };
     Ok(super::NewCheckout {
-        repo_key: found.key,
+        repo_key: prepared.repository.key,
         path: created?.path,
-        root: Some(found.path),
+        root,
     })
 }
 

@@ -114,6 +114,7 @@ impl SheprdWindow {
         // A layout saved from Settings or the command line arrives here.
         changed |= self.chats.relayout(self.config.chat.layout);
         changed |= self.chats.rewidth(self.config.chat.max_width);
+        changed |= self.chats.recode(&self.config.chat);
         changed |= self.chats.relocale(crate::i18n::shown_locale());
         changed |= self.chats.poll(now);
         // Observed panes, whether a discovered agent or a `[chat.mirrors]`
@@ -709,7 +710,11 @@ impl SheprdWindow {
             return;
         }
         let host = match self.chats.pane(pane_id).map(|pane| &pane.target.route) {
-            Some(super::Route::Ssh(host)) => host.clone(),
+            Some(super::Route::Remote(target)) => target.clone(),
+            Some(super::Route::Ssh(host)) => sheprd_client::ConnectTarget::Ssh {
+                target: host.clone(),
+                session: String::new(),
+            },
             Some(super::Route::Local) => return self.add_chat_files(pane_id, paths, window, cx),
             None => return,
         };
@@ -720,7 +725,7 @@ impl SheprdWindow {
     fn upload_chat_files(
         &mut self,
         pane_id: &str,
-        host: String,
+        host: sheprd_client::ConnectTarget,
         paths: Vec<std::path::PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -731,31 +736,67 @@ impl SheprdWindow {
         if paths.is_empty() {
             return;
         }
+        if paths
+            .len()
+            .saturating_add(pane.attachments.len())
+            .saturating_add(pane.uploading)
+            > MAX_ATTACHMENTS
+        {
+            pane.error = Some(fl!("chat-files-too-many", count = MAX_ATTACHMENTS));
+            self.redraw_terminal(cx);
+            return;
+        }
+        let target = pane.target.clone();
         pane.uploading += paths.len();
         let count = paths.len();
+        let upload_host = host.clone();
         let upload = cx.background_spawn(async move {
             let cancelled = std::sync::atomic::AtomicBool::new(false);
-            sheprd_client::upload_files(&host, &paths, &cancelled, |_, _| {})
+            crate::core_terminals::files::upload(&upload_host, &paths, &cancelled)
         });
         let pane_id = pane_id.to_owned();
+        let executor = cx.background_executor().clone();
         cx.spawn_in(window, async move |this, cx| {
             let uploaded = upload.await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                let Some(pane) = this.chats.pane_mut(&pane_id) else {
-                    return;
-                };
-                pane.uploading = pane.uploading.saturating_sub(count);
-                match uploaded {
-                    Ok(remote) => {
-                        let remote = remote.into_iter().map(std::path::PathBuf::from).collect();
-                        this.add_chat_files(&pane_id, remote, window, cx);
+            let accepted = this
+                .update_in(cx, |this, window, cx| {
+                    let Some(pane) = this.chats.pane_mut(&pane_id) else {
+                        return false;
+                    };
+                    if pane.target != target {
+                        return false;
                     }
-                    Err(error) => {
-                        pane.error = Some(fl!("chat-files-not-attached", error = error.localize()));
-                        this.redraw_terminal(cx);
+                    pane.uploading = pane.uploading.saturating_sub(count);
+                    match &uploaded {
+                        Ok(remote) => {
+                            if pane.input() != ChatInput::Composer
+                                || remote.len().saturating_add(pane.attachments.len())
+                                    > MAX_ATTACHMENTS
+                            {
+                                return false;
+                            }
+                            let remote = remote.iter().map(std::path::PathBuf::from).collect();
+                            this.add_chat_files(&pane_id, remote, window, cx);
+                            true
+                        }
+                        Err(error) => {
+                            pane.error =
+                                Some(fl!("chat-files-not-attached", error = error.localize()));
+                            this.redraw_terminal(cx);
+                            false
+                        }
                     }
-                }
-            });
+                })
+                .unwrap_or(false);
+            if !accepted && let Ok(paths) = uploaded {
+                executor
+                    .spawn(async move {
+                        if let Err(error) = crate::core_terminals::files::cleanup(&host, &paths) {
+                            tracing::warn!(%error, "Could not remove unclaimed chat attachments");
+                        }
+                    })
+                    .detach();
+            }
         })
         .detach();
         self.redraw_terminal(cx);

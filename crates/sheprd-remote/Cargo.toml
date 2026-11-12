@@ -20,6 +20,7 @@ sheprd-control-protocol.workspace = true
 sheprd-core-client.workspace      = true
 sheprd-credentials.workspace      = true
 sheprd-session.workspace          = true
+sheprd-vcs.workspace              = true
 percent-encoding.workspace       = true
 rustls                           = { optional = true, workspace = true }
 secrecy.workspace                = true
@@ -49,7 +50,7 @@ toml.workspace = true
 # Machines from cloud providers as devices: the saved device list, the
 # connector, and running scripts on them. Turned on by each provider below;
 # not useful alone.
-cloud = ["sheprd-client/cloud"]
+cloud = ["sheprd-client/cloud", "sheprd-vcs/cloud"]
 # Azure VMs and Container Apps sandboxes, reached over the data plane's exec stream.
 azure = ["cloud", "sheprd-client/azure", "dep:rustls", "dep:tungstenite", "dep:webpki-roots"]
 boat = ["cloud", "sheprd-client/boat"]

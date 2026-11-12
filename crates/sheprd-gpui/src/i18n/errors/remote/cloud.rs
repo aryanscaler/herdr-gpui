@@ -9,6 +9,7 @@ use sheprd_remote::cloud::{Error, Invalid, ProviderError, Worker, image, install
 impl Localize for Error {
     fn localize(&self) -> String {
         match self {
+            Self::CoreInstall(error) => error.localize(),
             Self::Catalog { path: file, source } => fl!(
                 "error-remote-cloud-catalog",
                 path = path(file),
@@ -66,6 +67,7 @@ impl Localize for ProviderError {
 impl Localize for image::Error {
     fn localize(&self) -> String {
         match self {
+            Self::CoreInstall(error) => error.localize(),
             Self::Busy => fl!("error-remote-cloud-image-busy"),
             Self::Cancelled => fl!("error-remote-cloud-image-cancelled"),
             Self::Catalog { path: file, source } => fl!(

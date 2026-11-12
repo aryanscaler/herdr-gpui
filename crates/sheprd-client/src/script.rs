@@ -150,6 +150,10 @@ pub fn run_script_command(
 #[path = "script_tests/wsl.rs"]
 mod wsl_tests;
 
+#[cfg(all(test, any(unix, windows)))]
+#[path = "script_tests/descendants.rs"]
+mod descendants_tests;
+
 /// Streams a script child's pipes under the output and idle bounds. On Unix
 /// the child leads its own process group, so stopping it reaches its
 /// descendants too. On Windows the child is `wsl.exe` or `ssh`, and killing it
@@ -158,7 +162,10 @@ mod wsl_tests;
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 mod runner {
     use super::*;
+    #[cfg(unix)]
     use crate::ssh::ChildGuard;
+    #[cfg(windows)]
+    use process_wrap::std::{CommandWrap, CreationFlags, JobObject};
     #[cfg(unix)]
     use std::os::unix::process::CommandExt;
     use std::{
@@ -173,6 +180,18 @@ mod runner {
     const POLL: Duration = Duration::from_millis(10);
     /// Bytes of stderr retained for diagnostics; older output is discarded.
     const STDERR_TAIL: usize = 4096;
+
+    // The job owns descendants even if the original command already exited.
+    // A safe wrapper assigns the suspended child before it can fork.
+    #[cfg(windows)]
+    struct ChildGuard(Box<dyn process_wrap::std::ChildWrapper>);
+
+    #[cfg(windows)]
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+        }
+    }
 
     fn diagnostic(tail: &[u8]) -> String {
         String::from_utf8_lossy(tail)
@@ -283,14 +302,35 @@ mod runner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         // Dropping the guard kills and reaps the child on every early return.
+        #[cfg(unix)]
         let mut child = ChildGuard(command.spawn().map_err(Error::ScriptSpawn)?);
+        #[cfg(windows)]
+        let mut child = {
+            let mut command = CommandWrap::from(command);
+            // JobObject must know these flags rather than overwrite the
+            // CREATE_NO_WINDOW policy of `new_command` while suspending it.
+            command
+                .wrap(CreationFlags(
+                    windows::Win32::System::Threading::CREATE_NO_WINDOW,
+                ))
+                .wrap(JobObject);
+            ChildGuard(command.spawn().map_err(Error::ScriptSpawn)?)
+        };
         #[cfg(unix)]
         let group = rustix::process::Pid::from_child(&child.0);
-        let (Some(stdin), Some(stdout), Some(stderr)) = (
+        #[cfg(unix)]
+        let pipes = (
             child.0.stdin.take(),
             child.0.stdout.take(),
             child.0.stderr.take(),
-        ) else {
+        );
+        #[cfg(windows)]
+        let pipes = (
+            child.0.stdin().take(),
+            child.0.stdout().take(),
+            child.0.stderr().take(),
+        );
+        let (Some(stdin), Some(stdout), Some(stderr)) = pipes else {
             return Err(Error::ScriptIo(ErrorKind::BrokenPipe.into()));
         };
         let progress = Progress {
@@ -319,8 +359,16 @@ mod runner {
                 if progress.idle() >= limits.idle {
                     break Some(Error::ScriptTimeout);
                 }
-                if child.0.try_wait().map_err(Error::ScriptIo)?.is_some() {
-                    break None;
+                match child.0.try_wait() {
+                    Ok(Some(_))
+                        if feeder.is_finished()
+                            && drainer.is_finished()
+                            && stderr.is_finished() =>
+                    {
+                        break None;
+                    }
+                    Err(error) => break Some(Error::ScriptIo(error)),
+                    _ => {}
                 }
                 thread::sleep(POLL);
             };
@@ -329,6 +377,10 @@ mod runner {
                 let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
                 let _ = child.0.kill();
             }
+            // JobObject::wait waits for descendants too. Even a descendant
+            // that closed its pipes must not strand a finished one-shot job.
+            #[cfg(windows)]
+            let _ = child.0.kill();
             // Pipes close once the child is gone, so every worker terminates.
             let status = child.0.wait().map_err(Error::ScriptIo)?;
             let fed = feeder.join().map_err(|_| Error::ScriptWorker)?;

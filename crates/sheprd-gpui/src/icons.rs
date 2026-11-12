@@ -287,6 +287,7 @@ embedded_icons! {
     "bell.svg",
     "brain.svg",
     "chart.svg",
+    "chat.svg",
     "check.svg",
     "chevron-down.svg",
     "chevron-left.svg",

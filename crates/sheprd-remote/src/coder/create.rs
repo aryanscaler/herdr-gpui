@@ -35,7 +35,7 @@ pub fn provision(
         .name
         .clone()
         .unwrap_or_else(|| super::random_name(&settings.workspace_prefix));
-    setup::add_device(
+    setup::add_device_for(
         AddRequest {
             settings,
             source: Source::New {
@@ -46,6 +46,7 @@ pub fn provision(
             label: String::new(),
             install: spec.install,
         },
+        spec.requirement,
         cancelled,
         report,
     )

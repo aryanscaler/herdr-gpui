@@ -1,5 +1,6 @@
 use super::*;
 
+mod script;
 mod shell;
 
 fn utf16(text: &str) -> Vec<u8> {

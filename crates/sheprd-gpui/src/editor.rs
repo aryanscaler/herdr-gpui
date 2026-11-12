@@ -495,7 +495,11 @@ impl SheprdWindow {
         at: sheprd_backend::TerminalId,
         cx: &gpui::App,
     ) -> crate::Result<()> {
-        if !self.core_terminals.drives(tab) {
+        // EditorTarget paths were checked on this computer, unlike a remote
+        // chat's host-owned paths. Driving a remote tab does not relocate them.
+        if !self.core_terminals.drives(tab)
+            || self.core_terminals.host_of(tab) != crate::core_terminals::Host::Local
+        {
             return Err(Error::NoPane.into());
         }
         let argv = argv(target, self.config.editor_command.as_ref())?;

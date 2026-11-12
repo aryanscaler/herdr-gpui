@@ -37,6 +37,7 @@ serde.workspace             = true
 serde_json.workspace        = true
 tempfile.workspace          = true
 thiserror.workspace         = true
+toml_edit.workspace         = true
 tracing.workspace           = true
 
 [target.'cfg(unix)'.dependencies]
@@ -48,6 +49,8 @@ rustix.workspace = true
 # and write deadlines, which no safe wrapper offers without a runtime, and reads
 # the user and pipe owner `private_endpoint` checks.
 [target.'cfg(windows)'.dependencies]
+process-wrap.workspace = true
+windows = { features = ["Win32_System_Threading"], workspace = true }
 interprocess.workspace = true
 windows-sys = { features = [
   "Win32_Security",

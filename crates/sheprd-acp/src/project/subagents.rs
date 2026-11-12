@@ -4,7 +4,10 @@
 //! parent session, each marked in `_meta`. This goes by input neither agent
 //! promises to keep, so a bridge's tag always wins over it.
 //!
-//! Only a sub-agent the call waits for is followed: one sent to the
+//! This is the fallback when no child lifecycle extension was negotiated.
+//! OpenCode peers advertising `opencode/child-session-updates` instead use
+//! `super::opencode`, including background work and concurrent child steps.
+//! On this fallback only a sub-agent the call waits for is followed: one sent to the
 //! background returns at once, and its end cannot be known on this path, so
 //! it stays an ordinary card rather than an activity that never ends. Nothing
 //! here can stop one, as ACP has no request for it.

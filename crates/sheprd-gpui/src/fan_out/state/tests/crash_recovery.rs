@@ -2,6 +2,48 @@ use super::*;
 use crate::fan_out::journal::Resume;
 
 #[test]
+fn owned_creation_and_start_intents_survive_restart_without_guessing_completion() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("fan-outs.json");
+    let journal = Journal::at(Some(path.clone()));
+    let record = Record::new(42, &origin(), "fix", &plan::lanes(&launched().picks, 7));
+    journal.begin(record).unwrap().unwrap().write().unwrap();
+    let owned = Checkout {
+        worktree: work::Worktree {
+            path: "/remote/lane".into(),
+            opened: work::Opened::Herdr2,
+        },
+        recoverable: true,
+        ..checkout(0)
+    };
+    journal
+        .record(42, &Report::Lane(0, Progress::CreatingWorktree))
+        .unwrap();
+    journal
+        .record(
+            42,
+            &Report::Lane(0, Progress::CreatingOwned(Box::new(owned.clone()))),
+        )
+        .unwrap();
+    let restarted = Journal::at(Some(path.clone()));
+    let restored = FanOut::reclaim(&restarted, |_, _| Some(origin().host)).unwrap();
+    assert_eq!(restored.resumable(0), Some(Resume::Creation));
+    assert_eq!(restored.lanes[0].checkout, Some(owned.clone()));
+    journal
+        .record(42, &Report::Lane(0, Progress::Created(Box::new(owned))))
+        .unwrap();
+    journal
+        .record(42, &Report::Lane(0, Progress::StartingAgent))
+        .unwrap();
+    let restarted = Journal::at(Some(path));
+    let mut restored = FanOut::reclaim(&restarted, |_, _| Some(origin().host)).unwrap();
+    // This action only looks up the atomic ownership label, never runs
+    // another agent merely because the original run reply was lost.
+    assert_eq!(restored.resumable(0), Some(Resume::Prompt));
+    assert_eq!(restored.poll(), (false, None));
+}
+
+#[test]
 fn a_missing_terminal_after_starting_never_offers_a_second_agent() {
     for step in [
         Checkpoint::Created,
@@ -30,10 +72,10 @@ fn a_missing_terminal_after_starting_never_offers_a_second_agent() {
             record.lanes[0].step = step;
             journal.begin(record).unwrap().unwrap().write().unwrap();
             let journal = Journal::at(Some(path));
-            let mut restored = FanOut::reclaim(&journal, |_| Some(origin().host)).unwrap();
+            let mut restored = FanOut::reclaim(&journal, |_, _| Some(origin().host)).unwrap();
             let expected = match step {
                 Checkpoint::Created => Some(Resume::Start),
-                _ if terminal.is_some() => Some(Resume::Prompt),
+                Checkpoint::StartingAgent if terminal.is_some() => Some(Resume::Prompt),
                 _ => None,
             };
             assert_eq!(restored.resumable(0), expected);

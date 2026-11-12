@@ -16,6 +16,8 @@
 // i18n: migrated
 
 mod chats;
+pub(crate) mod code_block;
+mod code_choices;
 mod convert;
 pub(crate) mod core_pane;
 mod discovery;
@@ -31,6 +33,7 @@ mod prepared;
 pub(crate) mod preview;
 mod rail_folds;
 mod reader;
+mod remote_route;
 mod restore;
 mod rich;
 mod selection;
@@ -114,7 +117,7 @@ pub enum Error {
     Read(#[source] sheprd_chat_protocol::Error),
     #[error("This is a read-only transcript; use the agent's terminal to reply")]
     ReadOnly,
-    #[error("could not reach the chat program over SSH")]
+    #[error("could not reach the chat program on its host")]
     Remote(#[source] sheprd_client::Error),
     #[error("could not start the chat worker")]
     Spawn(#[source] io::Error),
@@ -168,6 +171,10 @@ pub(crate) enum Surface {
     Herdr,
     /// A herdr-core terminal, drawn over its pane in a herdr-core tab.
     Core(sheprd_backend::TerminalId),
+    RemoteCore {
+        host: crate::core_terminals::Host,
+        terminal: sheprd_backend::TerminalId,
+    },
 }
 
 impl Target {
@@ -183,6 +190,8 @@ impl Target {
 pub(crate) enum Route {
     /// Its socket in this user's private directory on this machine.
     Local,
+    /// A saved cloud machine or WSL distribution, through its authenticated connector.
+    Remote(sheprd_client::ConnectTarget),
     /// `herdr-acp connect` on the SSH host the daemon runs on, carried over
     /// `ssh`; the program there is reached as that host's user.
     Ssh(String),
@@ -202,10 +211,24 @@ const REMOTE_PROGRAM_DIRS: &[&str] = &[
     "/Applications/Sheprd.app/Contents/MacOS",     // i18n: data
 ];
 
+impl Route {
+    pub(super) fn remote_name(&self) -> Option<&str> {
+        match self {
+            Self::Local => None,
+            Self::Ssh(host) => Some(host),
+            Self::Remote(sheprd_client::ConnectTarget::Wsl { distro, .. }) => Some(distro),
+            #[cfg(feature = "cloud")]
+            Self::Remote(sheprd_client::ConnectTarget::Cloud { machine, .. }) => Some(machine),
+            Self::Remote(_) => Some("remote"),
+        }
+    }
+}
+
 /// The remote `/bin/sh` script that runs the first `sheprd-acp` found with
-/// `args`, or says where it looked and exits 127. `args` must be
-/// shell-safe; the script has no single quotes, so it may be wrapped in them.
+/// `args`, or says where it looked and exits 127. `args` must be shell-safe;
+/// callers nesting this script in another shell must quote the complete script.
 pub(crate) fn remote_program_script(args: &str) -> String {
+    let installed = crate::remote::links::install::chat_path(crate::APP_VERSION);
     let candidates: String = ["sheprd-acp", "herdr-acp"]
         .into_iter()
         .flat_map(|program| {
@@ -217,7 +240,7 @@ pub(crate) fn remote_program_script(args: &str) -> String {
         .collect();
     format!(
         // i18n: data
-        "for p in {candidates}; do [ -x \"$p\" ] && exec \"$p\" {args}; done; \
+        "for p in {installed} {candidates}; do [ -x \"$p\" ] && exec \"$p\" {args}; done; \
          echo \"sheprd-acp is not installed here: install it in ~/.herdr/bin\" >&2; exit 127"
     )
 }

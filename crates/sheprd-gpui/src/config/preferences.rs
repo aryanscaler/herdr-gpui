@@ -5,6 +5,10 @@ use sheprd_client::protocol::ToastHerdrPosition;
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Preference {
     AgentsPlacement(AgentsPlacement),
+    /// `[chat] code_line_numbers`: whether code blocks number their lines.
+    ChatCodeLineNumbers(bool),
+    /// `[chat] code_stripes`: whether code blocks alternate line backgrounds.
+    ChatCodeStripes(bool),
     /// `[chat] glide`: whether chats scroll smoothly to new output.
     ChatGlide(bool),
     /// `[chat] launcher`: where tab strips offer one-click chats.
@@ -13,6 +17,10 @@ pub(crate) enum Preference {
     ChatLayout(ChatLayoutMode),
     /// `[chat] max_width`: the reading column, or zero for full width.
     ChatMaxWidth(u16),
+    /// `[chat] render_html`: how an agent's HTML fence starts out.
+    ChatRenderHtml(HtmlRender),
+    /// `[chat] wrap_code`: whether code blocks wrap long lines.
+    ChatWrapCode(bool),
     ConfirmCloseTab(bool),
     /// `language`: `system` or the BCP 47 tag the windows show.
     Language(sheprd_i18n::Language),
@@ -40,6 +48,8 @@ pub(crate) enum Preference {
     TabAgentTitle(bool),
     /// `tab_layout`: how tab strips draw their tabs.
     TabLayout(TabLayoutMode),
+    /// `[undo_close_tab] enabled`: closed tabs wait before Herdr closes them.
+    UndoCloseTab(bool),
     /// `edge_rail`: the bar on busy and finished rows.
     EdgeRail(bool),
     ShowDeviceIcons(bool),
@@ -130,6 +140,12 @@ impl Config {
                 Preference::AgentsPlacement(placement) => {
                     (None, "agents_placement", Some(placement.as_str().into()))
                 }
+                Preference::ChatCodeLineNumbers(value) => {
+                    (Some("chat"), "code_line_numbers", Some(value.into()))
+                }
+                Preference::ChatCodeStripes(value) => {
+                    (Some("chat"), "code_stripes", Some(value.into()))
+                }
                 Preference::ChatGlide(value) => (Some("chat"), "glide", Some(value.into())),
                 Preference::ChatLauncher(launcher) => {
                     (Some("chat"), "launcher", Some(launcher.name().into()))
@@ -139,6 +155,10 @@ impl Config {
                     chat::check_max_width(width)?;
                     (Some("chat"), "max_width", Some(i64::from(width).into()))
                 }
+                Preference::ChatRenderHtml(mode) => {
+                    (Some("chat"), "render_html", Some(mode.name().into()))
+                }
+                Preference::ChatWrapCode(value) => (Some("chat"), "wrap_code", Some(value.into())),
                 Preference::ConfirmCloseTab(value) => {
                     (None, "confirm_close_tab", Some(value.into()))
                 }
@@ -199,6 +219,9 @@ impl Config {
                     (Some("tab_labels"), "agent_title", Some(value.into()))
                 }
                 Preference::TabLayout(mode) => (None, "tab_layout", Some(mode.name().into())),
+                Preference::UndoCloseTab(value) => {
+                    (Some("undo_close_tab"), "enabled", Some(value.into()))
+                }
                 Preference::FocusFollowsMouse(value) => {
                     (None, "focus_follows_mouse", Some(value.into()))
                 }

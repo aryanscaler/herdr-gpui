@@ -65,7 +65,7 @@ fn remove_falls_back_to_git_once_the_workspace_is_gone() {
                 "add",
                 "-q",
                 "-b",
-                "repro"
+                "377-icons"
             ])
             .arg(&checkout)
             .status()
@@ -161,13 +161,7 @@ fn remove_reports_a_checkout_git_cannot_remove() {
     workspace_gone(dir.path());
 
     let error = perform(&site, &Action::Remove { run: id }, &cancelled).unwrap_err();
-    assert!(matches!(
-        error,
-        Error::Script {
-            operation: "Removing the worktree",
-            ..
-        }
-    ));
+    assert!(matches!(error, Error::InvalidCheckout));
     assert!(
         dir.path().join("leftover").exists(),
         "a failed remove left the checkout alone"

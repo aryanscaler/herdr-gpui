@@ -310,7 +310,7 @@ impl SheprdWindow {
             self.core_terminals
                 .tabs
                 .get(tab)
-                .filter(|shown| shown.holds_chats())
+                .filter(|shown| shown.holds_chats() && shown.host == super::Host::Local)
                 .map(|shown| shown.panes.terminals().into_iter().cloned().collect())
                 .unwrap_or_default()
         });

@@ -44,6 +44,11 @@ impl SheprdWindow {
                 });
             // The shown pane's checkout, for the Git and pull request chips.
             if let Some(folder) = self.shown_core_folder()
+                && self
+                    .core_terminals
+                    .shown
+                    .as_ref()
+                    .is_some_and(|(tab, _)| self.core_terminals.host_of(*tab) == super::Host::Local)
                 && !folders.contains(&folder)
             {
                 folders.push(folder);
@@ -88,6 +93,18 @@ impl SheprdWindow {
         }
         if let Some(store) = cx.try_global::<Store>() {
             for scope in self.remote_core_scopes(store) {
+                if let Some(remote) = self.core_terminals.remote.get_mut(&scope) {
+                    let folders = store
+                        .kept_workspaces(&scope)
+                        .filter(|workspace| !workspace.cwd.is_empty())
+                        .map(|workspace| workspace.cwd.clone())
+                        .collect();
+                    checkouts_changed |= remote.checkouts.poll_on(
+                        folders,
+                        std::time::Instant::now(),
+                        remote.target.clone(),
+                    );
+                }
                 let session = self.core_session_of(None, store, &scope, cx);
                 built.push((scope, Arc::new(session)));
             }
@@ -139,13 +156,18 @@ impl SheprdWindow {
         scope: &Scope,
         cx: &App,
     ) -> Session {
-        let checkouts = &self.core_terminals.checkouts;
+        let checkouts = if local.is_some() {
+            Some(&self.core_terminals.checkouts)
+        } else {
+            self.core_terminals
+                .remote
+                .get(scope)
+                .map(|remote| &remote.checkouts)
+        };
         let host = super::Host::of(scope);
         let workspaces = store.kept_workspaces(scope).map(|saved| {
             let mut workspace = CoreWorkspace::from(saved);
-            if local.is_some()
-                && let Some(checkout) = checkouts.get(&saved.cwd)
-            {
+            if let Some(checkout) = checkouts.and_then(|checkouts| checkouts.get(&saved.cwd)) {
                 workspace.branch = checkout.branch.as_deref();
                 workspace.worktree = Some(Worktree {
                     key: checkout.key.clone(),
@@ -217,9 +239,7 @@ impl SheprdWindow {
         core.workspaces
             .iter()
             .filter_map(|workspace| {
-                let tree = workspace.worktree.as_ref()?;
-                let input =
-                    crate::pull_request::key_input(&tree.key, workspace.branch.as_deref()).ok()?;
+                let input = crate::pull_request::kept_input(workspace, self.selected_is_remote())?;
                 Some((workspace.id.clone(), input))
             })
             .collect()

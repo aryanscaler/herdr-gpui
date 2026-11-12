@@ -43,6 +43,15 @@ pub fn add_device(
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<SavedDevice> {
+    add_device_for(request, cloud::Requirement::Either, cancelled, report)
+}
+
+pub(super) fn add_device_for(
+    request: AddRequest,
+    requirement: cloud::Requirement,
+    cancelled: &dyn Fn() -> bool,
+    report: &dyn Fn(cloud::Step),
+) -> crate::Result<SavedDevice> {
     if cancelled() {
         return Err(super::Error::Cancelled.into());
     }
@@ -72,7 +81,7 @@ pub fn add_device(
         cancelled,
         report,
         |device| Ok(cloud::save(device)?),
-        |sandbox| ensure_herdr(&request, sandbox, install, cancelled, report),
+        |sandbox| ensure_herdr(&request, sandbox, install, requirement, cancelled, report),
     )
 }
 
@@ -149,6 +158,7 @@ fn ensure_herdr(
     request: &Request,
     sandbox: &api::Sandbox,
     install: bool,
+    requirement: cloud::Requirement,
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<()> {
@@ -161,7 +171,7 @@ fn ensure_herdr(
         return Err(super::Error::Cancelled.into());
     }
     let installed = gateway::prepare(request, &sandbox.id)?
-        .with_command(|command| install::installed(command, &cancelled))?;
+        .with_command(|command| requirement.installed(command, &cancelled))?;
     if !installed {
         if !install {
             return Err(cloud::Error::Install(install::Failure::NotInstalled {
@@ -172,14 +182,14 @@ fn ensure_herdr(
         }
         report(cloud::Step::InstallingHerdr);
         gateway::prepare(request, &sandbox.id)?
-            .with_command(|command| install::install(command, &cancelled))?;
+            .with_command(|command| requirement.install(command, &cancelled))?;
         if !gateway::prepare(request, &sandbox.id)?
-            .with_command(|command| install::installed(command, &cancelled))?
+            .with_command(|command| requirement.installed(command, &cancelled))?
         {
             return Err(cloud::Error::Install(install::Failure::Missing).into());
         }
     }
-    if install {
+    if install && requirement == cloud::Requirement::Either {
         match gateway::prepare(request, &sandbox.id) {
             Ok(gateway) => gateway.with_command(|command| {
                 install::add_core(Ok::<_, std::convert::Infallible>(command), &cancelled)

@@ -188,9 +188,9 @@ pub(crate) enum Part {
     /// A Mermaid fence, with its source as code lines for when it cannot be
     /// drawn.
     Diagram(VisualId, Rc<[Line]>),
-    /// An HTML fence: a page the user may preview.
+    /// An HTML fence: a page the user may preview, or its source as code.
     Html {
-        page: Rc<str>,
+        code: tool::Code,
     },
     /// A picture on the agent's machine; herdr-acp adds it after the
     /// message, so the message only names it.
@@ -234,10 +234,9 @@ impl Body {
             .flat_map(|part| {
                 let (own, blocks): (_, &[super::rich::Block]) = match part {
                     Part::Diagram(id, _) | Part::Remote { id, .. } => (Some(*id), &[]),
+                    Part::Html { code } => (Some(code.id), &[]),
                     Part::Rich(blocks) => (None, blocks),
-                    Part::Text(_) | Part::Widget(_) | Part::Html { .. } | Part::Picture { .. } => {
-                        (None, &[])
-                    }
+                    Part::Text(_) | Part::Widget(_) | Part::Picture { .. } => (None, &[]),
                 };
                 own.into_iter()
                     .chain(blocks.iter().flat_map(super::rich::Block::visuals))
@@ -321,10 +320,14 @@ impl Prepared {
         match &**body {
             Body::Message(parts) | Body::Answers { parts, .. } => {
                 for part in parts {
-                    if let Part::Rich(blocks) = part {
-                        for block in &**blocks {
-                            block.request_visible(&self.visuals);
+                    match part {
+                        Part::Rich(blocks) => {
+                            for block in &**blocks {
+                                block.request_visible(&self.visuals);
+                            }
                         }
+                        Part::Html { code } => code.request_visible(&self.visuals),
+                        _ => {}
                     }
                 }
             }
@@ -597,7 +600,7 @@ fn message(text: &str, author: Author, visuals: &mut Visuals) -> Vec<Part> {
                 flush(&mut markdown, &mut parts, visuals);
                 pages += 1;
                 parts.push(Part::Html {
-                    page: source.into(),
+                    code: tool::Code::new("html", source.into()),
                 });
             }
         }

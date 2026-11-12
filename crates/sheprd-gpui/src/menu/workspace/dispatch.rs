@@ -65,13 +65,6 @@ impl SheprdWindow {
             return Err(crate::dispatch::Error::HostUnavailable(label).into());
         };
         let then = self.dispatch_then(action, name)?;
-        // This computer, keeping its new workspaces for Herdr 2, gets a
-        // checkout Git makes rather than one of Herdr 1's workspaces.
-        let then = if self.dispatch_keeps(endpoint_id) {
-            then.kept()
-        } else {
-            then
-        };
         self.dispatch_job = Some(Job::on_host(origin, destination, then));
         self.menu.error = None;
         Ok(())
@@ -139,6 +132,11 @@ impl SheprdWindow {
                 )
             })?;
         let then = self.dispatch_then(action, name)?;
+        let then = if self.new_workspaces_use_core() {
+            then.kept()
+        } else {
+            then
+        };
         #[cfg(feature = "cloud")]
         {
             self.dispatch_job = Some(Job::sandboxed(sandbox, origin, then)?);

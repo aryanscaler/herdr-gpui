@@ -16,7 +16,7 @@ use sheprd_session::Keeper;
 /// with Git.
 pub(super) fn items(
     target: &WorkspaceTarget,
-    local: bool,
+    scripts: bool,
     checkout: bool,
     checkpoints: bool,
     fan_out: Option<Label>,
@@ -26,10 +26,7 @@ pub(super) fn items(
     } else {
         (WorkspaceMenuAction::Mute, Label::MUTE)
     }];
-    // Git runs through host scripts, which need `/bin/sh`, on this
-    // computer: another host's kept workspaces wait for its own Git.
-    let scripts = cfg!(any(target_os = "linux", target_os = "macos"));
-    let git = scripts && local && matches!(target.source, Source::Directory(_));
+    let git = scripts && matches!(target.source, Source::Directory(_));
     if git && target.worktree.is_some() {
         items.push((
             WorkspaceMenuAction::Dialog(WorkspaceAction::NewWorktree),

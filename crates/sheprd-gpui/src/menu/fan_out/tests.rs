@@ -1,6 +1,8 @@
 use super::super::WorkspaceMenuAction;
 use super::*;
 
+mod kept_host;
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod moved;
 #[cfg(any(target_os = "linux", target_os = "macos"))]

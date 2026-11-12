@@ -38,6 +38,8 @@ pub enum Error {
         "{0} cannot copy files into an image yet: remove the recipe's COPY and ADD lines, or use a container."
     )]
     Context(&'static str),
+    #[error(transparent)]
+    CoreInstall(#[from] crate::core_install::Error),
     #[error("The dev container definition is not valid JSON.")]
     Devcontainer(#[source] serde_json::Error),
     #[error("{0}")]
@@ -177,10 +179,28 @@ pub fn for_new_machine(
     cancelled: &AtomicBool,
     report: &dyn Fn(&Progress),
 ) -> crate::Result<Option<String>> {
+    for_new_machine_with(
+        provider,
+        checkout,
+        super::Requirement::Either,
+        cancelled,
+        report,
+    )
+}
+
+/// Build an image with the daemon required by this provisioning request.
+/// Its composed Dockerfile participates in the content key, isolating backends.
+pub fn for_new_machine_with(
+    provider: crate::cloud::CloudProvider,
+    checkout: &Checkout,
+    requirement: super::Requirement,
+    cancelled: &AtomicBool,
+    report: &dyn Fn(&Progress),
+) -> crate::Result<Option<String>> {
     let Some(support) = crate::cloud::image_support(provider) else {
         return Ok(None);
     };
-    let Some(recipe) = read(checkout, cancelled)? else {
+    let Some(recipe) = read_for(checkout, requirement, cancelled)? else {
         return Ok(None);
     };
     let stopped = || cancelled.load(std::sync::atomic::Ordering::Acquire);
@@ -190,6 +210,14 @@ pub fn for_new_machine(
 /// The recipe of the project checked out at `checkout`, or `None` when it
 /// has none. Blocks: run it on a worker.
 pub fn read(checkout: &Checkout, cancelled: &AtomicBool) -> Result<Option<Recipe>> {
+    read_for(checkout, super::Requirement::Either, cancelled)
+}
+
+fn read_for(
+    checkout: &Checkout,
+    requirement: super::Requirement,
+    cancelled: &AtomicBool,
+) -> Result<Option<Recipe>> {
     let Checkout {
         host,
         endpoint_id,
@@ -248,7 +276,7 @@ pub fn read(checkout: &Checkout, cancelled: &AtomicBool) -> Result<Option<Recipe
             endpoint_id: endpoint_id.to_owned(),
             path: path.to_owned(),
         },
-        dockerfile: recipe::compose(&dockerfile),
+        dockerfile: recipe::compose_for(&dockerfile, requirement)?,
         files,
     }))
 }

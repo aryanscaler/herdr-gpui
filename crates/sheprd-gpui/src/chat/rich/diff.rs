@@ -61,6 +61,9 @@ pub(crate) fn rows(source: &str, limit: usize) -> Vec<Row<'_>> {
     }
     let prefix = &source[..end];
     let native = (limit > 1).then(|| initial_path(prefix)).flatten();
+    // A fence the author called a diff but gave no header, as agents often
+    // write one, is all change lines; any header keeps the strict parse.
+    let bare = native.is_none() && !prefix.lines().any(is_header);
     let mut parser = Parser {
         old: native,
         new: native,
@@ -78,7 +81,11 @@ pub(crate) fn rows(source: &str, limit: usize) -> Vec<Row<'_>> {
                 return unknown();
             }
             let line = line.strip_suffix('\n').unwrap_or(line);
-            parser.line(line.strip_suffix('\r').unwrap_or(line))
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            if bare {
+                return bare_row(line);
+            }
+            parser.line(line)
         })
         .collect()
 }
@@ -99,6 +106,29 @@ fn initial_path(source: &str) -> Option<&str> {
     let next = rest.split('\n').next()?;
     let (old, new) = counts(next.strip_suffix('\r').unwrap_or(next))?;
     (old > 0 || new > 0).then(|| path(first)).flatten()
+}
+
+/// A line that starts or locates a patch, so the block is not bare.
+fn is_header(line: &str) -> bool {
+    ["@@", "--- ", "+++ ", "diff --git ", "*** "]
+        .iter()
+        .any(|marker| line.starts_with(marker))
+}
+
+/// A line of a headerless diff, by its first character alone.
+fn bare_row(line: &str) -> Row<'static> {
+    let kind = match line.as_bytes().first() {
+        Some(b'+') => Kind::Added,
+        Some(b'-') => Kind::Removed,
+        Some(b' ') => Kind::Context,
+        _ => return unknown(),
+    };
+    Row {
+        kind,
+        prefix: 1,
+        path: None,
+        file: None,
+    }
 }
 
 fn unknown() -> Row<'static> {

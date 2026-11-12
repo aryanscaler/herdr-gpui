@@ -67,6 +67,7 @@ mod staged_release;
 mod temporary_drop;
 mod toast_handoff;
 mod toast_navigation;
+mod undo_close;
 mod wake_recovery;
 mod wheel_slides;
 mod window_notices;

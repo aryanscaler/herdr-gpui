@@ -7,6 +7,7 @@ use crate::harness::tests::{file_name, file_uri};
 
 mod background;
 mod command_output;
+mod launch_policy;
 
 const THREAD: &str = "01a160d5-4de7-7262-b413-0ce5180918ce";
 
@@ -88,7 +89,7 @@ fn opened() -> Bridge {
     assert_eq!(start["params"]["cwd"], "/work");
     let (list, start) = (list["id"].clone(), start["id"].clone());
     // The thread may answer before the models; the session waits for both.
-    let thread = json!({"thread": {"id": THREAD}, "model": "gpt-5.4", "reasoningEffort": null});
+    let thread = json!({"thread": {"id": THREAD}, "model": "gpt-6.1-sol", "reasoningEffort": null});
     assert!(bridge.on_harness(&answer(&start, thread)).is_empty());
     let outs = bridge.on_harness(&answer(&list, models()));
     let opened = response(&outs[0], 1).as_ref().unwrap();
@@ -130,14 +131,14 @@ fn the_session_opens_with_codexs_presets_and_models() {
 
     let bridge = opened();
     let modes = bridge.settings.modes();
-    assert_eq!(modes.current_mode_id.0.as_ref(), "auto");
+    assert_eq!(modes.current_mode_id.0.as_ref(), "configured");
     let options = crate::project::options(Some(
         &serde_json::to_value(bridge.settings.options()).unwrap(),
     ));
     let model = options.iter().find(|option| option.id == "model").unwrap();
     match &model.kind {
         sheprd_chat_protocol::OptionKind::Select { choices, current } => {
-            // A configured model this account lacks gives way to the default.
+            // The effective thread model remains selected.
             assert_eq!(current, "gpt-6.1-sol");
             assert_eq!(choices.len(), 2, "hidden models stay hidden");
         }

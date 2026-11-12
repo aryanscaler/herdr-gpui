@@ -5,7 +5,9 @@
 
 use super::{
     super::{
+        code_choices::HtmlView,
         page::{PAGE_HEIGHT, PageKey, PageSource},
+        prepared::tool::Code,
         visual::{Source, VisualId, Visuals},
     },
     visuals::Frame,
@@ -13,7 +15,7 @@ use super::{
 use crate::{SheprdWindow, browser::WebUrl, config::corners, i18n::fl, notifications::safe_text};
 use gpui::{prelude::*, *};
 use sheprd_chat_protocol::EntryId;
-use std::{path::PathBuf, rc::Rc};
+use std::path::PathBuf;
 
 /// What the button says where it shows the page.
 fn show_label() -> String {
@@ -25,22 +27,48 @@ fn show_label() -> String {
 }
 
 impl SheprdWindow {
-    /// An HTML fence: its page live in the message once shown, until then
-    /// a card that says what it is and shows it.
+    /// An HTML fence: its page live in the message once shown; until then
+    /// a card that says what it is and shows it, or its code, as the chat's
+    /// switch or `[chat] render_html` says.
     pub(super) fn render_chat_html(
         &self,
         pane_id: &str,
         entry: EntryId,
         part: usize,
-        page: &Rc<str>,
+        code: &Code,
+        visuals: &Visuals,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let key = PageKey { entry, part };
         if let Some(live) = self.render_chat_live_page(pane_id, key, cx) {
             return live.into_any_element();
         }
-        let lines = page.lines().count();
-        let source = PageSource::Html(page.clone());
+        let Some(chat) = self.chats.pane(pane_id) else {
+            return div().into_any_element();
+        };
+        let view = chat
+            .code
+            .html_view(key, self.config.chat.render_html, crate::browser::EMBEDDED);
+        let source = PageSource::Html(code.source.clone());
+        match view {
+            HtmlView::Code => {
+                let render = self.render_page_button(pane_id, key, source, cx);
+                return self
+                    .render_chat_tool_code(
+                        pane_id,
+                        code,
+                        None,
+                        visuals,
+                        Some(render.into_any_element()),
+                        cx,
+                    )
+                    .debug_selector(move || format!("chat-html-code-{part}"))
+                    .into_any_element();
+            }
+            HtmlView::Load => chat.code.queue_load(key, &code.source),
+            HtmlView::Card => {}
+        }
+        let lines = code.source.lines().count();
         self.embed_card("icons/globe.svg")
             .debug_selector(move || format!("chat-html-{part}"))
             .child(
@@ -49,8 +77,77 @@ impl SheprdWindow {
                     .min_w_0()
                     .child(fl!("chat-page-html-lines", count = lines)),
             )
+            .child(self.show_code_button(pane_id, key, false, cx))
             .child(self.show_button(pane_id, ("chat-show-page", part), key, source, cx))
             .into_any_element()
+    }
+
+    /// The code header's button back to the page: shown live where pages
+    /// show in the window, else opened in the browser with the code kept.
+    fn render_page_button(
+        &self,
+        pane_id: &str,
+        key: PageKey,
+        source: PageSource,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let pane_id = pane_id.to_owned();
+        let label = if crate::browser::EMBEDDED {
+            fl!("chat-page-render")
+        } else {
+            fl!("chat-page-open-in-browser")
+        };
+        self.rich_button("chat-page-render", label)
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                if crate::browser::EMBEDDED
+                    && let Some(pane) = this.chats.pane_mut(&pane_id)
+                {
+                    pane.code.set_shows_code(key, false);
+                    pane.remeasure(key.entry);
+                }
+                this.show_chat_page(&pane_id, key, source.clone(), window, cx);
+                cx.notify();
+            }))
+    }
+
+    /// The button from a fence's card or live page to its code; a live
+    /// page closes first.
+    fn show_code_button(
+        &self,
+        pane_id: &str,
+        key: PageKey,
+        live: bool,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let theme = &self.theme;
+        let pane_id = pane_id.to_owned();
+        div()
+            .id(("chat-show-code", key.part))
+            .debug_selector(|| "chat-show-code".into())
+            .flex_none()
+            .px(px(8.))
+            .h(px(if live { 22. } else { 24. }))
+            .flex()
+            .items_center()
+            .rounded(px(corners::CONTROL))
+            .text_size(self.chat_small_text())
+            .text_color(rgb(theme.subtext()))
+            .cursor_pointer()
+            .hover(|button| button.bg(rgb(theme.active)))
+            .child(fl!("chat-page-show-code"))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                if live {
+                    this.hide_chat_page(&pane_id, key, cx);
+                }
+                if let Some(pane) = this.chats.pane_mut(&pane_id) {
+                    pane.code.set_shows_code(key, true);
+                    pane.remeasure(key.entry);
+                }
+                cx.notify();
+            }))
     }
 
     /// Under a tool call that wrote an HTML file: the page live once shown,
@@ -196,6 +293,9 @@ impl SheprdWindow {
                                 .truncate()
                                 .child(fl!("chat-page-html")),
                         )
+                        .when(key.part != PageKey::TOOL, |bar| {
+                            bar.child(self.show_code_button(pane_id, key, true, cx))
+                        })
                         .child(hide),
                 )
                 .child(div().w_full().h(px(PAGE_HEIGHT)).relative().child(body)),

@@ -3,6 +3,12 @@ use super::{Args, CliError, Script, unknown};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorktreeCommand {
+    List,
+    Create {
+        branch: Option<String>,
+    },
+    Open,
+    Delete,
     /// Whether the caller's worktree is muted.
     Status,
     Mute,
@@ -65,6 +71,12 @@ pub(super) fn worktree(args: &mut Args) -> Result<WorktreeCommand, CliError> {
         return Ok(WorktreeCommand::Status);
     };
     Ok(match verb.to_str() {
+        Some("list") => WorktreeCommand::List,
+        Some("create") => WorktreeCommand::Create {
+            branch: args.optional_text()?.map(bounded).transpose()?,
+        },
+        Some("open") => WorktreeCommand::Open,
+        Some("delete") => WorktreeCommand::Delete,
         Some("status") => WorktreeCommand::Status,
         Some("mute") => WorktreeCommand::Mute,
         Some("unmute") => WorktreeCommand::Unmute,

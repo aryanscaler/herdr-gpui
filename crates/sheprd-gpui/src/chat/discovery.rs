@@ -24,14 +24,22 @@ pub(crate) fn local(target: &ConnectTarget, live: &LiveState) -> bool {
 
 /// How this window reaches the chat programs of the daemon behind `target`:
 /// on this machine as for [`local`], or over SSH on the host an SSH
-/// connection runs the daemon on. A socket given by path, a WSL
-/// distribution, and a cloud machine have no route yet.
+/// connection runs the daemon on. Cloud and WSL use their saved connector;
+/// a socket given by path is never assumed to name a local endpoint.
 pub(crate) fn route(target: &ConnectTarget, live: &LiveState) -> Option<Route> {
     match target {
         _ if local(target, live) => Some(Route::Local),
-        ConnectTarget::Ssh { target, .. } if live.status.is_connected() => {
-            Some(Route::Ssh(target.clone()))
-        }
+        _ if live.status.is_connected() => remote_route(target),
+        _ => None,
+    }
+}
+
+pub(super) fn remote_route(target: &ConnectTarget) -> Option<Route> {
+    match target {
+        ConnectTarget::Ssh { target, .. } => Some(Route::Ssh(target.clone())),
+        ConnectTarget::Wsl { .. } => Some(Route::Remote(target.clone())),
+        #[cfg(feature = "cloud")]
+        ConnectTarget::Cloud { .. } => Some(Route::Remote(target.clone())),
         _ => None,
     }
 }

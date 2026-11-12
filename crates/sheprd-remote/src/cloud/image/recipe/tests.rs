@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 
+mod required_core;
+
 #[test]
 fn copy_and_add_name_their_context_sources() {
     let dockerfile = r#"

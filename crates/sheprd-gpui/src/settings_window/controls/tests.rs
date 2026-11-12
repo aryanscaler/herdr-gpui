@@ -8,6 +8,7 @@ mod agents_placement;
 mod automations;
 mod backdrop;
 mod change_counts;
+mod chat_code;
 mod chat_width;
 mod device_icons;
 mod features;

@@ -26,11 +26,17 @@ pub(crate) struct Stores {
 
 impl Stores {
     /// Reads the user's stores when `personal`, else takes the defaults.
-    pub(crate) fn load(personal: bool) -> Self {
+    /// Fails only when another client holds the saved tabs, which this one
+    /// must not open beside it.
+    pub(crate) fn load(personal: bool) -> std::io::Result<Self> {
         fn read<T: Default>(personal: bool, load: impl FnOnce() -> T) -> T {
             if personal { load() } else { T::default() }
         }
-        let browser_tabs = read(personal, crate::browser::Store::load);
+        let browser_tabs = if personal {
+            crate::browser::Store::load()?
+        } else {
+            crate::browser::Store::default()
+        };
         let mut notification_mutes = read(personal, crate::notification_mutes::Mutes::load);
         // A closed Herdr 2 tab's ID can come back on a new tab after a restart:
         // its mute goes first.
@@ -39,7 +45,7 @@ impl Stores {
                 .tabs()
                 .any(|tab| tab.scope.as_str() == scope && tab.id.to_string() == id)
         });
-        Self {
+        Ok(Self {
             agent_skill: read(personal, crate::agent_skill::AgentSkill::load),
             browser_tabs,
             dispatch_history: read(personal, crate::dispatch::History::load),
@@ -58,7 +64,7 @@ impl Stores {
             window_state: personal.then(crate::window_state::WindowState::load),
             worktree_landing: read(personal, crate::worktree_landing::Remembered::load),
             worktree_notes: read(personal, crate::worktree_notes::Notes::load),
-        }
+        })
     }
 
     /// How many main windows the last session had open.

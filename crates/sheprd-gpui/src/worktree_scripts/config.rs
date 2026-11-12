@@ -7,7 +7,7 @@
 use super::{Error, ScriptKind};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use sheprd_client::{ConnectTarget, ScriptHost, ScriptLimits, SshLane, run_script, shell_quote};
+use sheprd_client::{ConnectTarget, ScriptLimits, shell_quote};
 use std::{
     io::{self, Read},
     path::Path,
@@ -91,22 +91,17 @@ impl Config {
 /// repository has none. Blocking: call only on a background executor.
 ///
 /// Local, named-session, and socket endpoints share this machine's files; an
-/// SSH endpoint's checkout is read with `cat` over the endpoint's SSH policy.
-/// A WSL distribution or a cloud machine has no script host here yet, so it
-/// is refused rather than guessed at.
+/// Remote files are read through the same host route as worktree operations.
 pub(crate) fn read(
     target: &ConnectTarget,
     checkout: &str,
     cancelled: &AtomicBool,
 ) -> crate::Result<Option<Config>> {
     let bytes = match target {
-        ConnectTarget::Ssh { target, .. } => read_remote(target, checkout, cancelled)?,
         ConnectTarget::Local | ConnectTarget::Session { .. } | ConnectTarget::Socket(_) => {
             read_local(&Path::new(checkout).join(PATH))?
         }
-        ConnectTarget::Wsl { .. } => return Err(Error::UnsupportedHost.into()),
-        #[cfg(feature = "cloud")]
-        ConnectTarget::Cloud { .. } => return Err(Error::UnsupportedHost.into()),
+        _ => read_remote(target, checkout, cancelled)?,
     };
     bytes.as_deref().map(Config::parse).transpose()
 }
@@ -125,7 +120,7 @@ fn read_local(path: &Path) -> crate::Result<Option<Vec<u8>>> {
 }
 
 fn read_remote(
-    target: &str,
+    target: &ConnectTarget,
     checkout: &str,
     cancelled: &AtomicBool,
 ) -> crate::Result<Option<Vec<u8>>> {
@@ -135,19 +130,19 @@ fn read_remote(
         shell_quote(&path)
     );
     let mut output = Vec::new();
-    run_script(
-        ScriptHost::Ssh(target, SshLane::Quick),
-        &body,
-        io::empty(),
-        &mut output,
-        ScriptLimits {
-            // One byte past the limit, so an oversized file is reported as such.
-            output: PRESENT.len() as u64 + MAX_BYTES + 1,
-            idle: REMOTE_IDLE,
-        },
-        cancelled,
-    )
-    .map_err(Error::Remote)?;
+    sheprd_remote::teleport::Host::new(target)?
+        .stream(
+            &body,
+            io::empty(),
+            &mut output,
+            ScriptLimits {
+                // One byte past the limit, so an oversized file is reported as such.
+                output: PRESENT.len() as u64 + MAX_BYTES + 1,
+                idle: REMOTE_IDLE,
+            },
+            cancelled,
+        )
+        .map_err(Error::Remote)?;
     Ok(remote_bytes(output))
 }
 

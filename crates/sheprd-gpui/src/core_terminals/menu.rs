@@ -260,8 +260,7 @@ impl SheprdWindow {
             (Action::Mute(row), _) => self.apply_core_mute_row(tab, row, cx),
             (Action::MoveToChat(terminal), _) => {
                 // A refusal leaves the agent running, and says why.
-                if let Err(error) =
-                    self.convert_to_chat(Some(&crate::chat::core_pane::key(&terminal)))
+                if let Err(error) = self.convert_to_chat(Some(&self.core_chat_key(tab, &terminal)))
                 {
                     self.show_flash(
                         crate::window::Flash::warning(fl!(
@@ -309,16 +308,22 @@ impl SheprdWindow {
 
     /// The pane of `tab` whose terminal agent the menu offers to move into a
     /// chat: the one in use when it runs an agent, else the first that
-    /// does. Only a tab that drives this computer's terminals holds chats.
+    /// does. Remote helpers run on their owning host, including when this
+    /// desktop is Windows; only local Windows conversion is unsupported.
     fn core_convertible_pane(&self, tab: TabId) -> Option<TerminalId> {
-        if !self.config.features.acp_chats || cfg!(windows) || !self.core_terminals.drives(tab) {
+        if !self.config.features.acp_chats || !self.core_terminals.drives(tab) {
             return None;
         }
         let shown = self.core_terminals.tabs.get(&tab)?;
+        if cfg!(windows) && shown.host == super::Host::Local {
+            return None;
+        }
         let agent = |terminal: &TerminalId| {
-            self.core_terminals
-                .reported(&shown.host, terminal)
-                .is_some_and(|info| sheprd_core_client::agent_kind(info).is_some())
+            !terminal.as_str().contains('/')
+                && self
+                    .core_terminals
+                    .reported(&shown.host, terminal)
+                    .is_some_and(|info| sheprd_core_client::convert::movable(info).is_ok())
         };
         if agent(&shown.active) {
             return Some(shown.active.clone());

@@ -75,6 +75,24 @@ pub fn add_device(
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<SavedDevice> {
+    add_device_for(
+        settings,
+        label,
+        install,
+        cloud::Requirement::Either,
+        cancelled,
+        report,
+    )
+}
+
+pub(crate) fn add_device_for(
+    settings: Settings,
+    label: String,
+    install: bool,
+    requirement: cloud::Requirement,
+    cancelled: &dyn Fn() -> bool,
+    report: &dyn Fn(cloud::Step),
+) -> crate::Result<SavedDevice> {
     if cancelled() {
         return Err(Error::Cancelled.into());
     }
@@ -93,7 +111,7 @@ pub fn add_device(
 
         report(cloud::Step::CheckingHerdr);
         let command = || relay_command(&settings, &sandbox);
-        if !wait_installed(&command, cancelled)? {
+        if !wait_installed(&command, requirement, cancelled)? {
             if !install {
                 return Err(cloud::Error::Install(install::Failure::NotInstalled {
                     machine: Some(sandbox.to_string()),
@@ -102,12 +120,12 @@ pub fn add_device(
                 .into());
             }
             report(cloud::Step::InstallingHerdr);
-            install::install(command()?, &cancelled)?;
-            if !install::installed(command()?, &cancelled)? {
+            requirement.install(command()?, &cancelled)?;
+            if !requirement.installed(command()?, &cancelled)? {
                 return Err(cloud::Error::Install(install::Failure::Missing).into());
             }
         }
-        if install {
+        if install && requirement == cloud::Requirement::Either {
             install::add_core(command(), &cancelled)?;
         }
         Ok(())
@@ -134,11 +152,12 @@ pub fn add_device(
 
 fn wait_installed(
     command: &dyn Fn() -> Result<Command>,
+    requirement: cloud::Requirement,
     cancelled: &dyn Fn() -> bool,
 ) -> crate::Result<bool> {
     let deadline = Instant::now() + EXEC_WAIT_TIMEOUT;
     loop {
-        match install::installed(command()?, &cancelled) {
+        match requirement.installed(command()?, &cancelled) {
             Ok(installed) => return Ok(installed),
             Err(cloud::Error::Cancelled) => return Err(Error::Cancelled.into()),
             Err(error) if Instant::now() >= deadline => return Err(error.into()),

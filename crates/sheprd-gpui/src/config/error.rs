@@ -50,6 +50,8 @@ pub enum Error {
     InvalidThemePair,
     #[error("theme must be a name, absolute path, or ~/ path")]
     InvalidThemePath,
+    #[error("undo_close_tab.seconds must be between 1 and 60")]
+    InvalidUndoCloseSeconds,
     #[error("usage must be a TOML table")]
     InvalidUsageTable,
     #[error("zen.font_size must be finite and between 8 and 48 logical pixels")]

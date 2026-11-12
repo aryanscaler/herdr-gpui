@@ -19,4 +19,4 @@ error-fan-out-journal-json = The saved fan-outs are not valid JSON
 error-fan-out-journal-write = The fan-out's progress could not be saved
 error-fan-out-journal-full = Too many fan-outs are saved; this one will not come back after a quit. Forget one to make room.
 error-fan-out-journal-field-too-long = A name or path in this fan-out is too long to save; it will not come back after a quit.
-error-fan-out-agent-uncertain = The agent may already be running, but its terminal was not saved. Keep the checkout and inspect it before starting another agent.
+error-fan-out-agent-uncertain = The agent may already be running, but its ownership could not be verified. Keep the checkout and inspect it before starting another agent.

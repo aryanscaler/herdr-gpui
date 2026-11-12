@@ -3,6 +3,8 @@ use crate::hub::core::tests_support_source;
 use serde_json::{Value, json};
 use std::path::Path;
 
+mod routing;
+
 const SCOPE: &str = "local:/test.sock";
 
 fn saved_file(dir: &Path) -> std::path::PathBuf {

@@ -3,6 +3,15 @@
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("The run's checkout and receipt were retained for inspection: {source}")]
+    Retained {
+        #[source]
+        source: Box<Error>,
+    },
+    #[error(transparent)]
+    ActionLock(#[from] crate::actions::lock::Error),
+    #[error(transparent)]
+    OwnedAgent(#[from] sheprd_remote::work::owned_agent::Error),
     #[error("No state directory is available for orchestrator state")]
     NoDataDirectory,
     #[error(transparent)]

@@ -18,8 +18,9 @@ use std::sync::{
 /// between rounds.
 #[derive(Debug)]
 pub(crate) struct Job {
-    cancelled: Arc<AtomicBool>,
-    result: mpsc::Receiver<Result<(), Error>>,
+    pub(super) cancelled: Arc<AtomicBool>,
+    pub(super) result: mpsc::Receiver<Result<(), Error>>,
+    pub(super) remote: Option<super::remote::Owner>,
 }
 
 impl Job {
@@ -33,6 +34,7 @@ impl Job {
         let job = Self {
             cancelled: cancelled.clone(),
             result,
+            remote: None,
         };
         (job, cancelled)
     }
@@ -66,7 +68,7 @@ impl SheprdWindow {
         terminal: TerminalId,
     ) -> Result<(String, Agent), Error> {
         // `sheprd-acp` and the typed `sh` line are Unix, as for Herdr 1.
-        if cfg!(windows) {
+        if cfg!(windows) || terminal.as_str().contains('/') {
             return Err(Error::NotReachable);
         }
         let backend = self
@@ -104,7 +106,11 @@ impl SheprdWindow {
                 let _ = sender.send(outcome);
             })
             .map_err(Error::Worker)?;
-        self.chats.converting_core = Some(Job { cancelled, result });
+        self.chats.converting_core = Some(Job {
+            cancelled,
+            result,
+            remote: None,
+        });
         Ok((core_pane::key(&terminal), agent))
     }
 
@@ -115,7 +121,10 @@ impl SheprdWindow {
         let job = self.chats.converting_core.as_ref()?;
         let result = if !self.config.features.acp_chats {
             Err(Error::Disabled)
-        } else if self.core_terminals.hub.backend().is_none() {
+        } else if job.remote.as_ref().map_or_else(
+            || self.core_terminals.hub.backend().is_none(),
+            |owner| !self.remote_core_conversion_current(owner),
+        ) {
             Err(convert::Error::Stopped.into())
         } else {
             match job.result.try_recv() {

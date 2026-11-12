@@ -58,6 +58,8 @@ pub enum Error {
     },
     #[error("HC_SESSION {0:?} cannot be a folder name")]
     Session(String),
+    #[error(transparent)]
+    Sessions(#[from] crate::sessions::Error),
     #[error("cannot start herdr-core at {}", binary.display())]
     Start {
         binary: PathBuf,

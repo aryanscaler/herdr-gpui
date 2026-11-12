@@ -11,6 +11,7 @@ error-worktree-scripts-parse = .herdr/worktree.toml: { $error }
 error-worktree-scripts-read = Could not read .herdr/worktree.toml: { $error }
 error-worktree-scripts-remote = Could not read .herdr/worktree.toml on the host: { $error }
 error-worktree-scripts-response = Unexpected daemon response while opening the script's tab
+error-worktree-scripts-setup-expired = The queued setup expired; run the setup script from the worktree menu
 # $limit is a number of bytes.
 error-worktree-scripts-size = .herdr/worktree.toml exceeds { $limit } bytes
 error-worktree-scripts-unsupported-host = Worktree scripts cannot be read from a WSL distribution yet

@@ -330,6 +330,13 @@ pub(crate) fn frame_link_at(
     )
 }
 
+/// The original OSC 8 target, before URL normalization or file decoding.
+pub(crate) fn frame_hyperlink_at(frame: &FrameData, column: u16, row: u16) -> Option<&str> {
+    let (cells, selected, source) = link_cell(frame, column, row, 0, frame.width)?;
+    let index = cells[selected].hyperlink.or(cells[source].hyperlink)?;
+    frame.hyperlinks.get(index as usize).map(String::as_str)
+}
+
 /// The link at cell (`column`, `row`) of the pane or popup that covers
 /// `columns` and `rows` of `frame`, which it never leaves.
 fn frame_link(

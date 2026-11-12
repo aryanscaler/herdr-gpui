@@ -136,7 +136,8 @@ pub fn found_runs(
         let agent = agents
             .iter()
             .filter(|agent| {
-                agent.host == live.host
+                agent.terminals == crate::model::Terminals::Herdr1
+                    && agent.host == live.host
                     && agent.session == live.session
                     && agent.workspace_id == live.workspace_id
             })

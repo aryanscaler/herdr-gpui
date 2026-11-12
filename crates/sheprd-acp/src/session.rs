@@ -213,9 +213,13 @@ impl<R: FnMut(Update)> Session<R> {
 
     /// Opens the ACP connection.
     pub(crate) fn start(&mut self) {
-        let request = wire::InitializeRequest::new(acp::ProtocolVersion::V1).client_info(
+        let mut request = wire::InitializeRequest::new(acp::ProtocolVersion::V1).client_info(
             wire::Implementation::new("herdr-acp", env!("CARGO_PKG_VERSION")),
         );
+        request.client_capabilities.meta = Some(wire::Meta::from_iter([(
+            crate::project::opencode::CAPABILITY.to_owned(),
+            serde_json::Value::Bool(true),
+        )]));
         self.request("initialize", &request, Pending::Initialize);
         self.report_activity();
     }

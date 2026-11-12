@@ -41,6 +41,7 @@ fn every_config_variant_has_a_message() {
         Error::InvalidTerminalPadding("padding"),
         Error::InvalidThemePair,
         Error::InvalidThemePath,
+        Error::InvalidUndoCloseSeconds,
         Error::InvalidUsageTable,
         Error::InvalidZenFontSize,
         Error::InvalidZenWidth,

@@ -52,6 +52,18 @@ pub(crate) struct Pending<'a, T = Answer> {
 }
 
 impl<T> Pending<'_, T> {
+    /// Withdraw only an intent the desktop has not taken. Once handed over,
+    /// a lost answer cannot establish whether it was applied: never replay it.
+    pub(crate) fn withdraw_layout(&self) -> bool {
+        let mut inner = self.mailbox.inner();
+        if !inner.layout.iter().any(|ask| ask.id == self.id) {
+            return false;
+        }
+        inner.layout.retain(|ask| ask.id != self.id);
+        inner.waiting.remove(&self.id);
+        true
+    }
+
     /// Sheprd's answer; `None` if the mailbox dropped the question.
     pub(crate) async fn answer(&mut self) -> Option<T> {
         (&mut self.answer).await.ok()

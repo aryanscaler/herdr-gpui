@@ -1,5 +1,5 @@
 //! Work commands from a herdr-core terminal: one in a workspace the app
-//! keeps for Herdr 2 finds it, and what needs Herdr 1's state says so; one
+//! keeps for Herdr 2 finds it without Herdr 1 state; one
 //! in a tab of no workspace the window keeps refuses as unsupported, whether
 //! Herdr runs beside it or not.
 
@@ -86,9 +86,8 @@ fn a_kept_workspace_is_found_from_its_terminal(cx: &mut gpui::TestAppContext) {
         assert!(found.herdr.is_none(), "no Herdr 1 state");
         // A dialog opens on the selected host, Herdr 1 connected or not.
         assert_eq!(selected_workspace(view, &from_core).ok(), Some(id.clone()));
-        // What needs Herdr 1's state says so rather than "not found".
         let response = mute::status(view, &from_core, cx);
-        assert_eq!(error_code(&response), Some(ErrorCode::Unsupported));
+        assert!(matches!(response, Response::Work { .. }), "{response:?}");
     });
 }
 

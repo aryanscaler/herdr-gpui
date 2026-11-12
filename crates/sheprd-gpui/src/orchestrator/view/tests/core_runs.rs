@@ -1,5 +1,5 @@
-//! A Herdr 2 run has no Herdr 1 pane: no live agent stands for it, its
-//! status is what it recorded, and opening it shows its kept workspace.
+//! A Herdr 2 run never matches a Herdr 1 pane. Without a matching core
+//! agent its recorded status remains; opening it shows its kept workspace.
 use super::*;
 use crate::orchestrator::view::{Event, core_run};
 
@@ -44,6 +44,7 @@ fn opening_a_herdr_2_run_shows_its_checkout_and_terminal_on_this_machine() {
     let sessions = vec![session];
     let listed = Runs::new(&runs, &sessions, &[]);
     let Some(Event::OpenCoreRun {
+        target,
         path,
         terminal,
         label,
@@ -56,12 +57,19 @@ fn opening_a_herdr_2_run_shows_its_checkout_and_terminal_on_this_machine() {
         std::path::Path::new("/home/me/.herdr/worktrees/app/7-icons")
     );
     assert_eq!((terminal.as_str(), label.as_str()), ("t9", "b-r7"));
+    assert_eq!(
+        target,
+        crate::orchestrator::actions::target_of(&sessions[0])
+    );
 
-    // herdr-core runs only this machine's terminals for now.
+    // An identical terminal ID on another host must open on that host.
     let (found, session) = core(Some("devbox"));
     let runs = vec![found];
     let sessions = vec![session];
-    assert!(core_run(&Runs::new(&runs, &sessions, &[]), 0).is_none());
+    assert!(matches!(core_run(&Runs::new(&runs, &sessions, &[]), 0),
+        Some(Event::OpenCoreRun { target: sheprd_client::ConnectTarget::Ssh { target, .. }, .. })
+        if target == "devbox"));
 }
 
+mod live;
 mod removal;

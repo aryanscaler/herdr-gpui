@@ -16,6 +16,8 @@ use sheprd_backend::{Exit, Role, SurfaceUpdate};
 use std::{cell::RefCell, rc::Rc};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
+mod archive_metadata;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod archive_split;
 
 #[gpui::test]

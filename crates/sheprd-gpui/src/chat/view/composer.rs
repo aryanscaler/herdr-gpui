@@ -99,6 +99,10 @@ impl SheprdWindow {
                 super::super::Route::Local => {
                     fl!("chat-preparing-pictures", count = chat.uploading)
                 }
+                route @ super::super::Route::Remote(_) => {
+                    let host = safe_text(route.remote_name().unwrap_or_default(), 80);
+                    fl!("chat-copying-files", count = chat.uploading, host = host)
+                }
             };
             div()
                 .debug_selector(|| "chat-uploading".into())

@@ -1,5 +1,6 @@
 use super::*;
 use crate::chat::{
+    code_block,
     prepared::tool::Code,
     rich::{
         CodeText, MAX_CODE_LINE_CHARS, MAX_CODE_LINES,
@@ -26,29 +27,40 @@ impl SheprdWindow {
         context: &mut RichContext<'_, '_, '_>,
     ) -> Div {
         let code = CodeView {
+            pane_id: context.pane_id,
             id,
             language,
             source,
             block,
         };
-        self.render_code_block(code, context.visuals, Some(context.selection), context.cx)
+        self.render_code_block(
+            code,
+            context.visuals,
+            Some(context.selection),
+            None,
+            context.cx,
+        )
     }
 
-    /// A tool card's source, drawn like a message's code block.
+    /// A tool card's source, or an HTML fence shown as code, drawn like a
+    /// message's code block. `extra` leads the header's buttons.
     pub(in crate::chat::view) fn render_chat_tool_code(
         &self,
+        pane_id: &str,
         code: &Code,
         selection: Option<&Scope<'_>>,
         visuals: &Visuals,
+        extra: Option<AnyElement>,
         cx: &mut Context<Self>,
     ) -> Div {
         let view = CodeView {
+            pane_id,
             id: code.id,
             language: &code.language,
             source: &code.source,
             block: 0,
         };
-        self.render_code_block(view, visuals, selection, cx)
+        self.render_code_block(view, visuals, selection, extra, cx)
     }
 
     fn render_code_block(
@@ -56,14 +68,26 @@ impl SheprdWindow {
         code: CodeView<'_>,
         visuals: &Visuals,
         selection: Option<&Scope<'_>>,
+        extra: Option<AnyElement>,
         cx: &mut Context<Self>,
     ) -> Div {
         let CodeView {
+            pane_id,
             id,
             language,
             source,
             block,
         } = code;
+        let chat = &self.config.chat;
+        let wraps = self
+            .chats
+            .pane(pane_id)
+            .map_or(chat.wrap_code, |pane| pane.code.wraps(id, chat.wrap_code));
+        let look = code_block::Look {
+            wrap: wraps,
+            numbers: chat.code_line_numbers,
+            stripes: chat.code_stripes,
+        };
         let is_diff = diff::is_diff(language);
         let diff_rows = is_diff.then(|| diff::rows(source, MAX_CODE_LINES));
         let spans = visuals.code(id);
@@ -92,101 +116,101 @@ impl SheprdWindow {
             })
             .collect();
         let truncated = raw.next().is_some() || lines.iter().any(|line| line.truncated);
-        div()
-            .debug_selector(|| "chat-code-block".into())
-            .min_w_0()
-            .rounded(px(6.))
-            .border_1()
-            .border_color(rgb(self.theme.active))
-            .bg(rgb(self.theme.surface))
-            .text_color(rgb(self.theme.foreground))
-            .overflow_hidden()
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .px(px(14.))
-                    .py(px(6.))
-                    .border_b_1()
-                    .border_color(rgb(self.theme.active))
-                    .text_size(px(self.chat_text_size() - 2.))
-                    .text_color(rgb(self.theme.muted))
-                    .child(if is_diff {
-                        fl!("chat-diff")
-                    } else if language.is_empty() {
-                        fl!("chat-code")
-                    } else {
-                        language.to_owned()
+        let rows = lines
+            .into_iter()
+            .enumerate()
+            .map(|(index, line)| {
+                let kind = diff_rows
+                    .as_ref()
+                    .and_then(|rows| rows.get(index))
+                    .map(|row| row.kind);
+                let (own, ink) = diff_colors(&self.theme, kind);
+                let background = code_block::row_fill(&self.theme, index, own, look.stripes);
+                let ink = text_ink(ink, background);
+                let sign = diff_sign(&self.theme, kind, background).map(|color| {
+                    let style = HighlightStyle {
+                        color: Some(rgb(color).into()),
+                        ..Default::default()
+                    };
+                    (0..1, style)
+                });
+                let marks = sign.into_iter().chain(line.spans.into_iter().map(|span| {
+                    (
+                        span.start..span.end,
+                        HighlightStyle {
+                            color: Some(
+                                rgb(span.token.colour(&self.theme, Contrast::On(background)))
+                                    .into(),
+                            ),
+                            ..Default::default()
+                        },
+                    )
+                }));
+                let fragment = selection.and_then(|selection| {
+                    selection.fragment(Cell {
+                        block,
+                        row: index,
+                        column: 0,
                     })
-                    .child(self.rich_copy(
-                        if is_diff { copy::DIFF } else { copy::CODE },
-                        Arc::clone(source),
-                        cx,
-                    )),
+                });
+                let styled = styled_text(fragment.as_ref(), line.text, marks, &self.theme);
+                let layout = styled.layout().clone();
+                let text = div()
+                    .text_color(rgb(ink))
+                    .when(is_diff, |text| text.px(px(6.)))
+                    .child(styled);
+                code_block::Row {
+                    fill: background,
+                    text: selectable(fragment.as_ref(), text, layout, cx).into_any_element(),
+                }
+            })
+            .collect();
+        let name = if is_diff {
+            fl!("chat-diff")
+        } else if language.is_empty() {
+            fl!("chat-code")
+        } else {
+            language.to_owned()
+        };
+        let pane = pane_id.to_owned();
+        let wrap = self
+            .rich_button(
+                "chat-code-wrap",
+                if wraps {
+                    fl!("chat-code-unwrap")
+                } else {
+                    fl!("chat-code-wrap")
+                },
             )
-            .child(
-                div()
-                    .id("code-scroll")
-                    .debug_selector(|| "chat-code-scroll".into())
-                    .min_w_0()
-                    .overflow_x_scroll()
-                    .flex()
-                    .flex_col()
-                    .items_start()
-                    .p(px(14.))
-                    .text_size(px(self.config.terminal.size))
-                    .line_height(relative(1.5))
-                    .text_font(&self.config.terminal)
-                    .children(lines.into_iter().enumerate().map(|(index, line)| {
-                        let kind = diff_rows
-                            .as_ref()
-                            .and_then(|rows| rows.get(index))
-                            .map(|row| row.kind);
-                        let (background, ink) = diff_colors(&self.theme, kind);
-                        let sign = diff_sign(&self.theme, kind, background).map(|color| {
-                            let style = HighlightStyle {
-                                color: Some(rgb(color).into()),
-                                ..Default::default()
-                            };
-                            (0..1, style)
-                        });
-                        let marks = sign.into_iter().chain(line.spans.into_iter().map(|span| {
-                            (
-                                span.start..span.end,
-                                HighlightStyle {
-                                    color: Some(
-                                        rgb(span
-                                            .token
-                                            .colour(&self.theme, Contrast::On(background)))
-                                        .into(),
-                                    ),
-                                    ..Default::default()
-                                },
-                            )
-                        }));
-                        let fragment = selection.and_then(|selection| {
-                            selection.fragment(Cell {
-                                block,
-                                row: index,
-                                column: 0,
-                            })
-                        });
-                        let styled = styled_text(fragment.as_ref(), line.text, marks, &self.theme);
-                        let layout = styled.layout().clone();
-                        let view = div()
-                            .debug_selector(move || format!("chat-code-line-{index}"))
-                            .flex_none()
-                            .min_w_full()
-                            .whitespace_nowrap()
-                            .min_h(px(self.config.terminal.size * 1.5))
-                            .bg(rgb(background))
-                            .text_color(rgb(ink))
-                            .when(is_diff, |row| row.px(px(6.)))
-                            .child(styled);
-                        selectable(fragment.as_ref(), view, layout, cx)
-                    })),
-            )
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                if let Some(pane) = this.chats.pane_mut(&pane) {
+                    pane.code.set_wrap(id, !wraps);
+                    pane.list.remeasure();
+                }
+                cx.notify();
+            }));
+        let copy = self.rich_copy(
+            if is_diff { copy::DIFF } else { copy::CODE },
+            Arc::clone(source),
+            cx,
+        );
+        let buttons = extra
+            .into_iter()
+            .chain([wrap.into_any_element(), copy.into_any_element()]);
+        code_block::frame(&self.theme)
+            .child(code_block::header(
+                &self.theme,
+                self.chat_text_size() - 2.,
+                name,
+                buttons,
+            ))
+            .child(code_block::body(
+                &self.theme,
+                &self.config.terminal,
+                look,
+                rows,
+            ))
             .when(truncated, |view| {
                 view.child(
                     div()
@@ -253,6 +277,7 @@ fn diff_sign(theme: &Theme, kind: Option<DiffKind>, background: u32) -> Option<u
 }
 
 struct CodeView<'a> {
+    pane_id: &'a str,
     id: VisualId,
     language: &'a str,
     source: &'a Arc<str>,

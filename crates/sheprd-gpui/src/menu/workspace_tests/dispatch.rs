@@ -6,6 +6,9 @@ fn two_hosts(view: &mut SheprdWindow) {
     let snapshot = std::sync::Arc::make_mut(view.live.snapshot.as_mut().unwrap());
     snapshot.workspaces = sidebar::layout_tests::snapshot(7).workspaces;
     view.live.status = crate::state::ConnectionStatus::Connected;
+    // A verified local peer: only its snapshot speaks for this computer's
+    // checkouts and load.
+    view.live.local_daemon_peer = true;
     view.endpoints[0].connection.target = sheprd_client::ConnectTarget::Local;
     add_host(view, "box", "Box");
 }

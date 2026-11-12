@@ -27,12 +27,15 @@ use std::{
     time::Duration,
 };
 
+mod core;
+
 /// Pointer movement is coalesced: at most one resolve leaves per delay, for
 /// wherever the pointer is when it fires.
 const RESOLVE_DELAY: Duration = Duration::from_millis(40);
 
 #[derive(Default)]
 pub(crate) struct DaemonLinks {
+    core_handler: Option<core::Running>,
     /// The pane cell under the pointer while the link modifier is held.
     hover: Option<LinkCell>,
     /// The latest answer. It stays shown while the pointer moves along the
@@ -555,11 +558,26 @@ impl SheprdWindow {
         }
     }
 
-    /// Opens a link clicked in a herdr-core pane as a Herdr pane's opens
-    /// when no plugin handler claims it: herdr-core has none.
+    /// Offers the original clicked target to app-owned adapters, then uses
+    /// the ordinary opener only when none matched.
     pub(crate) fn open_core_link(
         &mut self,
         click: crate::core_terminals::LinkClick,
+        host: &crate::core_terminals::Host,
+        target: Option<&sheprd_client::ConnectTarget>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.activate_core_handler(&click, host, target, window, cx) {
+            return;
+        }
+        self.open_core_fallback(click, host, window, cx);
+    }
+
+    fn open_core_fallback(
+        &mut self,
+        click: crate::core_terminals::LinkClick,
+        host: &crate::core_terminals::Host,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -571,7 +589,7 @@ impl SheprdWindow {
                 path,
                 line,
                 explicit,
-            } => Some(Fallback::File {
+            } if *host == crate::core_terminals::Host::Local => Some(Fallback::File {
                 link: FileLink {
                     path,
                     line,
@@ -582,6 +600,9 @@ impl SheprdWindow {
                 in_editor: (self.config.open_files_in == crate::config::FileTarget::Editor)
                     != click.alt,
             }),
+            RowTarget::Path { .. } => Some(Fallback::Unopened(crate::Error::LinkOnAnotherHost {
+                host: host.endpoint().to_owned(),
+            })),
             RowTarget::External(url) => Some(Fallback::External(url)),
             RowTarget::OtherHost(host) => {
                 Some(Fallback::Unopened(crate::Error::LinkOnAnotherHost { host }))

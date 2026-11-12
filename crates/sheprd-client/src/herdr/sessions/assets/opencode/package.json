@@ -1,0 +1,8 @@
+{
+  "name": "sheprd-session-report",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tui": "./tui.mjs"
+  }
+}

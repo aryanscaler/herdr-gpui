@@ -49,6 +49,7 @@ pub(crate) enum Dial {
     /// A child whose stdin and stdout carry the connection, such as `ssh`
     /// running `herdr-acp connect` on the program's host.
     Process(Command),
+    Remote(sheprd_client::ConnectTarget, String),
 }
 
 impl From<PathBuf> for Dial {
@@ -118,6 +119,7 @@ fn open(dial: Dial) -> std::io::Result<Parts> {
             };
             Ok((Box::new(stdout), Box::new(stdin), closer))
         }
+        Dial::Remote(..) => Err(std::io::ErrorKind::Unsupported.into()),
     }
 }
 
@@ -244,6 +246,15 @@ fn run(
     events: &SyncSender<ServerMessage>,
     socket: &Socket,
 ) -> Error {
+    if socket.closed.load(Ordering::Acquire) {
+        return Error::NotAttached;
+    }
+    if let Dial::Remote(target, script) = dial {
+        return super::remote_route::with_command(&target, &script, &socket.closed, |command| {
+            run(Dial::Process(command), since, queued, events, socket)
+        })
+        .unwrap_or_else(Error::Connect);
+    }
     let parts = open(dial).and_then(|(reader, writer, closer)| {
         let writer_closer = closer.try_clone()?;
         Ok((reader, writer, closer, writer_closer))

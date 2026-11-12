@@ -74,6 +74,12 @@ pub(super) fn project(
                 .zip(scope)
                 .and_then(|(saved, scope)| saved.tab_zoomed(scope, tab.id))
                 .is_some();
+            if let Some(active) = saved
+                .zip(scope)
+                .and_then(|(saved, scope)| saved.tab_active(scope, tab.id))
+            {
+                focus(&mut terminal, boot, active);
+            }
             // A pane the user named shows that name, a chat's included.
             let names = saved
                 .zip(scope)
@@ -281,6 +287,17 @@ pub(super) fn cwd(record: &Record) -> Option<String> {
         .or(Some(&record.cwd))
         .filter(|cwd| !cwd.is_empty())
         .cloned()
+}
+
+/// Keep tree order while identifying the selected pane. A missing terminal
+/// leaves the first live pane selected until the next layout cleanup.
+pub(super) fn focus(terminal: &mut Terminal, boot: &str, active: &sheprd_backend::TerminalId) {
+    let active = pane_id(boot, active.as_str());
+    if terminal.panes.iter().any(|pane| pane.pane == active) {
+        for pane in &mut terminal.panes {
+            pane.focused = pane.pane == active;
+        }
+    }
 }
 
 pub(super) fn urgency(status: AgentStatus) -> u8 {

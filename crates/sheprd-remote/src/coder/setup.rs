@@ -197,6 +197,15 @@ pub fn add_device(
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<SavedDevice> {
+    add_device_for(request, cloud::Requirement::Either, cancelled, report)
+}
+
+pub(super) fn add_device_for(
+    request: AddRequest,
+    requirement: cloud::Requirement,
+    cancelled: &dyn Fn() -> bool,
+    report: &dyn Fn(cloud::Step),
+) -> crate::Result<SavedDevice> {
     let settings = &request.settings;
     // Fail before creating anything when the transport cannot run later.
     connect::cli(settings)?;
@@ -208,6 +217,7 @@ pub fn add_device(
                 &tokens,
                 id.clone(),
                 name.clone(),
+                requirement,
                 cancelled,
                 report,
             );
@@ -227,7 +237,17 @@ pub fn add_device(
     cloud::discard_on_error(
         CloudProvider::Coder,
         &id,
-        || finish(&request, &tokens, id.clone(), name, cancelled, report),
+        || {
+            finish(
+                &request,
+                &tokens,
+                id.clone(),
+                name,
+                requirement,
+                cancelled,
+                report,
+            )
+        },
         || {
             Ok(super::destroy::destroy(
                 settings,
@@ -247,6 +267,7 @@ fn finish(
     tokens: &impl Fn(bool) -> Result<SecretString>,
     id: String,
     name: String,
+    requirement: cloud::Requirement,
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<SavedDevice> {
@@ -256,7 +277,7 @@ fn finish(
     })?;
     let ready = Ready { id, name, agent };
     report(step(Step::CheckingHerdr));
-    if !install::installed(ssh(settings, &ready)?, &cancelled)? {
+    if !requirement.installed(ssh(settings, &ready)?, &cancelled)? {
         if !request.install {
             return Err(cloud::Error::Install(install::Failure::NotInstalled {
                 machine: Some(ready.name.clone()),
@@ -265,8 +286,12 @@ fn finish(
             .into());
         }
         report(cloud::Step::InstallingHerdr);
-        install(settings, &ready, cancelled)?;
-    } else if request.install {
+        requirement.install(ssh(settings, &ready)?, &cancelled)?;
+        if !requirement.installed(ssh(settings, &ready)?, &cancelled)? {
+            return Err(cloud::Error::Install(install::Failure::Missing).into());
+        }
+    }
+    if request.install && requirement == cloud::Requirement::Either {
         install::add_core(ssh(settings, &ready), &cancelled)?;
     }
     let label = if request.label.is_empty() {

@@ -12,6 +12,28 @@ pub(crate) struct Shared(pub(crate) Rc<RefCell<Store>>);
 
 impl gpui::Global for Shared {}
 
+/// Git metadata of an app-kept workspace. Remote POSIX paths are not
+/// interpreted through the client platform's path parser.
+pub(crate) fn kept_input(workspace: &sheprd_session::Workspace, remote: bool) -> Option<Input> {
+    let tree = workspace.worktree.as_ref()?;
+    let branch = workspace.branch.as_deref()?;
+    if !remote {
+        return key_input(&tree.key, Some(branch)).ok();
+    }
+    if !tree.key.starts_with('/')
+        || tree.key.chars().any(char::is_control)
+        || branch.is_empty()
+        || branch.chars().any(char::is_control)
+    {
+        return None;
+    }
+    Some(Input {
+        checkout: Some(workspace.cwd.clone()),
+        repo_key: Some(tree.key.clone()),
+        branch: branch.to_owned(),
+    })
+}
+
 /// A badge's color, shared by sidebar and titlebar badges and the workspace
 /// menu, inked to read on the chrome it sits on.
 pub(crate) fn color(pr: &PullRequest, theme: &crate::config::Theme) -> u32 {

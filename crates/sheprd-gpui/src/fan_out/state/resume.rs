@@ -9,18 +9,75 @@ use crate::{
     fan_out::journal::{Checkpoint, Journal, Record, Resume},
     teleport::Host,
 };
+use sheprd_session::Keeper;
 use std::{
     sync::{Arc, atomic::AtomicBool, mpsc},
     time::Instant,
 };
 
 impl FanOut {
+    /// Reassociate a missing saved host after it is configured again. This
+    /// only restores the comparison; no creation, launch or prompt is replayed.
+    pub(crate) fn reconnect(&mut self, host: impl Fn(&str, Keeper) -> Option<Host>) -> bool {
+        if !self.restored || !matches!(self.stage, Stage::Compare) {
+            return false;
+        }
+        let mut changed = false;
+        for (index, lane) in self.lanes.iter_mut().enumerate() {
+            if lane.checkout.is_some() {
+                continue;
+            }
+            let Some(saved) = self.journal.saved_lane(self.id, index) else {
+                continue;
+            };
+            let Some(checkout) = saved.checkout else {
+                continue;
+            };
+            let Some(host) = same(
+                &host,
+                &checkout.endpoint_id,
+                &checkout.host,
+                if checkout.herdr_2 {
+                    Keeper::App
+                } else {
+                    Keeper::Herdr1
+                },
+            ) else {
+                continue;
+            };
+            lane.checkout = Some(checkout.checkout(host));
+            lane.state = if saved.step == Checkpoint::Prompted {
+                LaneState::Running
+            } else {
+                LaneState::Interrupted(saved.step)
+            };
+            changed = true;
+        }
+        if changed {
+            self.next_refresh = None;
+        }
+        changed
+    }
+
     /// The oldest journaled fan-out no window shows, restored. Records with
     /// nothing left to come back to are forgotten on the way.
-    pub(crate) fn reclaim(journal: &Journal, host: impl Fn(&str) -> Option<Host>) -> Option<Self> {
+    pub(crate) fn reclaim(
+        journal: &Journal,
+        host: impl Fn(&str, Keeper) -> Option<Host>,
+    ) -> Option<Self> {
         loop {
-            let origin =
-                |record: &Record| same(&host, &record.origin.endpoint_id, &record.origin.host);
+            let origin = |record: &Record| {
+                same(
+                    &host,
+                    &record.origin.endpoint_id,
+                    &record.origin.host,
+                    if record.origin.checkout.is_some() {
+                        Keeper::App
+                    } else {
+                        Keeper::Herdr1
+                    },
+                )
+            };
             let record = journal.claim(|record| origin(record).is_some())?;
             let id = record.id;
             match Self::restore(record, journal.clone(), &host) {
@@ -38,7 +95,7 @@ impl FanOut {
     pub(crate) fn restore(
         record: Record,
         journal: Journal,
-        host: impl Fn(&str) -> Option<Host>,
+        host: impl Fn(&str, Keeper) -> Option<Host>,
     ) -> Option<Self> {
         if !record.worth_keeping() {
             return None;
@@ -47,7 +104,16 @@ impl FanOut {
         let origin = Origin {
             endpoint_id: saved.endpoint_id.clone(),
             endpoint_label: saved.endpoint_label.clone(),
-            host: same(&host, &saved.endpoint_id, &saved.host)?,
+            host: same(
+                &host,
+                &saved.endpoint_id,
+                &saved.host,
+                if saved.checkout.is_some() {
+                    Keeper::App
+                } else {
+                    Keeper::Herdr1
+                },
+            )?,
             workspace_id: saved.workspace_id.clone(),
             repo_key: saved.repo_key.clone(),
             repo_label: saved.repo_label.clone(),
@@ -61,7 +127,16 @@ impl FanOut {
             .map(|saved| {
                 let lane = saved.lane()?;
                 let checkout = saved.checkout.as_ref().and_then(|checkout| {
-                    Some(checkout.checkout(same(&host, &checkout.endpoint_id, &checkout.host)?))
+                    Some(checkout.checkout(same(
+                        &host,
+                        &checkout.endpoint_id,
+                        &checkout.host,
+                        if checkout.herdr_2 {
+                            Keeper::App
+                        } else {
+                            Keeper::Herdr1
+                        },
+                    )?))
                 });
                 let state = match (&saved.checkout, &checkout, saved.step) {
                     (Some(lost), None, _) => LaneState::Failed(crate::i18n::fl!(
@@ -85,7 +160,14 @@ impl FanOut {
         let hosts = Picker::new(&origin.endpoint_id, Instant::now());
         let lost_prompt = record.prompt.is_none()
             && lanes.iter().any(|lane| match lane.state {
-                LaneState::Interrupted(step) => step.resume().is_some(),
+                LaneState::Interrupted(step) => {
+                    step.resume().is_some()
+                        || (step == Checkpoint::CreatingWorktree
+                            && lane
+                                .checkout
+                                .as_ref()
+                                .is_some_and(|checkout| checkout.recoverable))
+                }
                 _ => false,
             });
         Some(Self {
@@ -133,7 +215,12 @@ impl FanOut {
         let checkout = lane.checkout.as_ref()?;
         let from = match lane.state {
             LaneState::Interrupted(_) | LaneState::Failed(_) => {
-                self.journal.step(self.id, index)?.resume()?
+                let step = self.journal.step(self.id, index)?;
+                if step == Checkpoint::CreatingWorktree && checkout.recoverable {
+                    Resume::Creation
+                } else {
+                    step.resume()?
+                }
             }
             _ => return None,
         };
@@ -141,7 +228,7 @@ impl FanOut {
         // mean the app died after the agent started but before saving its
         // address. Never interpret that uncertainty as permission to start
         // another agent: the user can keep the checkout and inspect it.
-        if from == Resume::Prompt && checkout.started().is_none() {
+        if from == Resume::Prompt && checkout.started().is_none() && !checkout.recoverable {
             return None;
         }
         Some(from)
@@ -160,7 +247,7 @@ impl FanOut {
             return false;
         };
         view.state = match from {
-            Resume::Start => LaneState::StartingAgent,
+            Resume::Creation | Resume::Start => LaneState::StartingAgent,
             Resume::Prompt => LaneState::Prompting,
         };
         let lane = view.lane.clone();
@@ -189,6 +276,11 @@ impl FanOut {
 /// The host of `endpoint_id`, when it is still the daemon `identity` names.
 /// Workspace and pane IDs repeat across daemons, so another daemon behind
 /// the same endpoint must never be scripted with them.
-fn same(host: &impl Fn(&str) -> Option<Host>, endpoint_id: &str, identity: &str) -> Option<Host> {
-    host(endpoint_id).filter(|host| host.identity() == identity)
+fn same(
+    host: &impl Fn(&str, Keeper) -> Option<Host>,
+    endpoint_id: &str,
+    identity: &str,
+    keeper: Keeper,
+) -> Option<Host> {
+    host(endpoint_id, keeper).filter(|host| host.identity() == identity)
 }

@@ -130,16 +130,36 @@ pub(crate) async fn change_layout(
 ) -> Result<Option<String>, ApiError> {
     let mut pending = state
         .changes
-        .ask_layout(tab, terminal, op, Instant::now())
+        .ask_layout(tab, terminal.clone(), op.clone(), Instant::now())
         .map_err(ApiError::from)?;
-    match tokio::time::timeout(LAYOUT_WAIT, pending.answer()).await {
-        Ok(Some(layout::Answer::Done)) => Ok(None),
-        Ok(Some(layout::Answer::Split(created))) if created.len() <= layout::MAX_TERMINAL => {
+    let answer = async {
+        loop {
+            tokio::select! {
+                answer = pending.answer() => return Ok(answer),
+                () = tokio::time::sleep(Duration::from_millis(100)) => {
+                    if state.hub.desktop_layout_owner().await? == Some(false) {
+                        if pending.withdraw_layout() {
+                            let keeper = Keeper::Saved { tab, terminal };
+                            let created = state.hub.arrange(keeper, op).await?;
+                            return Ok(Some(created.map_or(layout::Answer::Done, layout::Answer::Split)));
+                        }
+                        // Taken by a desktop that exited: the operation may
+                        // already be on disk. Do not toggle or split twice.
+                        return Err(ApiError::from(Error::TimedOut));
+                    }
+                }
+            }
+        }
+    };
+    match tokio::time::timeout(LAYOUT_WAIT, answer).await {
+        Ok(Err(error)) => Err(error),
+        Ok(Ok(Some(layout::Answer::Done))) => Ok(None),
+        Ok(Ok(Some(layout::Answer::Split(created)))) if created.len() <= layout::MAX_TERMINAL => {
             Ok(Some(created))
         }
-        Ok(Some(layout::Answer::Split(_))) => Err(mismatch()),
-        Ok(Some(layout::Answer::Failed(failure))) => Err(Error::Layout(failure).into()),
-        Ok(None) | Err(_) => Err(Error::TimedOut.into()),
+        Ok(Ok(Some(layout::Answer::Split(_)))) => Err(mismatch()),
+        Ok(Ok(Some(layout::Answer::Failed(failure)))) => Err(Error::Layout(failure).into()),
+        Ok(Ok(None)) | Err(_) => Err(Error::TimedOut.into()),
     }
 }
 
@@ -150,11 +170,15 @@ pub(crate) async fn arrange(
     keeper: Keeper,
     op: layout::Op,
 ) -> Result<Option<String>, ApiError> {
-    match keeper {
-        Keeper::Saved { tab, terminal } if state.changes.open() => {
-            change_layout(state, tab, terminal, op).await
-        }
-        keeper => Ok(state.hub.arrange(keeper, op).await?),
+    // The saved-tabs lock, not a recent heartbeat, is the authority. A
+    // desktop that just quit can still look open for twelve seconds.
+    match state.hub.arrange(keeper.clone(), op.clone()).await {
+        Ok(answer) => Ok(answer),
+        Err(error) if error.desktop_owns_layout() => match keeper {
+            Keeper::Saved { tab, terminal } => change_layout(state, tab, terminal, op).await,
+            Keeper::Own(_) => Err(error.into()),
+        },
+        Err(error) => Err(error.into()),
     }
 }
 

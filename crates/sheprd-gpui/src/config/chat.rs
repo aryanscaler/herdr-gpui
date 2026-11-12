@@ -6,6 +6,10 @@
 //! launcher = "plus"
 //! layout = "cards"
 //! max_width = 800 # logical pixels; 0 uses the full available width
+//! code_line_numbers = false
+//! code_stripes = false
+//! render_html = "default" # "always", "never", or "default"
+//! wrap_code = false
 //!
 //! [chat.env]
 //! GH_HOST = "mycompany.ghe.com"
@@ -20,13 +24,22 @@
 //! installed agent. `layout` picks how a chat view draws its entries and composer. `glide`
 //! scrolls smoothly to a streaming reply's new text; off, the default, the
 //! view jumps to it as each chunk lands.
+//!
+//! The code keys set how every code block starts out; each block's own
+//! buttons still change that block alone. `wrap_code` wraps long lines,
+//! `code_line_numbers` numbers them, and `code_stripes` alternates their
+//! background. `render_html` picks how an agent's HTML fence starts:
+//! `default` as a card that loads the page on a click, `always` with the
+//! page loaded, `never` as code.
 
+mod html;
 mod launcher;
 
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
+pub use html::HtmlRender;
 pub use launcher::ChatLauncher;
 
 /// Variables kept, and the bytes their names and values take together, so
@@ -42,6 +55,10 @@ const RESERVED: [&str; 1] = [crate::chat::PROGRAM_ENV];
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct ChatConfig {
+    /// Code blocks number their lines unless a block's own button says otherwise.
+    pub code_line_numbers: bool,
+    /// Code blocks alternate their lines' background.
+    pub code_stripes: bool,
     pub env: BTreeMap<String, String>,
     pub glide: bool,
     pub launcher: ChatLauncher,
@@ -54,11 +71,17 @@ pub struct ChatConfig {
     /// Show running Codex/Claude conversations over their existing terminal.
     /// Discovery is opt-in and never starts or resumes an agent.
     pub render_existing: bool,
+    /// How an agent's HTML fence starts out.
+    pub render_html: HtmlRender,
+    /// Code blocks wrap long lines unless a block's own button says otherwise.
+    pub wrap_code: bool,
 }
 
 impl Default for ChatConfig {
     fn default() -> Self {
         Self {
+            code_line_numbers: false,
+            code_stripes: false,
             env: BTreeMap::new(),
             glide: false,
             launcher: ChatLauncher::default(),
@@ -66,6 +89,8 @@ impl Default for ChatConfig {
             max_width: DEFAULT_MAX_WIDTH,
             mirrors: Vec::new(),
             render_existing: false,
+            render_html: HtmlRender::default(),
+            wrap_code: false,
         }
     }
 }

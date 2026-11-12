@@ -9,6 +9,7 @@ use sheprd_client::protocol::{
 
 mod cases;
 mod content_updates;
+mod core_handlers;
 mod external;
 #[cfg(unix)]
 mod file_checks;

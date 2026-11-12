@@ -53,7 +53,7 @@ pub(crate) enum Source {
     Clipboard(Image),
 }
 
-pub(super) fn from_path(path: &Path) -> Option<Source> {
+pub(crate) fn from_path(path: &Path) -> Option<Source> {
     if path.as_os_str().len() > MAX_SOURCE_BYTES || !path.is_absolute() {
         return None;
     }
@@ -74,7 +74,7 @@ pub(super) fn from_path(path: &Path) -> Option<Source> {
 /// only the app that receives the drop and its children read that file, and
 /// a pane's processes are the daemon's children, not this app's; the file is
 /// also deleted once the thumbnail saves. Its bytes are read here instead.
-pub(super) fn temporary_drag_image(paths: &[PathBuf]) -> Option<Source> {
+pub(crate) fn temporary_drag_image(paths: &[PathBuf]) -> Option<Source> {
     let [path] = paths else {
         return None;
     };
@@ -98,7 +98,7 @@ pub(super) fn temporary_drag_image(paths: &[PathBuf]) -> Option<Source> {
 /// Match upstream's Unix terminal-drop escaping, even inside matching quotes.
 /// On Windows a backslash separates path components (Explorer's "Copy as path"
 /// and terminal drops quote the path instead), so it is kept as written.
-pub(super) fn from_paste(text: &str) -> Option<Source> {
+pub(crate) fn from_paste(text: &str) -> Option<Source> {
     if text.len() > MAX_SOURCE_BYTES {
         return None;
     }

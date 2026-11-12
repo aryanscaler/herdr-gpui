@@ -2,6 +2,9 @@ use super::*;
 use sheprd_backend::RunState;
 use std::collections::BTreeMap;
 
+mod fences;
+mod flags;
+
 fn process(pid: u32, argv: &[&str]) -> Process {
     Process {
         argv: argv.iter().map(|arg| (*arg).to_owned()).collect(),
@@ -32,10 +35,6 @@ fn claude(status: AgentStatus) -> TerminalInfo {
             &["/usr/local/bin/claude", "--model", "opus", "fix it"],
         )),
     )
-}
-
-fn record(pid: u32, session: &str) -> String {
-    format!(r#"{{"pid":{pid},"sessionId":"{session}","cwd":"/work/app","status":"idle"}}"#)
 }
 
 #[test]
@@ -71,10 +70,10 @@ fn a_chat_does_not_move_again() {
 #[test]
 fn a_label_is_a_chat_only_while_a_chat_program_is_in_front() {
     let endpoint = Some(ENDPOINT.parse().unwrap());
-    // Started by a core that reports no process.
+    // An unknown foreground after process loss cannot prove the label is live.
     assert_eq!(
         chat_endpoint(&labelled(info(AgentStatus::Idle, None))),
-        endpoint
+        None
     );
     for program in [
         "/opt/sheprd/sheprd-acp",
@@ -117,55 +116,6 @@ fn the_chat_line_names_its_endpoint_and_no_herdr_pane() {
     assert!(matches!(
         chat_line(&resume, Path::new("/it's/sheprd-acp"), &endpoint),
         Err(convert::Error::Line)
-    ));
-}
-
-#[test]
-fn claudes_session_comes_from_its_own_record() {
-    let home = Path::new("/home/me");
-    let resume = resume(&claude(AgentStatus::Idle), Agent::Claude, home, |path| {
-        assert_eq!(path, Path::new("/home/me/.claude/sessions/42.json"));
-        Ok(record(42, "e6355726-1f61-42c3-bf05-5c1d1cba3262"))
-    })
-    .unwrap();
-    assert_eq!(resume.session, "e6355726-1f61-42c3-bf05-5c1d1cba3262");
-    assert_eq!(resume.cwd, "/work/app");
-    assert_eq!(
-        resume.flags,
-        ["--model", "opus"],
-        "the prompt is not replayed"
-    );
-}
-
-#[test]
-fn a_record_of_another_process_or_an_odd_session_is_none() {
-    let home = Path::new("/h");
-    let found = claude(AgentStatus::Idle);
-    for text in [
-        record(43, "abc"),
-        record(42, "-rf"),
-        record(42, "a b"),
-        "not json".to_owned(),
-    ] {
-        assert!(matches!(
-            resume(&found, Agent::Claude, home, |_| Ok(text.clone())),
-            Err(convert::Error::NoCoreSession(Agent::Claude))
-        ));
-    }
-    assert!(matches!(
-        resume(&found, Agent::Claude, home, |_| Err(
-            io::ErrorKind::NotFound.into()
-        )),
-        Err(convert::Error::NoCoreSession(Agent::Claude))
-    ));
-}
-
-#[test]
-fn other_agents_have_no_session_to_read_yet() {
-    let codex = info(AgentStatus::Idle, Some(process(7, &["codex"])));
-    assert!(matches!(
-        resume(&codex, Agent::Codex, Path::new("/h"), |_| unreachable!()),
-        Err(convert::Error::NoCoreSession(Agent::Codex))
     ));
 }
 

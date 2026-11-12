@@ -648,9 +648,16 @@ impl SheprdWindow {
             return vec![];
         };
         if target.keeper == sheprd_session::Keeper::App {
+            // Scripts run on the shown host, so only for a workspace it
+            // keeps: remote ones through the host's POSIX shell, including
+            // WSL from a Windows client, and local ones where this computer
+            // has a POSIX shell.
+            let scripts = self.is_kept_workspace(&target.id)
+                && (self.selected_is_remote()
+                    || cfg!(any(target_os = "linux", target_os = "macos")));
             let mut items = kept::items(
                 target,
-                !self.selected_is_remote(),
+                scripts,
                 self.note_checkout().is_some(),
                 self.checkpoint_checkout().is_some(),
                 self.fan_out_item(),

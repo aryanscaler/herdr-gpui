@@ -44,6 +44,32 @@ fn probe() -> String {
     )
 }
 
+impl super::Requirement {
+    /// Probe exactly the daemon promised by provisioning, not merely any bridge.
+    pub(crate) fn installed(self, mut ssh: Command, cancelled: &impl Fn() -> bool) -> Result<bool> {
+        if self == Self::Either {
+            return installed(ssh, cancelled);
+        }
+        let script = format!(
+            "{}\n    if [ -n \"$path\" ] && [ -x \"$path\" ]; then exit 0; fi\ndone\nexit 3",
+            sheprd_client::core_bridge::CANDIDATES
+        );
+        ssh.arg(remote(&script));
+        probe_result(run(ssh, PROBE_TIMEOUT, cancelled)?)
+    }
+
+    /// Required-core setup must propagate a missing or malformed pinned build.
+    pub(crate) fn install(self, mut ssh: Command, cancelled: &impl Fn() -> bool) -> Result<()> {
+        if self == Self::Either {
+            return install(ssh, cancelled);
+        }
+        let script = crate::core_install::script(crate::core_install::Dir::UserBin)
+            .map_err(Error::CoreInstall)?;
+        ssh.arg(remote(&script));
+        core_result(run(ssh, CORE_TIMEOUT, cancelled)?)
+    }
+}
+
 const INSTALL: &str = r#"command -v curl >/dev/null 2>&1 || { echo "curl is required to install Herdr" >&2; exit 4; }
 curl -fsSL https://herdr.dev/install.sh | sh"#;
 
@@ -241,7 +267,10 @@ fn tail(bytes: &[u8]) -> String {
 /// appended.
 pub fn installed(mut ssh: Command, cancelled: &impl Fn() -> bool) -> Result<bool> {
     ssh.arg(remote(&probe()));
-    let finished = run(ssh, PROBE_TIMEOUT, cancelled)?;
+    probe_result(run(ssh, PROBE_TIMEOUT, cancelled)?)
+}
+
+fn probe_result(finished: Finished) -> Result<bool> {
     match finished.code {
         Some(0) => Ok(true),
         Some(3) => Ok(false),
@@ -304,7 +333,10 @@ pub fn add_core<E: std::fmt::Display>(
         }
     };
     ssh.arg(remote(&script));
-    let finished = run(ssh, CORE_TIMEOUT, cancelled)?;
+    core_result(run(ssh, CORE_TIMEOUT, cancelled)?)
+}
+
+fn core_result(finished: Finished) -> Result<()> {
     match finished.code {
         Some(0) => Ok(()),
         code => {

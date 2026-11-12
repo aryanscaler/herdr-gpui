@@ -3,7 +3,7 @@
 //! on an SSH host over `ssh`. The answer is kept per Herdr connection and
 //! asked again now and then, so an agent installed meanwhile shows up.
 
-use super::{Route, discovery, start::Program};
+use super::{Route, start::Program};
 use crate::SheprdWindow;
 use gpui::prelude::*;
 use sheprd_chat_protocol::Agent;
@@ -51,9 +51,33 @@ struct Probe {
 #[derive(Debug, Default)]
 pub(crate) struct Harnesses {
     probes: HashMap<String, Probe>,
+    routes: HashMap<String, sheprd_client::ConnectTarget>,
 }
 
 impl Harnesses {
+    fn bind(&mut self, endpoint: &str, target: &sheprd_client::ConnectTarget) {
+        if self.routes.get(endpoint) != Some(target) {
+            if self.routes.contains_key(endpoint) {
+                self.probes.remove(endpoint);
+            }
+            self.routes.insert(endpoint.to_owned(), target.clone());
+        }
+    }
+
+    fn agents_for(
+        &self,
+        endpoint: &str,
+        target: &sheprd_client::ConnectTarget,
+    ) -> Option<&[Agent]> {
+        if self
+            .routes
+            .get(endpoint)
+            .is_some_and(|known| known != target)
+        {
+            return None;
+        }
+        self.agents(endpoint)
+    }
     pub(crate) fn agents(&self, endpoint: &str) -> Option<&[Agent]> {
         self.probes.get(endpoint)?.agents.as_deref()
     }
@@ -102,6 +126,7 @@ impl Harnesses {
 /// Where a probe runs: this app's program here, or the host's own.
 enum Probing {
     Local(PathBuf),
+    Remote(sheprd_client::ConnectTarget),
     Ssh(String),
 }
 
@@ -110,6 +135,28 @@ impl Probing {
     fn run(self) -> Option<Vec<Agent>> {
         // Held until the lookup's child is reaped below.
         let (command, _channel) = match self {
+            Self::Remote(target) => {
+                let cancelled = AtomicBool::new(false);
+                return super::remote_route::with_command(
+                    &target,
+                    &super::remote_program_script("agents"),
+                    &cancelled,
+                    |command| {
+                        let mut output = Vec::new();
+                        sheprd_client::run_script_command(
+                            command,
+                            std::io::empty(),
+                            &mut output,
+                            LIMITS,
+                            &cancelled,
+                        )
+                        .ok()?;
+                        Some(parse(&output))
+                    },
+                )
+                .ok()
+                .flatten();
+            }
             Self::Local(program) => {
                 let mut command = sheprd_client::new_command(program);
                 command.arg("agents");
@@ -139,21 +186,42 @@ impl Probing {
 }
 
 impl SheprdWindow {
+    pub(super) fn core_chat_agent_missing(
+        &self,
+        host: &crate::core_terminals::Host,
+        agent: Agent,
+    ) -> bool {
+        self.endpoints
+            .iter()
+            .find(|endpoint| {
+                crate::core_terminals::Host::of(&crate::browser::scope(endpoint)) == *host
+            })
+            .and_then(|endpoint| {
+                self.chats
+                    .agents
+                    .agents_for(&endpoint.id, &endpoint.connection.target)
+            })
+            .is_some_and(|agents| !agents.contains(&agent))
+    }
+
     /// Runs every tick: asks the selected host which agents it has, when
     /// its answer is missing or old.
     pub(super) fn probe_chat_agents(&mut self, cx: &mut Context<Self>) {
         let Some(endpoint) = self.endpoints.get(self.selected_endpoint) else {
             return;
         };
-        let (probing, refresh) = match discovery::route(&endpoint.connection.target, &self.live) {
+        let (probing, refresh) = match self.chat_route() {
             Some(Route::Local) => match &self.chats.program {
                 Program::Found(program) => (Probing::Local(program.clone()), LOCAL_REFRESH),
                 _ => return,
             },
             Some(Route::Ssh(host)) => (Probing::Ssh(host), REMOTE_REFRESH),
+            Some(Route::Remote(target)) => (Probing::Remote(target), REMOTE_REFRESH),
             None => return,
         };
         let id = endpoint.id.clone();
+        let target = endpoint.connection.target.clone();
+        self.chats.agents.bind(&id, &target);
         if !self.chats.agents.begin(&id, refresh, Instant::now()) {
             return;
         }
@@ -161,6 +229,13 @@ impl SheprdWindow {
         cx.spawn(async move |this, cx| {
             let agents = answer.await;
             let _ = this.update(cx, |this, cx| {
+                if !this
+                    .endpoints
+                    .iter()
+                    .any(|endpoint| endpoint.id == id && endpoint.connection.target == target)
+                {
+                    return;
+                }
                 this.chats.agents.finish(&id, agents);
                 cx.notify();
             });
@@ -176,7 +251,11 @@ impl SheprdWindow {
         }
         self.endpoints
             .get(self.selected_endpoint)
-            .and_then(|endpoint| self.chats.agents.agents(&endpoint.id))
+            .and_then(|endpoint| {
+                self.chats
+                    .agents
+                    .agents_for(&endpoint.id, &endpoint.connection.target)
+            })
             .map(<[Agent]>::to_vec)
             .unwrap_or_default()
     }
@@ -185,7 +264,11 @@ impl SheprdWindow {
     pub(super) fn chat_agent_missing(&self, agent: Agent) -> bool {
         self.endpoints
             .get(self.selected_endpoint)
-            .and_then(|endpoint| self.chats.agents.agents(&endpoint.id))
+            .and_then(|endpoint| {
+                self.chats
+                    .agents
+                    .agents_for(&endpoint.id, &endpoint.connection.target)
+            })
             .is_some_and(|agents| !agents.contains(&agent))
     }
 }

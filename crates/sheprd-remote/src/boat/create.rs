@@ -20,12 +20,13 @@ pub fn provision(
         .settings()?
         .ok_or(super::Error::Account)?;
     let _turn = CREATING.lock().unwrap_or_else(PoisonError::into_inner);
-    setup::add_device(
+    setup::add_device_for(
         AddRequest {
             settings,
             target: Target::Create(spec.name.clone().unwrap_or_else(setup::random_name)),
             install: spec.install,
         },
+        spec.requirement,
         cancelled,
         report,
     )

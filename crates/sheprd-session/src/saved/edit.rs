@@ -76,7 +76,9 @@ pub fn edit_tab(bytes: &[u8], scope: &str, tab: u64, change: Change<'_>) -> Resu
     };
     match change {
         Change::Split { at, axis, new } => {
+            let active = new.as_str().to_owned();
             panes.split(at, axis, new)?;
+            location.insert("active".into(), active.into());
             location.remove("zoomed");
         }
         Change::Zoom(at) => {

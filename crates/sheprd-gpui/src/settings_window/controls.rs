@@ -5,6 +5,7 @@ pub(super) mod chat_env;
 pub(super) mod code;
 mod fonts;
 mod forms;
+pub(super) mod html_preview;
 pub(super) mod indicators;
 pub(super) mod plugins;
 #[cfg(all(feature = "integration-test", target_os = "macos"))]
@@ -51,6 +52,8 @@ pub(super) struct Controls {
     pub(in crate::settings_window) local_path: String,
     pub(in crate::settings_window) local_file: Option<std::path::PathBuf>,
     pub(in crate::settings_window) ruler: backdrop::Ruler,
+    /// The Fonts preview's own Wrap choice, over `[chat] wrap_code`.
+    html_wrap: Option<bool>,
     _search_changed: Subscription,
 }
 
@@ -105,6 +108,7 @@ impl Controls {
                 }),
             local_file: Config::local_path().ok(),
             ruler: backdrop::Ruler::default(),
+            html_wrap: None,
             _search_changed: subscription,
         }
     }
@@ -298,6 +302,7 @@ impl SettingsWindow {
             Section::Indicators => self.render_indicators(cx),
             Section::General => self.render_general(cx),
             Section::Tabs => self.render_tabs(cx),
+            Section::Chat => self.render_chat(cx),
             Section::Notifications => self.render_notifications(cx),
             Section::TextShortcuts => self.render_text_shortcuts(cx),
             Section::Configuration => self.render_configuration(cx),

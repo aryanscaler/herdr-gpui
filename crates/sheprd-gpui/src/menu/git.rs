@@ -76,8 +76,11 @@ impl SheprdWindow {
     /// Every listed local checkout, so the sidebar can mark the ones holding
     /// uncommitted work. Empty when the endpoint is not the owned local daemon.
     fn listed_git_inputs(&self) -> Vec<crate::pull_request::Input> {
-        // The workspaces the app keeps for Herdr 2 are this computer's own
-        // folders, whatever Herdr 1 runs.
+        // This worker only runs local Git. Remote PR metadata must never
+        // admit a remote path to its filesystem probes.
+        if self.selected_is_remote() {
+            return Vec::new();
+        }
         let kept = self
             .kept_checkout_inputs()
             .into_iter()
@@ -118,6 +121,9 @@ impl SheprdWindow {
     /// pane's checkout, found by Git rather than reported by a daemon, is
     /// verified the same way.
     pub(crate) fn git_input(&self) -> Option<crate::pull_request::Input> {
+        if self.selected_is_remote() {
+            return None;
+        }
         if self.shows_core_tab() {
             return self.core_git_input();
         }

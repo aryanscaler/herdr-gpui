@@ -45,6 +45,8 @@ pub(super) struct Layouts {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct Tab {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    active: Option<TerminalId>,
     id: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     name: Option<String>,
@@ -136,6 +138,9 @@ impl Store {
                 if tab.zoomed.as_ref() == Some(terminal) {
                     tab.zoomed = None;
                 }
+                if tab.active.as_ref() == Some(terminal) {
+                    tab.active = None;
+                }
             }
             tab.panes.count() > 1 || tab.name.is_some() || tab.zoomed.is_some()
         });
@@ -154,7 +159,8 @@ impl Store {
     ) -> Result<(), Error> {
         let address = new.as_str().to_owned();
         let tab = self.tab_mut(at)?;
-        tab.panes.split(at, axis, new)?;
+        tab.panes.split(at, axis, new.clone())?;
+        tab.active = Some(new);
         tab.zoomed = None;
         self.fresh.insert(address, Instant::now());
         Ok(())
@@ -175,7 +181,10 @@ impl Store {
         let tab = self.tab_mut(at)?;
         tab.zoomed = match tab.zoomed {
             Some(_) => None,
-            None => Some(at.clone()),
+            None => {
+                tab.active = Some(at.clone());
+                Some(at.clone())
+            }
         };
         Ok(())
     }
@@ -224,6 +233,7 @@ impl Store {
         }
         layouts.next += 1;
         layouts.tabs.push(Tab {
+            active: None,
             id: layouts.next,
             name: None,
             panes: Panes::single(at.clone()),
@@ -269,6 +279,9 @@ impl Layouts {
                 continue;
             };
             merged.zoomed = tab.zoomed.is_some();
+            if let Some(active) = &tab.active {
+                projection::focus(&mut merged, boot, active);
+            }
             if let Some((workspace, index)) = lone_row(layout, lead) {
                 layout.workspaces[workspace].terminals[index] = merged;
             }

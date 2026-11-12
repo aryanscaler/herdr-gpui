@@ -5,10 +5,10 @@
 //! `sheprd_remote::work` without force, so a checkout that gained changes
 //! after the check stays. A removed checkout's kept workspace closes.
 
-use super::{ASK_DEFER, Action, Candidate, Ledger, Probe, RETRY, SCAN, decide_status, probe};
+use super::{ASK_DEFER, Action, Candidate, Ledger, Probe, RETRY, SCAN, decide_status, probe_on};
 use crate::{
     SheprdWindow,
-    pull_request::{Input, PullRequest, State, key_input},
+    pull_request::{Input, PullRequest, State},
 };
 use gpui::{Context, Window};
 use sheprd_session::{Keeper, Workspace};
@@ -25,6 +25,7 @@ use std::{
 /// connection: their IDs are the app's own.
 #[derive(Default)]
 pub(crate) struct Kept {
+    target: Option<sheprd_client::ConnectTarget>,
     probe: Option<Probe>,
     ledger: Ledger,
     next_scan: Option<Instant>,
@@ -32,16 +33,25 @@ pub(crate) struct Kept {
 
 /// The kept linked checkouts among `workspaces` whose cached pull request is
 /// merged, in session order. A main checkout never qualifies.
+#[cfg(test)]
 pub(crate) fn kept_candidates<'a, R: std::ops::Deref<Target = PullRequest>>(
     workspaces: &'a [Workspace],
     pull_request: impl Fn(&Input) -> Option<R> + 'a,
 ) -> impl Iterator<Item = Candidate> + 'a {
+    kept_candidates_on(workspaces, false, pull_request)
+}
+
+fn kept_candidates_on<'a, R: std::ops::Deref<Target = PullRequest>>(
+    workspaces: &'a [Workspace],
+    remote: bool,
+    pull_request: impl Fn(&Input) -> Option<R> + 'a,
+) -> impl Iterator<Item = Candidate> + 'a {
     workspaces.iter().filter_map(move |workspace| {
-        let tree = workspace
+        workspace
             .worktree
             .as_ref()
             .filter(|tree| tree.linked && workspace.keeper == Keeper::App)?;
-        let mut input = key_input(&tree.key, workspace.branch.as_deref()).ok()?;
+        let mut input = crate::pull_request::kept_input(workspace, remote)?;
         let pr = pull_request(&input).filter(|pr| pr.state == State::Merged)?;
         // The PR cache is keyed by repository and branch, but the probe
         // must inspect this workspace's folder, not another checkout now
@@ -62,10 +72,6 @@ pub(crate) fn kept_candidates<'a, R: std::ops::Deref<Target = PullRequest>>(
 impl SheprdWindow {
     /// The selected host's kept workspaces, when it is this computer.
     fn kept_workspaces(&self) -> Vec<Workspace> {
-        // Another host's checkouts are there, out of this computer's Git.
-        if self.selected_is_remote() {
-            return Vec::new();
-        }
         self.sessions(self.selected_endpoint)
             .core
             .map(|core| core.workspaces.clone())
@@ -79,6 +85,16 @@ impl SheprdWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let target = self.endpoints[self.selected_endpoint]
+            .connection
+            .target
+            .clone();
+        if self.merged_cleanup.kept.target.as_ref() != Some(&target) {
+            self.merged_cleanup.kept = Kept {
+                target: Some(target.clone()),
+                ..Kept::default()
+            };
+        }
         if self.merged_cleanup.kept.probe.is_some() {
             self.finish_kept_merged_probe(window, cx);
             return;
@@ -96,9 +112,10 @@ impl SheprdWindow {
         let workspaces = self.kept_workspaces();
         let cache = &self.menu.pr_cache;
         let ledger = &self.merged_cleanup.kept.ledger;
-        let Some(candidate) = kept_candidates(&workspaces, |input| cache.get(input))
-            .find(|candidate| !ledger.waiting(candidate, now))
-        else {
+        let Some(candidate) = kept_candidates_on(&workspaces, self.selected_is_remote(), |input| {
+            cache.get(input)
+        })
+        .find(|candidate| !ledger.waiting(candidate, now)) else {
             return;
         };
         let (sender, receiver) = mpsc::sync_channel(1);
@@ -106,7 +123,7 @@ impl SheprdWindow {
         let (input, cancellation) = (candidate.input.clone(), cancelled.clone());
         cx.background_executor()
             .spawn(async move {
-                let _ = sender.send(probe(&input, &cancellation));
+                let _ = sender.send(probe_on(&target, &input, &cancellation));
             })
             .detach();
         self.merged_cleanup.kept.probe = Some(Probe {
@@ -138,8 +155,10 @@ impl SheprdWindow {
         // or changed branch while Git ran.
         let workspaces = self.kept_workspaces();
         let cache = &self.menu.pr_cache;
-        let current =
-            kept_candidates(&workspaces, |input| cache.get(input)).any(|c| c == candidate);
+        let current = kept_candidates_on(&workspaces, self.selected_is_remote(), |input| {
+            cache.get(input)
+        })
+        .any(|c| c == candidate);
         let workspace = workspaces
             .iter()
             .find(|workspace| workspace.id == candidate.workspace);

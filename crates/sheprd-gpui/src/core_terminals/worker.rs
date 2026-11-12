@@ -129,6 +129,10 @@ pub(crate) struct Link {
 }
 
 impl Link {
+    pub(super) fn queue_input(&self, input: ClientPaneInputEvent) -> bool {
+        self.commands.try_send(Command::Input(input)).is_ok()
+    }
+
     pub(crate) fn send(&self, command: Command) {
         if let Err(error) = self.commands.try_send(command) {
             tracing::warn!(?error, "Dropped input for a herdr-core terminal");

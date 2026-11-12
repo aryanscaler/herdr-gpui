@@ -19,6 +19,7 @@ crossbeam-channel.workspace   = true
 crossterm.workspace           = true
 sheprd-chat-protocol.workspace = true
 sheprd-client.workspace        = true
+sheprd-core-client.workspace   = true
 ratatui.workspace             = true
 serde.workspace               = true
 serde_json.workspace          = true

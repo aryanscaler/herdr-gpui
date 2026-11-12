@@ -6,17 +6,15 @@
 //! agents, and each host's GitHub account, and acts on its events. The view
 //! itself knows nothing of its host.
 
-use super::{
-    Event, GitLabRead, LiveAgent, LiveBranch, Look, OrchestratorView, RepoSpec, Request, Timing,
-};
+use super::{Event, GitLabRead, Look, OrchestratorView};
 use crate::window::main_window::MainWindow;
-use crate::{
-    NavigationTarget, SheprdWindow,
-    browser::{OrchestratorRepo, WebUrl},
-};
+use crate::{NavigationTarget, SheprdWindow, browser::WebUrl};
 use gpui::{prelude::*, *};
 use sheprd_client::ConnectTarget;
-use std::sync::Arc;
+mod live;
+mod repositories;
+
+pub(crate) use live::LiveCache;
 
 /// Events waiting for the tick; a view cannot emit more than a few per frame.
 const MAX_EVENTS: usize = 16;
@@ -32,9 +30,6 @@ impl ViewId {
     }
 }
 
-/// The most repositories one view lists; workspaces beyond are left out.
-const MAX_REPOS: usize = 32;
-
 /// A view and its event subscription.
 pub(crate) struct Orchestrator {
     pub(super) view: Entity<OrchestratorView>,
@@ -48,16 +43,29 @@ impl Orchestrator {
     }
 }
 
-/// The live agents and workspace branches last handed to the views, and the
-/// snapshots they came from, so they are rebuilt only when a snapshot changes.
-#[derive(Default)]
-pub(crate) struct LiveCache {
-    from: Vec<usize>,
-    agents: Arc<Vec<LiveAgent>>,
-    branches: Arc<Vec<LiveBranch>>,
-}
-
 impl SheprdWindow {
+    pub(crate) fn confirm_orchestrator_run(
+        &mut self,
+        action: &sheprd_control_protocol::OrchestratorRun,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(view) = self
+            .activity
+            .section_view
+            .and_then(|id| self.orchestrator_view(id))
+            .cloned()
+        else {
+            return false;
+        };
+        view.update(cx, |view, cx| match action {
+            sheprd_control_protocol::OrchestratorRun::Restart { run } => {
+                view.confirm_restart(run, cx)
+            }
+            sheprd_control_protocol::OrchestratorRun::Adopt { run } => {
+                view.confirm_adoption(run, cx)
+            }
+        })
+    }
     /// Whether the focused workspace's repository can be listed: a host
     /// scripts can run on, with a workspace open.
     pub(crate) fn can_open_orchestrator(&self) -> bool {
@@ -66,10 +74,7 @@ impl SheprdWindow {
 
     /// Whether the shown host can run the orchestrator's scripts.
     pub(crate) fn orchestrator_host(&self) -> bool {
-        !matches!(
-            self.endpoints[self.selected_endpoint].connection.target,
-            ConnectTarget::Socket(_) | ConnectTarget::Wsl { .. }
-        )
+        scripts_run_on(&self.endpoints[self.selected_endpoint].connection.target)
     }
 
     /// The folder new tabs of workspace `id` start in.
@@ -147,85 +152,6 @@ impl SheprdWindow {
             },
         );
         id
-    }
-
-    /// Every distinct repository the workspaces of the connected hosts that
-    /// can run the orchestrator's scripts hold, in sidebar order. Worktrees
-    /// of one repository are one: they share its database.
-    pub(crate) fn repo_specs(&self) -> Vec<RepoSpec> {
-        let mut specs: Vec<RepoSpec> = Vec::new();
-        // A headless window never reads the user's saved tokens.
-        let (azure_store, gitlab_store) = if self.reads_credentials() {
-            (self.config.azure_devops.store(), self.config.gitlab.store())
-        } else {
-            Default::default()
-        };
-        for (index, endpoint) in self.endpoints.iter().enumerate() {
-            let target = &endpoint.connection.target;
-            let state = if index == self.selected_endpoint {
-                &self.live
-            } else {
-                &endpoint.live
-            };
-            let (true, true, Some(snapshot)) = (
-                endpoint.enabled && state.status.is_connected(),
-                scripts_run_on(target),
-                state.snapshot.as_deref(),
-            ) else {
-                continue;
-            };
-            let (token, _) = self.github_account(target);
-            for workspace in &snapshot.workspaces {
-                let Ok(repo) = OrchestratorRepo::new(workspace.new_workspace_cwd.clone()) else {
-                    continue;
-                };
-                let key = repo_key(
-                    &endpoint.id,
-                    workspace.worktree.as_ref().map(|tree| tree.key.as_str()),
-                    &repo.checkout,
-                );
-                if specs.iter().any(|spec| spec.key == key) {
-                    continue;
-                }
-                if specs.len() == MAX_REPOS {
-                    return specs;
-                }
-                specs.push(RepoSpec {
-                    key,
-                    host: endpoint.label.clone(),
-                    request: Request {
-                        target: target.clone(),
-                        checkout: repo.checkout,
-                        workspace_id: workspace.workspace_id.clone(),
-                        token: token.clone(),
-                        data_root: None,
-                        azure_store,
-                        gitlab_store,
-                        timing: Timing::default(),
-                    },
-                });
-            }
-        }
-        specs
-    }
-
-    /// The key [`Self::repo_specs`] gives workspace `workspace` on the shown
-    /// host, so a section can pick that project.
-    pub(crate) fn workspace_repo_key(&self, workspace: &str) -> Option<String> {
-        let endpoint = self.endpoints.get(self.selected_endpoint)?;
-        let found = self
-            .live
-            .snapshot
-            .as_deref()?
-            .workspaces
-            .iter()
-            .find(|shown| shown.workspace_id == workspace)?;
-        let repo = OrchestratorRepo::new(found.new_workspace_cwd.clone()).ok()?;
-        Some(repo_key(
-            &endpoint.id,
-            found.worktree.as_ref().map(|tree| tree.key.as_str()),
-            &repo.checkout,
-        ))
     }
 
     pub(super) fn orchestrator_view(&self, id: ViewId) -> Option<&Entity<OrchestratorView>> {
@@ -376,11 +302,20 @@ impl SheprdWindow {
         let (live, branches) = self.live_agents();
         let look = self.look();
         let specs = self.repo_specs();
-        let local_terminals = if self.local_workspaces_use_core() {
-            super::Terminals::Herdr2
-        } else {
-            super::Terminals::Herdr1
-        };
+        let terminals: Vec<_> = self
+            .endpoints
+            .iter()
+            .map(|endpoint| {
+                (
+                    endpoint.connection.target.clone(),
+                    if self.dispatch_keeps(&endpoint.id) {
+                        super::Terminals::Herdr2
+                    } else {
+                        super::Terminals::Herdr1
+                    },
+                )
+            })
+            .collect();
         // Only the shown Pull requests or Issues section is on screen; the
         // bar's counts alone do not need a sync a minute.
         let shown_view = self
@@ -404,88 +339,12 @@ impl SheprdWindow {
                 view.poll(cx);
                 view.set_look(look.clone(), cx);
                 view.set_live(live.clone(), branches.clone(), cx);
-                view.set_local_terminals(local_terminals);
+                view.set_terminals(terminals.clone());
                 for (target, token, login) in accounts {
                     view.set_github(&target, token, login, cx);
                 }
             });
         }
-    }
-
-    /// Every agent and workspace branch on a connected host, rebuilt only
-    /// when a snapshot changed.
-    fn live_agents(&mut self) -> (Arc<Vec<LiveAgent>>, Arc<Vec<LiveBranch>>) {
-        let snapshots: Vec<_> = (0..self.endpoints.len())
-            .map(|index| {
-                let live = if index == self.selected_endpoint {
-                    &self.live
-                } else {
-                    &self.endpoints[index].live
-                };
-                live.snapshot
-                    .as_ref()
-                    .filter(|_| live.status.is_connected())
-                    .cloned()
-            })
-            .collect();
-        let from: Vec<usize> = snapshots
-            .iter()
-            .map(|snapshot| snapshot.as_ref().map_or(0, |s| Arc::as_ptr(s) as usize))
-            .collect();
-        if from == self.orchestrator_live.from {
-            return (
-                self.orchestrator_live.agents.clone(),
-                self.orchestrator_live.branches.clone(),
-            );
-        }
-        let place_of =
-            |index: usize| super::actions::place(&self.endpoints[index].connection.target);
-        let branches: Vec<LiveBranch> = snapshots
-            .iter()
-            .enumerate()
-            .filter_map(|(index, snapshot)| Some((index, snapshot.as_ref()?)))
-            .flat_map(|(index, snapshot)| {
-                snapshot.workspaces.iter().filter_map(move |workspace| {
-                    Some(LiveBranch {
-                        host: place_of(index).0,
-                        session: place_of(index).1,
-                        workspace_id: workspace.workspace_id.clone(),
-                        branch: workspace.branch.clone()?,
-                    })
-                })
-            })
-            .collect();
-        let agents: Vec<LiveAgent> = snapshots
-            .iter()
-            .enumerate()
-            .filter_map(|(index, snapshot)| Some((index, snapshot.as_ref()?)))
-            .flat_map(|(index, snapshot)| {
-                let (host, session) = place_of(index);
-                snapshot.agents.iter().map(move |agent| LiveAgent {
-                    endpoint: index,
-                    host: host.clone(),
-                    session: session.clone(),
-                    workspace_id: agent.workspace_id.clone(),
-                    pane_id: agent.pane_id.clone(),
-                    status: agent.agent_status,
-                    title: agent
-                        .title
-                        .as_deref()
-                        .or(agent.terminal_title_stripped.as_deref())
-                        .map(|title| crate::notifications::safe_text(title, 160))
-                        .filter(|title| !title.trim().is_empty()),
-                })
-            })
-            .collect();
-        self.orchestrator_live = LiveCache {
-            from,
-            agents: Arc::new(agents),
-            branches: Arc::new(branches),
-        };
-        (
-            self.orchestrator_live.agents.clone(),
-            self.orchestrator_live.branches.clone(),
-        )
     }
 
     fn orchestrator_event(
@@ -530,13 +389,22 @@ impl SheprdWindow {
                 }
             }
             Event::OpenCoreRun {
+                target,
                 path,
                 terminal,
                 label,
-            } => self.open_core_run(id, &label, path, terminal, window, cx),
-            // Removed from this computer, whichever host is shown now.
-            Event::CloseCoreRun { path } => {
-                self.close_local_kept_folder(&path, window, cx);
+            } => self.open_core_run(id, &target, &label, path, terminal, window, cx),
+            Event::CloseCoreRun { target, path } => {
+                if let Some(endpoint) = self
+                    .endpoints
+                    .iter()
+                    .find(|e| same_run_host(&e.connection.target, &target))
+                {
+                    let scope = crate::browser::scope(endpoint);
+                    if let Some(workspace) = self.kept_workspace_in(&scope, &path, cx) {
+                        self.close_kept_workspace_in(&scope, &workspace, window, cx);
+                    }
+                }
             }
             Event::OpenWorkspace {
                 host,
@@ -589,21 +457,6 @@ impl SheprdWindow {
         }
     }
 
-    /// The repository of workspace `id` on the shown host, as smart dispatch
-    /// keys it: its Git common directory and its name.
-    fn orchestrator_repository(&self, id: &str) -> Option<(String, String)> {
-        let worktree = self
-            .live
-            .snapshot
-            .as_deref()?
-            .workspaces
-            .iter()
-            .find(|workspace| workspace.workspace_id == id)?
-            .worktree
-            .as_ref()?;
-        Some((worktree.key.clone(), worktree.label.clone()))
-    }
-
     /// Sets `request` up for host `endpoint` as smart dispatch does, then
     /// hands it back to view `id` to run.
     fn dispatch_elsewhere(
@@ -625,7 +478,7 @@ impl SheprdWindow {
             .orchestrator_repository(&request.workspace_id)
             .and_then(|(key, label)| {
                 let origin = self.dispatch_origin(&request.workspace_id, &key, &label)?;
-                let destination = self.herdr_1_destination(endpoint)?;
+                let destination = self.dispatch_destination(endpoint)?;
                 let target = self
                     .endpoints
                     .iter()
@@ -668,6 +521,13 @@ impl SheprdWindow {
             place.0.as_deref() == host && place.1.as_deref() == session
         };
         let has = |index: usize| {
+            if self
+                .sessions(index)
+                .core
+                .is_some_and(|session| session.workspace(workspace_id).is_some())
+            {
+                return true;
+            }
             let live = if index == self.selected_endpoint {
                 &self.live
             } else {
@@ -695,12 +555,14 @@ impl SheprdWindow {
         }
     }
 
-    /// Shows a Herdr 2 run's agent on this computer: the workspace the app
+    /// Shows a Herdr 2 run's agent on its recorded host: the workspace the app
     /// keeps at its checkout, else one kept now with the run's herdr-core
     /// terminal as its tab, as the new worktree dialog lands its agent.
+    #[allow(clippy::too_many_arguments)]
     fn open_core_run(
         &mut self,
         view: ViewId,
+        target: &ConnectTarget,
         label: &str,
         path: std::path::PathBuf,
         terminal: String,
@@ -711,11 +573,16 @@ impl SheprdWindow {
             self.tell_orchestrator(view, super::Error::NothingToOpen, cx);
             return;
         };
-        if self.selected_is_remote() {
-            let local = self
-                .core_host()
-                .map(|index| self.endpoints[index].id.clone());
-            if !local.is_some_and(|local| self.select_endpoint(&local, cx)) {
+        if !same_run_host(
+            &self.endpoints[self.selected_endpoint].connection.target,
+            target,
+        ) {
+            let endpoint = self
+                .endpoints
+                .iter()
+                .find(|endpoint| same_run_host(&endpoint.connection.target, target))
+                .map(|endpoint| endpoint.id.clone());
+            if !endpoint.is_some_and(|endpoint| self.select_endpoint(&endpoint, cx)) {
                 self.tell_orchestrator(view, super::Error::WorkspaceClosed, cx);
                 return;
             }
@@ -726,15 +593,18 @@ impl SheprdWindow {
             // have moved: show the run's own terminal either way.
             Some(id) => self.show_terminal_in_kept_workspace(&id, terminal, window, cx),
             None => {
-                // The tab drives the terminal, as a Herdr 1 pane does its
-                // agent: closing it ends the agent, and so does a tab that
-                // could not open, which a flash then says.
-                let location = crate::browser::Location::core_terminal(
-                    crate::core_terminals::panes::Panes::single(terminal),
-                    false,
-                );
-                self.open_kept_workspace(Some(label), &path, location, window, cx)
-                    .is_some()
+                let scope = crate::browser::scope(&self.endpoints[self.selected_endpoint]);
+                let Some(id) = self.keep_workspace_in(&scope, Some(label), Some(&path), cx) else {
+                    return;
+                };
+                // Opening an existing run must never end its process merely
+                // because the app has no room for another tab.
+                let shown = self.show_terminal_in_kept_workspace(&id, terminal, window, cx);
+                if !shown {
+                    crate::browser::Store::update(cx, |store| store.forget_kept(&scope, &id));
+                    self.refresh_core_session(cx);
+                }
+                shown
             }
         };
         if shown {
@@ -752,13 +622,17 @@ impl SheprdWindow {
 }
 
 /// Whether the orchestrator's scripts run on `target`: the local session or
-/// an SSH host, not a bare socket or WSL.
+/// an SSH host or WSL distribution, not a bare socket.
 pub(super) fn scripts_run_on(target: &ConnectTarget) -> bool {
-    !matches!(target, ConnectTarget::Socket(_) | ConnectTarget::Wsl { .. })
+    sheprd_remote::teleport::Host::new(target).is_ok()
 }
 
-/// How the view tells repositories apart: the endpoint, then the Git common
-/// directory its worktrees share, else the folder itself.
-fn repo_key(endpoint: &str, common: Option<&str>, checkout: &str) -> String {
-    format!("{endpoint}\u{1f}{}", common.unwrap_or(checkout))
+fn same_run_host(left: &ConnectTarget, right: &ConnectTarget) -> bool {
+    match (
+        sheprd_remote::teleport::Host::new(left),
+        sheprd_remote::teleport::Host::new(right),
+    ) {
+        (Ok(left), Ok(right)) => left.identity() == right.identity(),
+        _ => false,
+    }
 }

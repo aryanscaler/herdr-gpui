@@ -15,6 +15,7 @@ fn every_worktree_scripts_variant_has_a_message() {
         Error::Remote(sheprd_client::Error::ResponseType),
         Error::Request(Arc::new(crate::Error::NotConnected)),
         Error::Response,
+        Error::SetupExpired,
         Error::Size { limit: 65536 },
         Error::UnsupportedHost,
     ]);

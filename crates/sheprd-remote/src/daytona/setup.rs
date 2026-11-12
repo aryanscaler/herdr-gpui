@@ -45,6 +45,15 @@ pub fn add_device(
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<SavedDevice> {
+    add_device_for(request, cloud::Requirement::Either, cancelled, report)
+}
+
+pub(super) fn add_device_for(
+    request: AddRequest,
+    requirement: cloud::Requirement,
+    cancelled: &dyn Fn() -> bool,
+    report: &dyn Fn(cloud::Step),
+) -> crate::Result<SavedDevice> {
     let AddRequest {
         settings,
         name,
@@ -62,7 +71,16 @@ pub fn add_device(
     cloud::discard_on_error(
         CloudProvider::Daytona,
         &created.id,
-        || finish(&request, &created.id, install, cancelled, report),
+        || {
+            finish(
+                &request,
+                &created.id,
+                install,
+                requirement,
+                cancelled,
+                report,
+            )
+        },
         || Ok(request.destroy(&created.id)?),
     )
 }
@@ -73,6 +91,7 @@ fn finish(
     request: &Request,
     id: &str,
     install: bool,
+    requirement: cloud::Requirement,
     cancelled: &dyn Fn() -> bool,
     report: &dyn Fn(cloud::Step),
 ) -> crate::Result<SavedDevice> {
@@ -81,7 +100,8 @@ fn finish(
     })?;
     report(cloud::Step::CheckingHerdr);
     // Each `ssh` run gets its own gateway file, removed once the run ends.
-    let installed = install::installed(connect::gateway(request, &sandbox)?.command, &cancelled)?;
+    let installed = connect::gateway(request, &sandbox)?
+        .with_command(|command| requirement.installed(command, &cancelled))?;
     if !installed {
         if !install {
             return Err(cloud::Error::Install(install::Failure::NotInstalled {
@@ -91,13 +111,16 @@ fn finish(
             .into());
         }
         report(cloud::Step::InstallingHerdr);
-        install::install(connect::gateway(request, &sandbox)?.command, &cancelled)?;
+        connect::gateway(request, &sandbox)?
+            .with_command(|command| requirement.install(command, &cancelled))?;
         // The installer's own success is not proof the bridge will find it.
-        if !install::installed(connect::gateway(request, &sandbox)?.command, &cancelled)? {
+        if !connect::gateway(request, &sandbox)?
+            .with_command(|command| requirement.installed(command, &cancelled))?
+        {
             return Err(cloud::Error::Install(install::Failure::Missing).into());
         }
     }
-    if install {
+    if install && requirement == cloud::Requirement::Either {
         over_gateway(connect::gateway(request, &sandbox), &cancelled, |command| {
             install::add_core(Ok::<_, std::convert::Infallible>(command), &cancelled)
         })?;

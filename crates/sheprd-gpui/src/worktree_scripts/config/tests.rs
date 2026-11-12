@@ -100,13 +100,13 @@ fn remote_output_marks_presence() {
 }
 
 #[test]
-fn a_wsl_distribution_is_refused_rather_than_read_from_this_machine() {
+fn a_wsl_distribution_never_reads_from_this_machine_when_cancelled() {
     let target = ConnectTarget::Wsl {
         distro: "Ubuntu".into(),
         session: "default".into(),
     };
     assert!(matches!(
-        read(&target, "/home/me/app", &AtomicBool::new(false)),
-        Err(crate::Error::WorktreeScripts(Error::UnsupportedHost))
+        read(&target, "/home/me/app", &AtomicBool::new(true)),
+        Err(crate::Error::WorktreeScripts(Error::Remote(_)))
     ));
 }

@@ -4,6 +4,8 @@
 use super::*;
 use crate::{Error, beads::claim, test_executable};
 
+mod retained;
+
 const FAKE_BD: &str = r#"#!/bin/sh
 printf '%s|%s\n' "$*" "$BEADS_DIR" >> "$HOME/bd-calls"
 case "$*" in

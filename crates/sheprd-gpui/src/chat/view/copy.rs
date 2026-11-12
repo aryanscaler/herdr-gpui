@@ -99,16 +99,23 @@ impl SheprdWindow {
         source: impl AsRef<str> + 'static,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
+        let copied = crate::i18n::message(copy.copied, &[]);
+        self.rich_button(copy.name, crate::i18n::message(copy.label, &[]))
+            .on_click(copy_on_click(source, copied, cx))
+    }
+
+    /// A button in a rich block's header, such as a code block's Copy or
+    /// Wrap; the caller says what a click does.
+    pub(super) fn rich_button(&self, name: &'static str, label: String) -> Stateful<Div> {
         let look = self.chat_look();
         let backdrop = layout_for(self.config.chat.layout).backdrop(&look);
-        let copied = crate::i18n::message(copy.copied, &[]);
-        self.chat_copy_button(copy.name, copy.name.to_owned(), source, copied, cx)
-            .text_color(rgb(self.theme.subtext()))
-            .px(px(6.))
-            .py(px(2.))
-            .rounded(px(4.))
-            .when_some(backdrop, |button, fill| button.bg(rgb(fill)))
-            .child(crate::i18n::message(copy.label, &[]))
+        crate::chat::code_block::button(
+            &self.theme,
+            (self.chat_text_size() - 2.).max(10.),
+            backdrop,
+            name,
+            label,
+        )
     }
 
     /// What every copy button shares: it copies `text`, says `copied` in a
@@ -129,12 +136,21 @@ impl SheprdWindow {
             .text_size(px((self.chat_text_size() - 2.).max(10.)))
             .hover(|button| button.bg(rgb(theme.active)))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                cx.write_to_clipboard(ClipboardItem::new_string(text.as_ref().to_owned()));
-                this.show_flash(Flash::success(copied.clone()), cx);
-            }))
+            .on_click(copy_on_click(text, copied, cx))
     }
+}
+
+/// Copies `text` and says `copied` in a flash.
+fn copy_on_click(
+    text: impl AsRef<str> + 'static,
+    copied: String,
+    cx: &mut Context<SheprdWindow>,
+) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
+    cx.listener(move |this, _: &ClickEvent, _, cx| {
+        cx.stop_propagation();
+        cx.write_to_clipboard(ClipboardItem::new_string(text.as_ref().to_owned()));
+        this.show_flash(Flash::success(copied.clone()), cx);
+    })
 }
 
 #[cfg(test)]

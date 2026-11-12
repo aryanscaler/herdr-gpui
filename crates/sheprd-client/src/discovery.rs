@@ -140,7 +140,7 @@ impl CloudProvider {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ConnectTarget {
     /// Environment overrides, then HERDR_SESSION in the release config directory.
     #[default]

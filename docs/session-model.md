@@ -36,7 +36,7 @@ it lists Herdr 2 work beside Herdr 1's.
 | Palette Go To and jump list | Kept workspaces added beside Herdr 1's rows |
 | Workspace menu | Kept workspaces: rename, close, a note once Git names the checkout, new and deleted worktrees, which the app makes with Git (`sheprd_remote::work`), fan-out, and worktree scripts, which run in herdr-core tabs (`worktree_scripts::kept`) |
 | Fan-out, smart dispatch, orchestrator | Kept workspaces on this computer: Git makes the worktree and the agent starts in a herdr-core shell (`sheprd_remote::work`); the app keeps a workspace for each checkout |
-| Merged cleanup | Kept linked checkouts whose pull request merged (`merged_cleanup::kept`) |
+| Merged cleanup | Kept linked checkouts whose cached pull request merged (`merged_cleanup::kept`), with host-scoped repository, branch, HEAD, dirty-state and archive-script revalidation; PR discovery is still limited to the origins supported by the GitHub cache |
 | Git status, pull request prefetch, worktree rule, notes | Kept workspaces whose folder Git names (`core_terminals::checkouts`) |
 | Agent checkpoints | Yes: `sheprd_vcs::checkpoint::Checkpoints::observe` takes a `Session`; Herdr 2's is watched as its own endpoint |
 | Mods state: workspaces, agents, focus | Yes |
@@ -44,6 +44,12 @@ it lists Herdr 2 work beside Herdr 1's.
 herdr-core reports no Git facts, so the app asks Git for each kept workspace's
 folder on a worker (`sheprd_vcs::git::identity`): its branch, its repository's
 common directory as the worktree key, and whether it is a linked worktree.
+
+Remote kept workspaces read their Git identity on their own SSH, cloud or WSL
+host and keep separate metadata caches, even when paths coincide. Worktree
+creation, opening, deletion and setup/run/archive scripts use that same route.
+Archive terminal completion is scoped to its core; switching devices cannot
+turn another core's exit into permission to delete a checkout.
 
 The app still reads `ClientShell*` types directly in about 67 files. That is the
 work left.

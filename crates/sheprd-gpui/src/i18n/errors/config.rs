@@ -53,6 +53,7 @@ impl Localize for Error {
             }
             Self::InvalidThemePair => fl!("error-config-invalid-theme-pair"),
             Self::InvalidThemePath => fl!("error-config-invalid-theme-path"),
+            Self::InvalidUndoCloseSeconds => fl!("error-config-invalid-undo-close-seconds"),
             Self::InvalidUsageTable => fl!("error-config-invalid-usage-table"),
             Self::InvalidZenFontSize => fl!("error-config-invalid-zen-font-size"),
             Self::InvalidZenWidth => fl!("error-config-invalid-zen-width"),

@@ -3,6 +3,8 @@
 
 use super::*;
 
+mod replaced;
+
 /// A second kept checkout of `app` at `folder`, beside the fixture's.
 fn keep_another(
     view: &mut SheprdWindow,

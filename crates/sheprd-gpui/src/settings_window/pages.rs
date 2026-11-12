@@ -1,5 +1,6 @@
 //! The behaviour pages: one module per Settings page, each rebuilt from the
 //! shared row and control builders in `ui`.
+mod chat;
 mod configuration;
 mod fonts;
 mod general;

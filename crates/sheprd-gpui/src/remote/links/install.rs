@@ -187,7 +187,7 @@ fn copy_chats(
 const CHAT_PROGRAM: &str = "sheprd-acp";
 
 /// Where the daemon's build of `version` keeps `sheprd-acp` on the host.
-fn chat_path(version: &str) -> String {
+pub(crate) fn chat_path(version: &str) -> String {
     format!(
         "\"$HOME/.local/share/{PROGRAM}/bin/\"{}\"/{CHAT_PROGRAM}\"", // i18n: data
         shell_quote(version)

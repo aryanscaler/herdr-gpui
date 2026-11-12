@@ -46,9 +46,22 @@ fn tab_operations_round_trip() {
         },
         TabOp::Devices,
         TabOp::Orchestrator {
+            action: None,
+            repo: Some("/src".into()),
+        },
+        TabOp::Orchestrator {
+            action: Some(OrchestratorRun::Restart {
+                run: "run-1".into(),
+            }),
             repo: Some("/src".into()),
         },
         TabOp::Review,
+        TabOp::Orchestrator {
+            action: Some(OrchestratorRun::Adopt {
+                run: "legacy-1".into(),
+            }),
+            repo: None,
+        },
     ] {
         round_trip(op);
     }

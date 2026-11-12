@@ -10,9 +10,32 @@
 //! Every function runs host scripts and blocks: call them from a background
 //! worker, never the UI thread.
 
+mod deadline;
 mod error;
+pub mod fanout;
+mod inspect;
+pub mod owned_agent;
+
+/// Ownership receipts for newly created linked checkouts. The existing
+/// marker format is shared with fan-out so saved receipts remain readable.
+pub use fanout::checkouts as owned_checkout;
+
+pub use deadline::identity_before;
+pub use inspect::{git, identity, open};
 
 pub use error::{Error, Result, Step};
+
+/// The host of an app-kept Herdr 2 workspace. A custom Herdr 1 socket does
+/// not relocate the app's local core or files. This is deliberately
+/// separate from `Host::new`: a socket still cannot route Herdr 1 commands.
+pub fn host_for_kept(
+    target: &sheprd_client::ConnectTarget,
+) -> Result<Host, crate::teleport::Error> {
+    match target {
+        sheprd_client::ConnectTarget::Socket(_) => Host::new(&sheprd_client::ConnectTarget::Local),
+        _ => Host::new(target),
+    }
+}
 
 use crate::teleport::{AgentKind, Envelope, Host, WorktreeCreated};
 use error::script;
@@ -154,11 +177,14 @@ pub fn create(
             cancelled,
         ),
         Repository::Herdr2 { checkout } => {
+            inspect::validate_path(host, checkout, Step::CreateWorktree)?;
             let common = host
                 .capture(&common_dir_line(checkout), cancelled)
                 .map_err(script(Step::CreateWorktree))?;
             let common = String::from_utf8_lossy(&common);
-            let folder = worktree::folder(Path::new(common.trim()), new.branch)?;
+            let common = common.trim_end_matches('\n');
+            inspect::validate_path(host, common, Step::CreateWorktree)?;
+            let folder = worktree::folder(Path::new(common), new.branch)?;
             let output = host
                 .capture(&add_script(checkout, &folder, new), cancelled)
                 .map_err(script(Step::CreateWorktree))?;
@@ -262,10 +288,13 @@ pub fn start_agent(
                 .collect::<Vec<_>>()
                 .join(" ");
             if let Err(error) = send(host, &terminal, &program, Step::StartAgent, cancelled) {
-                // No agent ever ran there, and no caller learns its address,
-                // so the shell is ended rather than left without a tab.
-                end(host, &terminal);
-                return Err(error);
+                // A failed acknowledgement can follow a successful send.
+                // Preserve the terminal and its identity for inspection;
+                // killing it could terminate an agent that already ran.
+                return Err(Error::Unprompted {
+                    started: Started::Herdr2 { terminal },
+                    source: Box::new(error),
+                });
             }
             Started::Herdr2 { terminal }
         }
@@ -279,18 +308,6 @@ pub fn start_agent(
         });
     }
     Ok(started)
-}
-
-/// Ends the herdr-core terminal `terminal`, best effort: one already gone
-/// is fine.
-fn end(host: &Host, terminal: &str) {
-    let line = format!(
-        "core_cli kill --json -- {} >/dev/null\n",
-        shell_quote(terminal)
-    );
-    if let Err(error) = host.capture(&line, &AtomicBool::new(false)) {
-        tracing::warn!(%error, %terminal, "Could not end a herdr-core shell whose agent never started");
-    }
 }
 
 /// Sends `prompt` to the agent `started` runs, once it says it is ready.
@@ -314,6 +331,7 @@ pub fn prompt(host: &Host, started: &Started, prompt: &str, cancelled: &AtomicBo
 /// Every checkout of the repository `checkout` belongs to, on a host whose
 /// worktrees Git keeps for herdr-core.
 pub fn list(host: &Host, checkout: &str, cancelled: &AtomicBool) -> Result<Vec<Checkout>> {
+    inspect::validate_path(host, checkout, Step::List)?;
     let line = format!(
         "git -C {} worktree list --porcelain -z\n",
         shell_quote(checkout)
@@ -343,6 +361,7 @@ pub fn discard(host: &Host, worktree: &Worktree, cancelled: &AtomicBool) -> Resu
 /// work stays reachable, as Herdr 1 does. Without `force`, a checkout with
 /// uncommitted changes stays and the answer is [`Error::Dirty`].
 pub fn remove(host: &Host, path: &str, force: bool, cancelled: &AtomicBool) -> Result<()> {
+    inspect::validate_path(host, path, Step::Remove)?;
     let output = host
         .capture(&remove_script(path, force), cancelled)
         .map_err(script(Step::Remove))?;
@@ -376,7 +395,13 @@ fn common_dir_line(checkout: &str) -> String {
 /// to stderr, so only the folder is read.
 fn add_script(checkout: &str, folder: &Path, new: &NewWorktree<'_>) -> String {
     let repo = shell_quote(checkout);
-    let destination = shell_quote(&Path::new(worktree::ROOT).join(folder).to_string_lossy());
+    // The script always runs on a POSIX host, even with a Windows client.
+    let folder = folder
+        .iter()
+        .map(|part| part.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    let destination = shell_quote(&format!("{}/{folder}", worktree::ROOT));
     let branch = shell_quote(new.branch);
     let base = shell_quote(new.base);
     format!(
@@ -401,14 +426,16 @@ fn remove_script(path: &str, force: bool) -> String {
         ("", " --force")
     } else {
         (
-            "if [ -n \"$(git -C \"$tree\" status --porcelain)\" ]; then echo dirty; exit 0; fi\n",
+            "status=$(git -C \"$tree\" status --porcelain --untracked-files=normal --ignore-submodules=none)\nif [ -n \"$status\" ]; then echo dirty; exit 0; fi\n",
             "",
         )
     };
     format!(
         r#"tree=$(git -C {path} rev-parse --show-toplevel)
 {check}common=$(git -C "$tree" rev-parse --path-format=absolute --git-common-dir)
-git --git-dir="$common" worktree remove{flag} "$tree" >&2
+own=$(git -C "$tree" rev-parse --path-format=absolute --git-dir)
+[ "$own" != "$common" ]
+git --git-dir="$common" worktree remove{flag} -- "$tree" >&2
 echo removed
 "#
     )

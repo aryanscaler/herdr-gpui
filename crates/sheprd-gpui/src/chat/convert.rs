@@ -11,6 +11,7 @@
 
 mod core;
 mod error;
+mod remote;
 
 pub(crate) use core::Job as CoreJob;
 
@@ -62,8 +63,8 @@ fn remote_line(words: &[&str]) -> Option<String> {
     }
     let args: Vec<String> = words.iter().map(|word| format!("\"{word}\"")).collect();
     Some(format!(
-        " sh -c '{}'",
-        super::remote_program_script(&args.join(" "))
+        " sh -c {}",
+        shell_quote(&super::remote_program_script(&args.join(" ")))
     ))
 }
 
@@ -115,7 +116,10 @@ fn run(request: &Request, cancelled: &AtomicBool) -> Result<String, Error> {
     let line = line(&resume, program.as_deref())?;
     if program.is_none() {
         // i18n: data
-        let body = format!(" sh -c '{}'\n", super::remote_program_script("--version"));
+        let body = format!(
+            " sh -c {}\n",
+            shell_quote(&super::remote_program_script("--version"))
+        );
         existing::query(&host, &body, cancelled).map_err(Error::HostProgram)?;
     }
     let keys = {
@@ -218,6 +222,9 @@ impl SheprdWindow {
         if self.chats.converting.is_some() || self.chats.converting_core.is_some() {
             return Err(Error::AlreadyConverting);
         }
+        if let Some(pane) = pane.filter(|pane| pane.starts_with("core@")) {
+            return self.convert_remote_core_to_chat(pane);
+        }
         if let Some(terminal) = pane.and_then(core::terminal) {
             return self.convert_core_to_chat(terminal);
         }
@@ -226,6 +233,7 @@ impl SheprdWindow {
             Route::Local if cfg!(windows) => return Err(Error::NotReachable),
             Route::Local => Some(self.chats.program.found()?.to_owned()),
             Route::Ssh(_) => None,
+            Route::Remote(_) => return Err(Error::NotReachable),
         };
         let snapshot = self
             .live
@@ -262,8 +270,10 @@ impl SheprdWindow {
     /// The pane a tab's menu offers to move into a chat, if this window could
     /// move one there. What only waiting fixes is left to the refusal.
     pub(crate) fn convertible_pane(&self, workspace: &str, tab: &str) -> Option<String> {
+        let route = self.chat_route()?;
         if !self.config.features.acp_chats
-            || matches!(self.chat_route()?, Route::Local if cfg!(windows))
+            || matches!(route, Route::Local if cfg!(windows))
+            || matches!(route, Route::Remote(_))
         {
             return None;
         }
@@ -275,7 +285,12 @@ impl SheprdWindow {
     /// pane before Herdr's focused one, reporting a failure as a flash.
     pub(crate) fn convert_to_chat_or_flash(&mut self, window: &Window, cx: &mut Context<Self>) {
         let focused = self.core_terminals.focused_pane(window, cx);
-        let core = focused_core_key(focused, |tab| self.core_terminals.drives(tab));
+        let core = match focused {
+            Some((tab, terminal)) if self.core_terminals.drives(tab) => {
+                Ok(Some(self.core_chat_key(tab, &terminal)))
+            }
+            other => focused_core_key(other, |_| false),
+        };
         if let Err(error) = core.and_then(|core| self.convert_to_chat(core.as_deref())) {
             self.flash_convert_error(&error, cx);
         }

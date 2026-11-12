@@ -240,9 +240,7 @@ pub fn parse(target: &ConnectTarget, output: &str) -> Result<RepoInfo> {
             operation: "Reading the repository",
         });
     };
-    Ok(assemble(
-        target, common, main_root, beads, beads_root, &remotes,
-    ))
+    assemble(target, common, main_root, beads, beads_root, &remotes)
 }
 
 /// What [`detect`]'s script reads, read with gix: this machine starts no
@@ -259,14 +257,14 @@ fn detect_local(target: &ConnectTarget, checkout: &str) -> Result<RepoInfo> {
                 operation: "Resolving the Beads folder",
                 source: Box::new(source),
             })?;
-        return Ok(assemble(
+        return assemble(
             target,
             root.join(".beads").to_string_lossy().into_owned(),
             root.to_string_lossy().into_owned(),
             true,
             redirected_root(&root),
             &[],
-        ));
+        );
     };
     let main = found.main.to_string_lossy().into_owned();
     let beads = found.main.join(".beads").is_dir();
@@ -275,14 +273,14 @@ fn detect_local(target: &ConnectTarget, checkout: &str) -> Result<RepoInfo> {
         .iter()
         .map(|(name, url)| (name.as_str(), url.as_str()))
         .collect();
-    Ok(assemble(
+    assemble(
         target,
         found.common.to_string_lossy().into_owned(),
         main,
         beads,
         beads.then(|| redirected_root(&found.main)).flatten(),
         &remotes,
-    ))
+    )
 }
 
 /// The folder holding the `.beads` that `root/.beads/redirect` names, as
@@ -323,10 +321,20 @@ fn assemble(
     beads: bool,
     beads_root: Option<String>,
     remotes: &[(&str, &str)],
-) -> RepoInfo {
+) -> Result<RepoInfo> {
     let repository = match target {
         ConnectTarget::Ssh { target, .. } => Repository::Ssh {
             destination: target.clone(),
+            git_dir: common,
+        },
+        ConnectTarget::Wsl { distro, .. } => Repository::Wsl {
+            distro: distro.clone(),
+            git_dir: common,
+        },
+        target if target.is_remote() => Repository::Remote {
+            route: Host::new(target)
+                .map_err(|_| Error::UnsupportedHost)?
+                .identity(),
             git_dir: common,
         },
         _ => Repository::Local(common.into()),
@@ -343,13 +351,13 @@ fn assemble(
             source: parse_remote_url(url).ok()?,
         })
     });
-    RepoInfo {
+    Ok(RepoInfo {
         repository,
         main_root,
         beads,
         beads_root,
         remote,
-    }
+    })
 }
 
 /// A remote URL's host and repository path, as agent-launcher reads them, so

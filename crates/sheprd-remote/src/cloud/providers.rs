@@ -28,18 +28,22 @@ pub struct Deletion {
 /// A provider reads what applies to it and ignores the rest.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
-    /// Its name; `None` lets the provider pick one.
-    pub name: Option<String>,
+    // keep-sorted start
     /// A sandbox image to start from, for a provider that holds them.
     pub image: Option<String>,
     /// Whether Herdr's installer may run on a machine that lacks Herdr.
     pub install: bool,
-    /// Coder: the template, by name or ID; `None` takes the only one.
-    pub template: Option<String>,
+    /// Its name; `None` lets the provider pick one.
+    pub name: Option<String>,
     /// Coder: the template's preset, by name; `None` takes its default.
     pub preset: Option<String>,
+    /// The daemon a successful provision must make available.
+    pub requirement: Requirement,
     /// Azure: a VM or a Container Apps sandbox.
     pub shape: Shape,
+    /// Coder: the template, by name or ID; `None` takes the only one.
+    pub template: Option<String>,
+    // keep-sorted end
 }
 
 impl Default for Spec {
@@ -53,14 +57,28 @@ impl Spec {
     /// installed when it lacks it.
     pub fn new() -> Self {
         Self {
-            name: None,
+            // keep-sorted start
             image: None,
             install: true,
-            template: None,
+            name: None,
             preset: None,
+            requirement: Requirement::Either,
             shape: Shape::Machine,
+            template: None,
+            // keep-sorted end
         }
     }
+}
+
+/// What a newly provisioned machine must have. Core never installs or starts
+/// Herdr 1; Either preserves the existing setup policy.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Requirement {
+    // keep-sorted start
+    Core,
+    #[default]
+    Either,
+    // keep-sorted end
 }
 
 /// Make a new, ready machine as `spec` says and save it as a device,

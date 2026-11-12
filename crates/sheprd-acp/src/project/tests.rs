@@ -15,7 +15,7 @@ fn update(value: Value) -> wire::SessionUpdate {
     serde_json::from_value(value).unwrap()
 }
 
-fn apply(projector: &mut Projector, transcript: &mut Transcript, value: Value) {
+pub(super) fn apply(projector: &mut Projector, transcript: &mut Transcript, value: Value) {
     for change in projector.update(transcript, update(value), 1_000) {
         transcript.apply(&change).unwrap();
     }

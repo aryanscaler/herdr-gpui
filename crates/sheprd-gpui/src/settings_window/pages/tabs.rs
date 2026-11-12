@@ -177,6 +177,16 @@ impl SettingsWindow {
                     cx,
                 )),
             )
+            .child(
+                ui::row(theme, "tabs-undo-close", fl!("settings-tabs-undo-close"))
+                    .description(fl!("settings-tabs-undo-close-description"))
+                    .switch(self.preference_toggle(
+                        "tabs-undo-close-toggle",
+                        self.config.undo_close_tab.enabled,
+                        Preference::UndoCloseTab(!self.config.undo_close_tab.enabled),
+                        cx,
+                    )),
+            )
             .child(ui::section(
                 theme,
                 &fl!("settings-tabs-section-panes"),

@@ -17,12 +17,13 @@ pub fn provision(
     if let Some(image) = &spec.image {
         settings.snapshot = Some(image.clone());
     }
-    setup::add_device(
+    setup::add_device_for(
         AddRequest {
             settings,
             name: spec.name.clone().unwrap_or_else(setup::random_name),
             install: spec.install,
         },
+        spec.requirement,
         cancelled,
         report,
     )

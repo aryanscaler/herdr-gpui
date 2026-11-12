@@ -27,6 +27,7 @@ error-config-invalid-sound-volume = sound.volume must be between 0 and 100
 error-config-invalid-terminal-padding = terminal.{ $key } must be one number or a pair of numbers, each finite and between 0 and 64 logical pixels
 error-config-invalid-theme-pair = a theme that follows the system must name both sides: light:NAME,dark:NAME
 error-config-invalid-theme-path = theme must be a name, absolute path, or ~/ path
+error-config-invalid-undo-close-seconds = undo_close_tab.seconds must be between 1 and 60
 error-config-invalid-usage-table = usage must be a TOML table
 error-config-invalid-zen-font-size = zen.font_size must be finite and between 8 and 48 logical pixels
 error-config-invalid-zen-width = zen.width must be 20 to 1000 columns, or a percentage from "10%" to "100%"

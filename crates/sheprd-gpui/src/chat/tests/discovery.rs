@@ -1,4 +1,7 @@
 use super::*;
+
+#[cfg(unix)]
+mod installed;
 use crate::{chat::discovery, state::LiveState};
 use sheprd_client::{ConnectTarget, protocol::ClientShellSnapshot};
 
@@ -163,7 +166,7 @@ fn chat_panes_are_bounded() {
 }
 
 #[test]
-fn only_an_ssh_daemon_is_reached_remotely() {
+fn saved_remote_daemons_have_host_side_routes_but_arbitrary_sockets_do_not() {
     assert!(discovery::targets(&snapshot(&[("p1", ID)]), None).is_empty());
     let live = connected(true);
     let ssh = ConnectTarget::Ssh {
@@ -180,15 +183,15 @@ fn only_an_ssh_daemon_is_reached_remotely() {
         discovery::route(&ConnectTarget::Local, &live),
         Some(Route::Local)
     );
-    for target in [
-        ConnectTarget::Wsl {
-            distro: "Ubuntu".into(),
-            session: "default".into(),
-        },
-        ConnectTarget::Socket("/tmp/herdr.sock".into()),
-    ] {
-        assert_eq!(discovery::route(&target, &live), None, "{target:?}");
-    }
+    let wsl = ConnectTarget::Wsl {
+        distro: "Ubuntu".into(),
+        session: "default".into(),
+    };
+    assert_eq!(discovery::route(&wsl, &live), Some(Route::Remote(wsl)));
+    assert_eq!(
+        discovery::route(&ConnectTarget::Socket("/tmp/herdr.sock".into()), &live),
+        None
+    );
 }
 
 #[test]

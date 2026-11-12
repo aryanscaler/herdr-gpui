@@ -382,20 +382,50 @@ impl SheprdWindow {
     }
 
     fn scroll_pane(&mut self, boot_id: &str, pane_id: &str, offset: u64, cx: &mut Context<Self>) {
-        let Some(handle) = &self.endpoints[self.selected_endpoint].connection.handle else {
-            return;
-        };
-        if let Err(error) = handle.request(
-            boot_id,
-            Method::PaneScroll,
-            serde_json::json!({"pane_id": pane_id, "offset_from_bottom": offset}),
-        ) {
+        if let Err(error) = self.send_pane_scroll(boot_id, pane_id, offset) {
             self.local_error = Some(fl!(
                 "window-find-copy-scroll-failed",
                 error = error.localize()
             ));
             cx.notify();
         }
+    }
+
+    /// The agents-list row's scroll of its shown pane to the live bottom,
+    /// reported under its own label, not copy mode's.
+    pub(crate) fn scroll_pane_to_bottom(
+        &mut self,
+        boot_id: &str,
+        pane_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = self.send_pane_scroll(boot_id, pane_id, 0) {
+            self.local_error = Some(fl!(
+                "window-notices-scroll-bottom-failed",
+                error = error.localize()
+            ));
+            cx.notify();
+        }
+    }
+
+    /// Sends the daemon's pane scroll request, a plain request answered
+    /// outside the scrollback mailbox.
+    fn send_pane_scroll(
+        &mut self,
+        boot_id: &str,
+        pane_id: &str,
+        offset: u64,
+    ) -> Result<(), sheprd_client::Error> {
+        let Some(handle) = &self.endpoints[self.selected_endpoint].connection.handle else {
+            return Ok(());
+        };
+        handle
+            .request(
+                boot_id,
+                Method::PaneScroll,
+                serde_json::json!({"pane_id": pane_id, "offset_from_bottom": offset}),
+            )
+            .map(|_| ())
     }
 
     /// Runs every tick: ends copy mode whose pane or connection is gone,

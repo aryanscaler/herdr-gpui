@@ -14,7 +14,7 @@ fn an_ask_made_while_the_window_updates_lands_after_it(cx: &mut TestAppContext) 
     cx.update(|window, cx| {
         view.update(cx, |view, cx| {
             view.config.clipboard_toast.enabled = true;
-            window_call(cx)(ToWindow::Copied, window, cx);
+            window_call(cx, crate::core_terminals::Host::Local, None)(ToWindow::Copied, window, cx);
             assert!(view.flash.is_none());
         });
     });
@@ -29,7 +29,7 @@ fn asks_keep_the_order_they_were_made_in(cx: &mut TestAppContext) {
     cx.update(|window, cx| {
         view.update(cx, |view, cx| {
             view.config.clipboard_toast.enabled = true;
-            let ask = window_call(cx);
+            let ask = window_call(cx, crate::core_terminals::Host::Local, None);
             ask(ToWindow::Copied, window, cx);
             ask(ToWindow::Refused(crate::Error::MalformedLink), window, cx);
             assert!(view.flash.is_none());

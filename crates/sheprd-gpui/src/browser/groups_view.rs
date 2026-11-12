@@ -300,6 +300,13 @@ impl SheprdWindow {
         }
     }
 
+    /// Whether a group of the focused workspace shows `pick`.
+    pub(crate) fn group_shows(&self, pick: &Pick) -> bool {
+        self.group_slots()
+            .iter()
+            .any(|slot| self.shown_pick(slot.id).as_ref() == Some(pick))
+    }
+
     /// Whether this window keeps `pick` out of the focused workspace's
     /// strips; see [`super::hidden`].
     fn hides_tab(&self, pick: &Pick) -> bool {
@@ -773,17 +780,7 @@ impl SheprdWindow {
             self.ensure_editor_page(editor, window, cx);
         } else {
             #[cfg(any(target_os = "macos", windows))]
-            match self.browser.pages.ensure(&tab, window, cx) {
-                Ok(()) => {
-                    self.browser.failed.remove(&id);
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "Cannot create a browser page");
-                    self.browser
-                        .failed
-                        .insert(id, crate::i18n::Localize::localize(&error).into());
-                }
-            }
+            self.create_page(&tab, window, cx);
         }
         self.sync_address(group, Some(&tab), true, window, cx);
         if tab.location.is_none() && !tab.place.is_editor() {

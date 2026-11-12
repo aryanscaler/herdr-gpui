@@ -43,10 +43,11 @@ Every command accepts:
   session the app does not show, the command exits 5 rather than act on
   another session's window. Outside both, it acts in the frontmost window.
   From a herdr-core terminal in a workspace Sheprd keeps for Herdr 2, `work`
-  notes, `checkpoint restore`, and `host pr` act on that workspace's
-  checkout; mutes, scripts, and fan-out, which keep Herdr 1's
-  workspace state, exit 8 there for now, as every `work` command does from
-  a terminal in no workspace the window keeps.
+  notes, mutes, scripts, fan-out, `checkpoint restore`, and `host pr` target
+  that workspace without requiring a Herdr 1 snapshot. Scripts and fan-out
+  use the same host capabilities and trust/confirmation flow as its menu;
+  dialogs refuse a caller on a host the window is not currently showing.
+  A terminal in no workspace the window keeps cannot use these workspace commands.
   Teleport works from a workspace the app keeps for Herdr 2 on this
   computer, as its menu does.
 
@@ -118,6 +119,8 @@ Sheprd** entry, which both Windows installers add, runs this command through
 | `code edit FILE[:LINE]` | Your terminal editor, in a new pane beside yours |
 | `devices` | The Devices overview |
 | `orchestrator [--repo PATH]` | Show the Issues section narrowed to your checkout's project, or PATH's |
+| `orchestrator restart RUN [--repo PATH]` | Open the user's confirmation to restart a loaded, owned Herdr 2 run in this project with its saved prompt/model and existing checkout; requires the running app |
+| `orchestrator adopt RUN [--repo PATH]` | Read the current process of a loaded legacy run and prepare the user's adoption confirmation; grants no authority until confirmed and revalidated |
 | `orchestrator items\|issues\|prs\|tasks` | What it last synced, from its local database (no app needed); `tasks` is the repository's Beads tasks, with each one's assignee, priority, and blockers in `--json` |
 | `review` | The review of your workspace's uncommitted changes |
 | `px0 [open]` | Open or focus px0 on your workspace's checkout: local on macOS and Windows, on its SSH host on macOS |
@@ -138,6 +141,8 @@ without embedded pages return exit 8. See [px0](../crates/sheprd-gpui/README.md#
 | `notes [list]` | Every worktree note |
 | `notes get\|clear`, `notes set TEXT` | The note on your checkout (its repository and branch) |
 | `worktree [status]`, `worktree mute\|unmute` | Whether your worktree's notifications are muted; silence them or let them through again |
+| `worktree list` | List app-kept Git workspaces on the caller's host, with host, workspace, path, branch and linked-checkout status; unopened Git checkouts are in the Existing picker |
+| `worktree create [BRANCH]`, `worktree open`, `worktree delete` | Open the caller's Herdr 2 new-worktree, existing-checkout, or deletion dialog; the user confirms in the app. Host identity follows the caller, including SSH, cloud and WSL devices |
 | `feedback [--wait S]` | Notes the user sent your pane from pages, reviews, or terminals |
 | `checkpoint [list]` | Checkpoints of the current directory's checkout, newest first (no app needed) |
 | `checkpoint create [LABEL]` | Take one now (no app needed) |
@@ -205,6 +210,8 @@ not take it either.
 | `config [path]` | The settings files (no app needed) |
 | `config get\|set\|unset KEY [VALUE]` | Read or change `config-gpui.local.toml`, keeping its comments. A value that would not load, or an unknown key, is refused and nothing is written; the app applies the rest at once (no app needed) |
 | `config check` | Report invalid settings, exit 1 if any |
+| `config get\|set\|unset link_handlers [ARRAY]` | Read or configure explicit [Herdr 2 link-handler adapters](link-handlers.md); execution still requires a terminal link click |
+| `config get\|set\|unset link_plugins [ARRAY]` | Opt in to installed plugin directories on exact hosts; read only link actions with manifest platform filtering, never startup/build/event hooks |
 | `config reload` | Reread Herdr's config and this app's |
 | `theme [list]`, `theme set NAME` | The app theme. A device's terminal theme is `config set devices.ID.theme NAME`, with the ID from `host list` minus its `ssh:` prefix |
 | `font [list]`, `font set NAME`, `font reset` | |
@@ -513,7 +520,7 @@ is off, chat panes show their terminal and `chat new` exits 8.
 
 Set the reading width with `sheprd config set chat.max_width 1200`, or use
 `0` for the full available width. Bounded widths range from 320 to 4000 logical
-pixels; the default is 800. Settings > General offers the same width slider and
+pixels; the default is 800. Settings > Chat offers the same width slider and
 **Full-width chat** switch.
 
 A chat on an SSH host shows in the native chat view like a local one. Sheprd
@@ -533,6 +540,20 @@ download first is left out.
 
 Files dropped on a remote chat are copied to the host first, into private
 temporary files under its `${TMPDIR:-/tmp}`, and the copies are attached.
+
+Herdr 2 chats also use saved cloud connectors and, on Windows, the selected
+WSL distribution. ACP installed for phone pairing by this release is reused
+before searching user bins, app bundles and PATH. An empty app-kept workspace
+opens a new core chat tab rather than falling back to Herdr 1.
+
+`chat status --json` returns opaque pane keys. Local core keys remain
+`core:TERMINAL`; remote core keys include their host scope. Pass the returned
+key unchanged to `chat new --pane`, `chat convert --pane`, or
+`chat show|hide|toggle --pane`. An explicit unknown core key is refused rather
+than targeting a Herdr 1 pane. `chat new --pane` splits the named core pane,
+even when another pane in that tab is active. See
+[remote core chat acceptance](remote-core-chats.md) for platform prerequisites
+and pending runtime checks.
 
 ### Existing agent rendering
 

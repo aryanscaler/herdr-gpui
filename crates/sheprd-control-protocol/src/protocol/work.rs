@@ -7,6 +7,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkOp {
+    /// List the app-kept worktrees on the caller's host.
+    KeptList {},
+    /// Open the new-worktree dialog; the user confirms creation.
+    KeptCreate { branch: Option<String> },
+    /// Open the existing-checkout picker for the caller's repository.
+    KeptOpen {},
+    /// Open the caller's checkout deletion dialog.
+    KeptDelete {},
     /// Every worktree note, most recently edited first.
     Notes,
     /// The note on the caller's checkout.
@@ -70,6 +78,9 @@ pub struct MuteInfo {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Reply {
+    Worktrees {
+        worktrees: Vec<WorktreeInfo>,
+    },
     /// The most recent notes that fit one answer; `omitted` older ones did not.
     Notes {
         notes: Vec<NoteInfo>,
@@ -82,6 +93,15 @@ pub enum Reply {
     Mute {
         mute: MuteInfo,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorktreeInfo {
+    pub host: String,
+    pub workspace: String,
+    pub path: String,
+    pub branch: Option<String>,
+    pub linked: bool,
 }
 
 #[cfg(test)]

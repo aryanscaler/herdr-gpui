@@ -243,4 +243,5 @@ fn chats_jump_to_new_output_unless_glide_is_on() {
     }
 }
 
+mod code;
 mod launcher;

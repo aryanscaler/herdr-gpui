@@ -2,6 +2,8 @@
 use super::*;
 use crate::protocol::{Call, Caller, Request, Response};
 
+mod kept;
+
 #[test]
 fn work_requests_have_a_stable_wire_form() {
     let request = Request::Work(Call {

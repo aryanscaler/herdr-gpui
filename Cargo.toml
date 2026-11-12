@@ -34,6 +34,7 @@ aes                  = "0.9.3"
 ammonia              = "4.2.1"
 cbc                  = { features = ["block-padding"], version = "0.2.1" }
 percent-encoding     = "2"
+process-wrap         = { version = "10.0.1", default-features = false, features = ["std", "job-object", "creation-flags"] }
 pbkdf2               = { default-features = false, features = ["hmac"], version = "0.13.0" }
 pulldown-cmark       = { default-features = false, features = ["html"], version = "0.13.6" }
 # The remote control pairing QR, drawn as quads; no image or SVG renderer.
@@ -43,6 +44,8 @@ ratex-layout         = "=0.1.15"
 ratex-parser         = "=0.1.15"
 ratex-render         = { features = ["embed-fonts"], version = "=0.1.15" }
 ratex-types          = "=0.1.15"
+# User-written link-handler patterns; already in the lockfile through other crates.
+regex                = "1.13"
 base64               = "0.23.1"
 async-channel        = "2"
 bincode              = { default-features = false, features = ["serde", "std"], version = "2" }
@@ -58,6 +61,8 @@ flate2               = "1"
 # Use the same strict macOS family lookup as GPUI, including legacy aliases.
 font-kit             = { package = "zed-font-kit", version = "=0.14.1-zed" }
 libc                 = "0.2"
+# Safe macOS process birth/parent queries; second-resolution ps stamps can collide.
+libproc              = "0.15.0"
 # Fluent messages (docs/i18n.md): `sheprd-i18n` loads them through
 # i18n-embed's loader and negotiates the locale; `sheprd-gpui`'s build script
 # parses them to check `fl!` calls. i18n-embed 0.16 does not build without

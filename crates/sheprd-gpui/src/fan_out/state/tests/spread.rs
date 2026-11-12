@@ -116,3 +116,30 @@ fn hosts_stop_updating_once_launched() {
     assert!(!fan_out.can_spread());
     assert!(!fan_out.update_hosts(Vec::new(), Instant::now()));
 }
+
+#[test]
+fn kept_origins_use_the_same_ranked_hosts_and_explicit_assignments() {
+    let mut fan_out = spreadable();
+    fan_out.origin.checkout = Some("/work/repo".into());
+    assert!(fan_out.can_spread());
+    assert!(fan_out.toggle_spread());
+    assert!(fan_out.assign(1, "ssh:small"));
+    assert_eq!(fan_out.lane_hosts(), ["ssh:big", "ssh:small", "ssh:big"]);
+}
+
+#[test]
+fn a_disappearing_explicit_host_never_silently_moves_its_lane_local() {
+    let mut fan_out = spreadable();
+    fan_out.toggle_spread();
+    assert!(fan_out.assign(1, "ssh:small"));
+    fan_out.update_hosts(vec![candidate("local", 8, 0., true)], Instant::now());
+    assert_eq!(fan_out.lane_hosts()[1], "ssh:small");
+    assert!(!fan_out.launch("go", 42, |_| None));
+    assert!(fan_out.composing());
+    assert!(
+        fan_out
+            .error
+            .as_ref()
+            .is_some_and(|error| error.contains("ssh:small"))
+    );
+}

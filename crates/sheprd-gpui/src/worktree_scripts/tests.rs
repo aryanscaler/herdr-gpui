@@ -12,10 +12,13 @@ use sheprd_client::protocol::ClientMessage;
 use sheprd_client::protocol::ClientPaneInputEvent;
 use std::sync::atomic::AtomicBool;
 
+mod checkout_error;
 mod en_xa;
 mod fencing;
 mod flow;
 // Git runs through a host script, which needs `/bin/sh`.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod kept_hosts;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod kept_root;
 mod review;

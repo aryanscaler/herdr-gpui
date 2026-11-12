@@ -1,7 +1,7 @@
 //! Opening a fan-out from a workspace row: the repository's main checkout
 //! creates every lane's worktree, branched from the row's own branch when the
 //! row is a linked checkout. A workspace the app keeps for Herdr 2 makes its
-//! lanes with Git through its own folder, on this computer.
+//! lanes with Git through its own folder on the captured host.
 
 // i18n: migrated
 use super::{
@@ -46,7 +46,16 @@ impl SheprdWindow {
         // folder, whichever checkout of the repository it is.
         if target.keeper == sheprd_session::Keeper::App {
             target.worktree.as_ref()?;
-            let checkout = self.kept_checkout()?;
+            let checkout = self
+                .sessions(self.selected_endpoint)
+                .core
+                .as_ref()?
+                .workspace(&target.id)?
+                .cwd
+                .clone();
+            if checkout.is_empty() {
+                return None;
+            }
             // A linked checkout's lanes start from its branch, which the
             // base commit is read through on the repository.
             let base = match target.branch.as_deref() {
@@ -79,10 +88,6 @@ impl SheprdWindow {
         let Some(origin) = self.fan_out.as_ref().map(FanOut::origin) else {
             return false;
         };
-        // The app keeps the workspace; Git reads its folder at launch.
-        if origin.kept() {
-            return self.is_kept_workspace(&origin.workspace_id);
-        }
         let Some(index) = self
             .endpoints
             .iter()
@@ -90,6 +95,24 @@ impl SheprdWindow {
         else {
             return false;
         };
+        let target = &self.endpoints[index].connection.target;
+        let host = if origin.checkout.is_some() {
+            sheprd_remote::work::host_for_kept(target).ok()
+        } else {
+            host_for(target).ok()
+        };
+        if host.as_ref() != Some(&origin.host) {
+            return false;
+        }
+        // Look in the captured host's session even after a host switch.
+        if let Some(checkout) = &origin.checkout {
+            return self
+                .sessions(index)
+                .core
+                .as_ref()
+                .and_then(|session| session.workspace(&origin.workspace_id))
+                .is_some_and(|workspace| workspace.cwd == *checkout);
+        }
         self.endpoint_snapshot(index)
             .and_then(|snapshot| {
                 snapshot
@@ -117,19 +140,25 @@ impl SheprdWindow {
         {
             return Some(Label::FAN_OUT_COMPARISON);
         }
-        // Host scripts need a POSIX client; see `sheprd_client::run_script`.
-        let scriptable = cfg!(any(target_os = "linux", target_os = "macos"));
         let source = self.fan_out_source()?;
+        let target = &self.endpoints[self.selected_endpoint].connection.target;
+        let keeper = if source.checkout.is_some() {
+            sheprd_session::Keeper::App
+        } else {
+            sheprd_session::Keeper::Herdr1
+        };
+        let scriptable = crate::dispatch::scriptable_for(target, keeper);
         (scriptable && self.fan_out_host(&source).is_some()).then_some(Label::FAN_OUT)
     }
 
-    /// The host `source`'s lanes are made on: the shown one, or this
-    /// computer for a workspace the app keeps, which is always here.
+    /// The host the menu addresses, for either workspace keeper.
     fn fan_out_host(&self, source: &Source) -> Option<Host> {
+        let target = &self.endpoints[self.selected_endpoint].connection.target;
         if source.checkout.is_some() {
-            return Host::new(&sheprd_client::ConnectTarget::Local).ok();
+            sheprd_remote::work::host_for_kept(target).ok()
+        } else {
+            host_for(target).ok()
         }
-        host_for(&self.endpoints[self.selected_endpoint].connection.target).ok()
     }
 
     pub(crate) fn open_fan_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {

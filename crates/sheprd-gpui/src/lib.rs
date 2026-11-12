@@ -89,6 +89,7 @@ mod keymap;
 mod launch_at_login;
 mod lenient;
 mod link;
+mod link_handlers;
 mod links;
 mod listening_ports;
 mod local_ports;

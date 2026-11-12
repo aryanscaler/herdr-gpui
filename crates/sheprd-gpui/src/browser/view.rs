@@ -47,6 +47,8 @@ pub(crate) struct Browser {
     pub(crate) hidden: super::hidden::Hidden,
     /// Tabs being closed one after another, as Close Others closes them.
     pub(crate) closing: Option<crate::close_modal::CloseRun>,
+    /// Herdr tabs whose close waits for its undo window to pass.
+    pub(crate) undo: super::undo_close::UndoClose,
     /// Where each group drew last frame, so a carried tab knows the group
     /// it is over.
     pub(crate) group_bounds: std::rc::Rc<std::cell::RefCell<HashMap<GroupId, Bounds<Pixels>>>>,
@@ -122,6 +124,7 @@ impl Browser {
             emptied: Vec::new(),
             hidden: Default::default(),
             closing: None,
+            undo: Default::default(),
             group_bounds: Default::default(),
             addresses: HashMap::new(),
             new_tab_group: None,
@@ -375,7 +378,10 @@ impl SheprdWindow {
         self.observe_closed_herdr_tabs(cx);
         self.forget_closed_workspaces(cx);
         self.settle_groups(window, cx);
+        #[cfg(any(target_os = "macos", windows))]
+        self.ensure_shown_pages(window, cx);
         self.advance_close_run(window, cx);
+        self.poll_undo_close(cx);
         self.ensure_code_page(window, cx);
         self.ensure_px0_page(window, cx);
         self.poll_deliveries(cx);

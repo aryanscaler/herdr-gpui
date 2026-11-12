@@ -19,7 +19,7 @@ pub enum Error {
     #[error("the pane runs no agent")]
     NoAgent,
     #[error(
-        "herdr-core reports no session for {}; only Claude Code's own session record can be read",
+        "no verified session is available for {}; install its Sheprd session integration and restart the agent",
         .0.display_name()
     )]
     NoCoreSession(Agent),

@@ -347,6 +347,27 @@ pub fn compose(dockerfile: &str) -> String {
     composed
 }
 
+/// A required-core image neither installs Herdr 1 nor swallows core failures.
+pub(super) fn compose_for(
+    dockerfile: &str,
+    requirement: crate::cloud::Requirement,
+) -> Result<String> {
+    if requirement == crate::cloud::Requirement::Either {
+        return Ok(compose(dockerfile));
+    }
+    let script = crate::core_install::script(crate::core_install::Dir::At(INSTALL_DIR))?;
+    let lines: Vec<_> = script.lines().map(sheprd_client::shell_quote).collect();
+    let mut composed = format!(
+        "{}\n\n# Added by Sheprd: required herdr-core.\nUSER root\nRUN printf '%s\\n' {} | sh\n",
+        dockerfile.trim_end(),
+        lines.join(" ")
+    );
+    if let Some(user) = uses(dockerfile).user {
+        composed.push_str(&format!("USER {user}\n"));
+    }
+    Ok(composed)
+}
+
 /// The Dockerfile for a plan that starts from an existing image.
 pub fn from_image(image: &str) -> String {
     format!("FROM {image}\n")
