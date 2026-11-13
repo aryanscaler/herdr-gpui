@@ -201,7 +201,7 @@ fn owner_alive(target: &str, pid: u32) -> Result<bool, Error> {
 }
 
 pub(super) fn alive_script(pid: u32) -> String {
-    format!("kill -0 {pid} 2>/dev/null && echo alive; exit 0")
+    format!("kill -0 {pid} 2>/dev/null && echo alive; exit 0") // i18n: data
 }
 
 /// `script`'s bounded output on the host's shared connection.
