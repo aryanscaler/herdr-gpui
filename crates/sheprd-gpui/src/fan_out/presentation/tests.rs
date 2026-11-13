@@ -3,6 +3,8 @@ use crate::{core_terminals::panes::Panes, sidebar::layout_tests::fixture_window}
 use sheprd_backend::TerminalId;
 use sheprd_client::ConnectTarget;
 
+mod socket;
+
 #[gpui::test]
 fn a_remote_lane_is_kept_once_and_closed_on_its_host_while_local_stays_selected(
     cx: &mut gpui::TestAppContext,

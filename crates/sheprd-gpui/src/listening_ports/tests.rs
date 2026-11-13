@@ -11,6 +11,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 mod core;
 mod en_xa;
+mod excluded_processes;
 mod process_owner;
 #[cfg(unix)]
 mod repeated_scans;

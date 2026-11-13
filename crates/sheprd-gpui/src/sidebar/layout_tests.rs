@@ -691,6 +691,7 @@ pub(crate) fn fixture_window(window: &mut Window, cx: &mut Context<SheprdWindow>
         port_forwards: Default::default(),
         remote_browser: Vec::new(),
         remote_updates: Default::default(),
+        remote_work: Default::default(),
         #[cfg(feature = "cloud")]
         cloud_jobs: Default::default(),
         #[cfg(feature = "cloud")]

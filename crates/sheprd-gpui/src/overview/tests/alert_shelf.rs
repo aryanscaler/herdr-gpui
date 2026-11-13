@@ -12,7 +12,7 @@ use std::time::Instant;
 
 /// Delivers one agent alert about a tab the fixture does not show. Delivery is off
 /// there, so it is only kept.
-fn alert(view: &Entity<SheprdWindow>, cx: &mut VisualTestContext) {
+pub(super) fn alert(view: &Entity<SheprdWindow>, cx: &mut VisualTestContext) {
     cx.update(|_, cx| {
         view.update(cx, |view, cx| {
             let selected = view.selected_endpoint;
@@ -34,7 +34,7 @@ fn alert(view: &Entity<SheprdWindow>, cx: &mut VisualTestContext) {
     draw(cx);
 }
 
-fn first_alert(view: &Entity<SheprdWindow>, cx: &mut VisualTestContext) -> String {
+pub(super) fn first_alert(view: &Entity<SheprdWindow>, cx: &mut VisualTestContext) -> String {
     cx.update(|_, cx| {
         let view = view.read(cx);
         let listed = view.overview_alerts();

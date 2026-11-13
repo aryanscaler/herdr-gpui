@@ -428,9 +428,10 @@ impl SheprdWindow {
         // no Herdr has none to compare: its tab holding it is what counts.
         // Its notes are kept under the daemon of what holds it, a tab or
         // the shell shown in place of Herdr 1, where `feedback` waits.
-        let core = crate::chat::core_pane::terminal_of(&pane_id)
-            .and_then(|terminal| self.core_terminal_scope(terminal.as_str()));
-        if core.is_none() && !origin.is_some_and(|origin| origin.current(self)) {
+        let core = self.core_pane_scope(&pane_id);
+        if core.is_none()
+            && (pane_id.starts_with("core@") || !origin.is_some_and(|origin| origin.current(self)))
+        {
             self.show_flash(Flash::warning(fl!("agent-notes-session-not-shown")), cx);
             return Delivered::Copy(typable(&text));
         }
@@ -456,6 +457,25 @@ impl SheprdWindow {
     ) -> Option<crate::control::NotesTo> {
         use crate::control::NotesTo;
         let pane = target.pane?;
+        if let Some(scope) = self.core_pane_scope(pane) {
+            return match self.deliver_notes(
+                Some(FeedbackKey {
+                    scope,
+                    pane_id: pane.to_owned(),
+                }),
+                text.to_owned(),
+                None,
+                None,
+                cx,
+            ) {
+                Delivered::Agent => Some(NotesTo::Agent),
+                Delivered::Kept => Some(NotesTo::Kept),
+                Delivered::Copy(_) => None,
+            };
+        }
+        if pane.starts_with("core@") {
+            return None;
+        }
         let ours = target.daemon.is_none_or(|daemon| {
             self.endpoints[self.selected_endpoint]
                 .connection

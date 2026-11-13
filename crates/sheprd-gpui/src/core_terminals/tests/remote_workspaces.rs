@@ -15,6 +15,7 @@ use std::{path::Path, sync::Arc};
 
 const REMOTE: &str = "ssh:box";
 
+mod pull_requests;
 mod worktrees;
 
 fn scope() -> Scope {

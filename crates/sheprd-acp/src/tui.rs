@@ -67,19 +67,36 @@ fn attach(inputs: &Sender<Input>, since: Option<Cursor>) -> Receiver<ServerMessa
     receiver
 }
 
-fn terminal_events() -> std::io::Result<Receiver<Event>> {
+/// Terminal events, then the read error that ended them, if any.
+fn terminal_events() -> std::io::Result<Receiver<std::io::Result<Event>>> {
     let (sender, receiver) = bounded(256);
     // Blocks in `read` for the life of the process; it is not joined.
     thread::Builder::new()
         .name("tui-events".to_owned())
         .spawn(move || {
-            while let Ok(event) = crossterm::event::read() {
-                if sender.send(event).is_err() {
+            loop {
+                let event = crossterm::event::read();
+                let failed = event.is_err();
+                if sender.send(event).is_err() || failed {
                     return;
                 }
             }
         })?;
     Ok(receiver)
+}
+
+/// A terminal event, or why there will be none. Losing the terminal is a
+/// failure, never a quit: only the user's quit may forget the chat's recovery.
+fn terminal_event(
+    received: Result<std::io::Result<Event>, crossbeam_channel::RecvError>,
+) -> crate::Result<Event> {
+    match received {
+        Ok(Ok(event)) => Ok(event),
+        Ok(Err(source)) => Err(crate::Error::TerminalInput(source)),
+        Err(crossbeam_channel::RecvError) => Err(crate::Error::TerminalInput(
+            std::io::ErrorKind::UnexpectedEof.into(),
+        )),
+    }
 }
 
 fn event_loop(
@@ -126,8 +143,8 @@ fn event_loop(
                     next = session.try_recv().ok();
                 }
             }
-            recv(events) -> event => match event {
-                Ok(Event::Key(key)) => match view.key(key) {
+            recv(events) -> event => match terminal_event(event)? {
+                Event::Key(key) => match view.key(key) {
                     Some(Out::Quit) => return Ok(()),
                     Some(Out::Command(command)) => {
                         let id = CommandId::random();
@@ -135,11 +152,14 @@ fn event_loop(
                     }
                     None => {}
                 },
-                Ok(Event::Paste(text)) => view.paste(&text),
-                Ok(_) => {}
-                Err(_) => return Ok(()),
+                Event::Paste(text) => view.paste(&text),
+                _ => {}
             },
             recv(timer) -> _ => tick = tick.wrapping_add(1),
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;

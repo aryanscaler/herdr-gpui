@@ -16,6 +16,7 @@ fn a_moves_herdr_2_tabs_open_in_the_destination_workspace(cx: &mut TestAppContex
     split.split(&id("t5"), Axis::Column, id("t6")).unwrap();
     let tabs = vec![split, Panes::single(id("t7"))];
     let outcome = Outcome {
+        source_retired: true,
         endpoint_id: "buildbox".into(),
         workspace: Landed::Workspace("w9".into()),
         repo_key: "repo".into(),
@@ -59,6 +60,7 @@ fn another_window_finishes_a_move_whose_window_closed(cx: &mut TestAppContext) {
         Store::update(cx, |store| store.open(source, "w1", Some(location), None)).unwrap()
     });
     let outcome = || Outcome {
+        source_retired: true,
         endpoint_id: "buildbox".into(),
         workspace: Landed::Workspace("w9".into()),
         repo_key: "repo".into(),

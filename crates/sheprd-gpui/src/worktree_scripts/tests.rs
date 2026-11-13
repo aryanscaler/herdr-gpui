@@ -16,6 +16,8 @@ mod checkout_error;
 mod en_xa;
 mod fencing;
 mod flow;
+#[cfg(not(windows))]
+mod include;
 // Git runs through a host script, which needs `/bin/sh`.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod kept_hosts;

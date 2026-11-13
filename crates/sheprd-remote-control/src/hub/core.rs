@@ -162,6 +162,16 @@ impl Source {
     fn poll(&self) -> Result<Layout> {
         let core = self.connection()?;
         let terminals = core.list(false)?.terminals;
+        if terminals
+            .iter()
+            .any(|terminal| sheprd_core_client::chat_recovery::tracked(&terminal.labels))
+        {
+            // Recovery performs bounded RPCs without holding a lock phone
+            // commands need to inspect saved workspaces or layout ownership.
+            let mut recovery = std::mem::take(&mut lock(&self.poller).recovery);
+            recovery.poll(&core);
+            lock(&self.poller).recovery = recovery;
+        }
         let boot = core.hello().core.id.clone();
         let next = {
             let mut poller = lock(&self.poller);

@@ -2,6 +2,7 @@
 use super::*;
 use sheprd_client::{ClientEvent, SavedHost};
 
+mod cleared_inbox;
 #[cfg(feature = "container")]
 mod container_stop;
 mod en_xa;

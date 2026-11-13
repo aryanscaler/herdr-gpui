@@ -12,10 +12,13 @@
 use super::Error;
 use super::tunnel::Key;
 use crate::{Result, browser::WebUrl, usage::Host};
+use sheprd_client::herdr::AgentKind;
 use std::{collections::HashMap, net::IpAddr};
 
 /// Listener lines read from one answer; the rest are ignored.
 const MAX_LISTENERS: usize = 1024;
+/// Command-line words read per listener, enough to find an agent's script.
+const MAX_ARGS: usize = 16;
 /// Ports kept per workspace, lowest first.
 pub(crate) const MAX_PORTS: usize = 32;
 /// Process names are display text only.
@@ -29,13 +32,14 @@ const MAX_SOCKET: usize = 1024;
 /// `E <pid> <workspace> <api socket>` for each listener started inside a
 /// Herdr pane, the socket naming which daemon's pane that was,
 /// `C <pid> <terminal> <core socket>` for one started in a herdr-core
-/// terminal outside any Herdr workspace, or
-/// `N` when the host has neither `ss` nor `lsof`. Linux prefers `ss`, which
-/// is quicker; macOS has only `lsof`. Both list only this user's processes
-/// with their owners, so another user's servers never show. The step runs in
-/// a long-lived shell, so it must not `exit`, and it adds each `PATH` entry
-/// only when missing: appending on every scan grows `PATH` without bound and
-/// slows every command lookup (issue #754).
+/// terminal outside any Herdr workspace, each followed by
+/// `A <pid> <command line>`, which tells a coding agent's own listener from
+/// a server it starts; or `N` when the host has neither `ss` nor `lsof`.
+/// Linux prefers `ss`, which is quicker; macOS has only `lsof`. Both list
+/// only this user's processes with their owners, so another user's servers
+/// never show. The step runs in a long-lived shell, so it must not `exit`,
+/// and it adds each `PATH` entry only when missing: appending on every scan
+/// grows `PATH` without bound and slows every command lookup (issue #754).
 // i18n: data
 pub(crate) const COMMAND: &str = r#"for herdr_dir in /usr/sbin /sbin; do
     case ":$PATH:" in
@@ -76,7 +80,15 @@ for herdr_pid in $(printf '%s\n' "$herdr_ports" | awk '$1 == "L" { print $2 }' |
         printf 'E %s %s %s\n' "$herdr_pid" "$herdr_workspace" "$herdr_socket"
     elif [ -n "$herdr_terminal" ]; then
         printf 'C %s %s %s\n' "$herdr_pid" "$herdr_terminal" "$herdr_core"
+    else
+        continue
     fi
+    if [ -r "/proc/$herdr_pid/cmdline" ]; then
+        herdr_args=$(tr '\0\n' '  ' < "/proc/$herdr_pid/cmdline")
+    else
+        herdr_args=$(ps -ww -o args= -p "$herdr_pid" 2>/dev/null | tr '\n' ' ')
+    fi
+    printf 'A %s %s\n' "$herdr_pid" "$(printf '%s' "$herdr_args" | cut -c 1-1024)"
 done
 true"#;
 
@@ -252,6 +264,7 @@ pub(crate) fn parse(text: &str) -> Result<Scan> {
     let mut listeners: Vec<(u32, Port)> = Vec::new();
     let mut owners: HashMap<u32, Owner> = HashMap::new();
     let mut terminals: HashMap<u32, Terminal> = HashMap::new();
+    let mut commands: HashMap<u32, Vec<String>> = HashMap::new();
     for line in text.lines() {
         let mut words = line.splitn(4, ' ');
         match words.next() {
@@ -299,17 +312,35 @@ pub(crate) fn parse(text: &str) -> Result<Scan> {
                     );
                 }
             }
+            Some("A") => {
+                let mut words = line.splitn(3, ' ').skip(1);
+                let (Some(Ok(pid)), Some(args)) = (words.next().map(str::parse), words.next())
+                else {
+                    continue;
+                };
+                let args = args.split_whitespace().take(MAX_ARGS).map(str::to_owned);
+                commands.insert(pid, args.collect());
+            }
             _ => {}
         }
     }
     let mut scan = Scan::default();
     for (pid, port) in listeners {
+        let args = commands.get(&pid).map_or(&[][..], Vec::as_slice);
+        // A coding agent's own sockets are its transport, not a page to
+        // open. The owner is still recorded, so the machine-wide list of
+        // listeners can name the workspace that started it.
+        let shown = AgentKind::identify(None, &port.process, args).is_none();
         if let Some(owner) = owners.get(&pid) {
             scan.pids.insert(pid, owner.clone());
-            add(scan.ports.entry(owner.clone()).or_default(), port);
+            if shown {
+                add(scan.ports.entry(owner.clone()).or_default(), port);
+            }
         } else if let Some(terminal) = terminals.get(&pid) {
             scan.terminal_pids.insert(pid, terminal.clone());
-            add(scan.terminals.entry(terminal.clone()).or_default(), port);
+            if shown {
+                add(scan.terminals.entry(terminal.clone()).or_default(), port);
+            }
         }
     }
     for list in scan.ports.values_mut().chain(scan.terminals.values_mut()) {

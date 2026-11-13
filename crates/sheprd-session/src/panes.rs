@@ -441,6 +441,25 @@ impl From<Panes> for Node {
 }
 
 impl Panes {
+    /// Rebind a recovered terminal without changing split geometry. Refuses
+    /// duplicate leaves so replaying a mapping cannot merge unrelated panes.
+    pub fn replace(&mut self, old: &TerminalId, new: TerminalId) -> bool {
+        if old == &new || !self.contains(old) || self.contains(&new) {
+            return false;
+        }
+        fn replace(node: &mut Node, old: &TerminalId, new: &TerminalId) {
+            match node {
+                Node::Leaf(id) if id == old => *id = new.clone(),
+                Node::Leaf(_) => {}
+                Node::Split { first, second, .. } => {
+                    replace(first, old, new);
+                    replace(second, old, new);
+                }
+            }
+        }
+        replace(&mut self.root, old, &new);
+        true
+    }
     pub fn single(id: TerminalId) -> Self {
         Self {
             root: Node::Leaf(id),

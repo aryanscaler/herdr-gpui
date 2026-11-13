@@ -1,11 +1,6 @@
-//! Agent sessions in Herdr 2 terminals. herdr-core reports which agent runs
-//! in a terminal but not its session, which Herdr 1 learns from hooks of its
-//! own. Claude Code records its session by process in
-//! `~/.claude/sessions/<pid>.json`, so a Claude Code terminal's session is
-//! read from there: the record of the terminal's foreground process, started
-//! when that process was, so a record left by an earlier process with the
-//! same ID is never taken for it. Other agents keep no such record, and
-//! hand off with a note as before.
+//! Agent sessions in Herdr 2 terminals, discovered on the owning host through
+//! the shared session reporter. Claude continues using its native PID/start
+//! record, without requiring a separately installed reporter.
 
 use super::Terminal;
 use crate::teleport::{
@@ -15,7 +10,16 @@ use crate::teleport::{
     snapshot::{AgentSession, SessionKind},
 };
 use serde::Deserialize;
+use sheprd_client::herdr::sessions::Binding;
 use std::{collections::HashMap, sync::atomic::AtomicBool};
+
+mod reported;
+
+#[derive(Default)]
+pub(in crate::teleport) struct Discovered {
+    pub(in crate::teleport) sessions: HashMap<String, AgentSession>,
+    pub(in crate::teleport) bindings: HashMap<String, Binding>,
+}
 
 /// The most of one record read; Claude Code's are well under a kilobyte.
 const MAX_RECORD: usize = 64 * 1024;
@@ -49,17 +53,21 @@ fn claude_processes(terminals: &HashMap<String, Terminal>) -> Vec<(&str, u32)> {
     found
 }
 
-/// The Claude Code session of each terminal of `terminals` that runs one
-/// and recorded it. A host that cannot say leaves the agents to hand off,
-/// so a failure here never fails the move.
+/// Exact sessions reported on the owning host. Explicit absence permits
+/// handoff; failed or stale evidence refuses the move. Only helper-free hosts
+/// use the legacy Claude record probe below.
 pub(in crate::teleport) fn sessions(
     host: &Host,
     terminals: &HashMap<String, Terminal>,
     cancelled: &AtomicBool,
-) -> Result<HashMap<String, AgentSession>> {
-    let processes = claude_processes(terminals);
+) -> Result<Discovered> {
+    let (mut found, unavailable) = reported::discover(host, terminals, cancelled)?;
+    let processes = claude_processes(terminals)
+        .into_iter()
+        .filter(|(id, _)| unavailable.iter().any(|missing| missing == id))
+        .collect::<Vec<_>>();
     if processes.is_empty() {
-        return Ok(HashMap::new());
+        return Ok(found);
     }
     let body = processes
         .iter()
@@ -80,7 +88,8 @@ fi
         .collect::<String>();
     let output = host.query(Step::Review, &body, &[], cancelled)?;
     let output = String::from_utf8_lossy(&output);
-    Ok(parse(&output, &processes))
+    found.sessions.extend(parse(&output, &processes));
+    Ok(found)
 }
 
 /// Each section of `output`: a terminal's ID, its process's start in UTC
@@ -105,13 +114,13 @@ fn parse(output: &str, processes: &[(&str, u32)]) -> HashMap<String, AgentSessio
             && started.is_some_and(|started| {
                 !started.is_empty() && (started == words(utc) || started == words(local))
             });
-        let session = AgentSession {
-            agent: AgentKind::Claude.name().to_owned(),
-            kind: SessionKind::Id,
-            source: format!("herdr:{}", AgentKind::Claude.name()),
-            value: record.session_id,
-        };
-        if same_process && AgentKind::Claude.accepts(&session) {
+        if same_process
+            && let Ok(session) = sheprd_client::herdr::sessions::reference(
+                AgentKind::Claude,
+                SessionKind::Id,
+                record.session_id,
+            )
+        {
             found.insert(id.to_owned(), session);
         }
     }
@@ -121,38 +130,6 @@ fn parse(output: &str, processes: &[(&str, u32)]) -> HashMap<String, AgentSessio
 /// `text` with its runs of spaces made one, as `ps` pads its columns.
 fn words(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Refuses a move whose Herdr 2 agents no longer run the sessions it
-/// reviewed, `expected` by terminal: one resumed or restarted since would
-/// have its old conversation resumed on the destination. Asked before
-/// anything changes.
-pub(in crate::teleport) fn confirm(
-    host: &Host,
-    expected: &[(String, AgentSession)],
-    cancelled: &AtomicBool,
-) -> Result<()> {
-    if expected.is_empty() {
-        return Ok(());
-    }
-    let ids: Vec<String> = expected.iter().map(|(id, _)| id.clone()).collect();
-    let terminals = super::terminals(host, &ids, cancelled)?;
-    let now = sessions(host, &terminals, cancelled)?;
-    unchanged(expected, &now)
-}
-
-fn unchanged(
-    expected: &[(String, AgentSession)],
-    now: &HashMap<String, AgentSession>,
-) -> Result<()> {
-    if expected
-        .iter()
-        .all(|(id, session)| now.get(id) == Some(session))
-    {
-        Ok(())
-    } else {
-        Err(Error::SourceSessionChanged)
-    }
 }
 
 /// What `terminal` runs, resumable when it is an agent whose `session` was

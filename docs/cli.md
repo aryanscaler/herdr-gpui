@@ -11,10 +11,31 @@ Commands reach the app over a socket of its own,
 `$XDG_STATE_HOME/herdr/gpui/control.sock` (default `~/.local/state/`), which
 only your user can open; on Windows, over a named pipe (see
 [Windows](#windows)). An agent on an SSH host has no path to it; there,
-the app's shim at `~/.local/state/herdr/gpui/bin/sheprd` offers
+the app's managed shim at `~/.local/state/herdr/gpui/bin/herdr-gpui` offers
 `browser open` and `browser reload` through Herdr workspace metadata (see
 [remote agents](../crates/sheprd-gpui/README.md#letting-agents-open-pages)),
-and every other command exits 8. A few commands work from files alone and
+and every other command exits 8 for Herdr 1 callers. Remote Herdr 2 callers
+use terminal labels over the existing core bridge for `browser open`,
+`browser reload`, and `browser feedback [--wait SECONDS]` (also `feedback`).
+Feedback requires Python 3 on the remote host, waits up to 600 seconds, and
+returns exit 4 when there are no notes. The window must remain connected and
+hold a driving tab for the caller. Host-qualified terminal identity isolates
+same-named terminals on different machines; requests cannot select another
+pane. At most eight feedback calls are pending. Replies are bounded by the
+normal notes budget and acknowledged after printing; cancellation, timeout,
+or disconnect returns unacknowledged notes to the queue. A lost acknowledgement
+can cause a duplicate on retry. Existing labels at first connection and requests
+on unshown terminals remain intentionally non-replayable. No browser server is
+started remotely. Cloud and WSL use the same core reply route; cloud loopback
+URLs still need a separately reachable address, while SSH uses the existing
+port forward and WSL uses localhost integration.
+Annotation screenshots are transferred to that caller's host before delivery,
+with caller/connection revalidation and cleanup of unaccepted uploads. A failed
+or unsupported transfer warns in the app and returns text without local paths.
+SSH/cloud screenshot transfer requires a Linux/macOS desktop; WSL mapping is
+supported by the Windows desktop.
+
+A few commands work from files alone and
 need no running app; they say so below.
 
 On Windows, `sheprd.exe` is a console program, so a shell waits for it and
@@ -28,6 +49,13 @@ sheprd COMMAND --help      # one command
 ```
 
 ## Options and output
+
+For app-kept work commands from remote Herdr 2 terminals, the managed shim
+supports notes, mute/status, worktree dialogs/listing, setup/run scripts,
+checkpoint restore, Teleport, and fan-out with scoped replies and the same
+confirmation policy. See [the remote work contract](remote-core-work.md) for
+host/window identity, bounds, cancellation, and the full-binary-only Git
+commands. Remote notes listings are restricted to the caller's host.
 
 Every command accepts:
 
@@ -72,7 +100,7 @@ Every command accepts:
 | `status` | Whether the app runs, its version and control protocol, windows, and hosts |
 | `app focus\|hide\|quit` | Bring the app forward, hide it, or quit it (Herdr keeps running) |
 | `window [list]` | Windows with their IDs, size, workspace, and hosts |
-| `window alerts` | The alerts the window kept, newest first, including those held back by quiet hours |
+| `window alerts` | The alerts the window kept, newest first, including those held back by quiet hours; `run clear_all_notifications` empties them |
 | `window new [--session NAME]` | Another window, of your own Herdr session or a named local session |
 | `window focus ID` | Bring a window forward |
 | `window fullscreen [on\|off\|toggle]` | |
@@ -149,7 +177,7 @@ without embedded pages return exit 8. See [px0](../crates/sheprd-gpui/README.md#
 | `checkpoint diff A [B]` | What changed between two, or since one (no app needed) |
 | `checkpoint restore [ID]` | Open the checkpoints dialog; you confirm there |
 | `scripts [list]` | The repository's `.herdr/worktree.toml` scripts (no app needed) |
-| `scripts setup\|run` | Run one in a new tab; an unseen script still asks first. Archive removes the worktree, so it stays behind the app's delete dialog |
+| `scripts setup\|run` | Run one in a new tab; an unseen script still asks first. Setup first copies the ignored files `.worktreeinclude` names from the main checkout. Archive removes the worktree, so it stays behind the app's delete dialog |
 | `teleport --to HOST` | Open the teleport dialog for your linked worktree, reviewing HOST; you confirm there |
 | `fan-out PROMPT [--agent KIND[:N]]...` | Open the fan-out dialog prefilled; you start it there |
 | `chat [status]` | The `sheprd-acp` chat panes of the window's host, this machine or an SSH host: agent, status, model, context window use, and whether the chat view or the terminal shows |
@@ -511,6 +539,18 @@ A pipe has no receive or send timeout. Reads poll with `PeekNamedPipe`, as
 the daemon client does; writes have no deadline, so the app's out buffer
 holds a whole answer and the connection bound limits what a stalled caller
 can hold.
+
+## Recovering a kept Herdr 2 chat
+
+At the shell prompt core restored after unexpected chat loss, run
+`sheprd-acp restore "$HERDR_ACP_ENDPOINT"` (PowerShell:
+`sheprd-acp restore $env:HERDR_ACP_ENDPOINT`). This is the companion program's
+command, independent of the desktop control socket. It checks the original
+terminal/socket/endpoint/folder, claims the endpoint for the process lifetime,
+and resumes only the recorded agent session. Run it on the terminal's host;
+it never falls back to a local or Herdr 1 session. See
+[Herdr 2 recovery](rich-chat.md#herdr-2-recovery) for supported launches,
+automatic new-terminal recovery and its remaining limits.
 
 ## Chats on SSH hosts
 

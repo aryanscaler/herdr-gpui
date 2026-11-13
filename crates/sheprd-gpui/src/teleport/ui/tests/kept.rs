@@ -16,6 +16,7 @@ fn panes(id: &str) -> Panes {
 
 fn outcome(workspace: Landed) -> Outcome {
     Outcome {
+        source_retired: true,
         endpoint_id: "local".into(),
         workspace,
         repo_key: "/src/app/.git".into(),
@@ -41,7 +42,12 @@ fn a_new_checkout_gets_a_kept_workspace_with_its_tabs(cx: &mut TestAppContext) {
     let scope = cx.update(|_, cx| view.read(cx).endpoint_scope("local"));
     let landed = |label: Option<&str>| {
         outcome(Landed::New {
-            checkout: "/home/me/.herdr/worktrees/app/feature".into(),
+            checkout: if label.is_some() {
+                "/home/me/.herdr/worktrees/app/named-feature"
+            } else {
+                "/home/me/.herdr/worktrees/app/feature"
+            }
+            .into(),
             label: label.map(str::to_owned),
         })
     };

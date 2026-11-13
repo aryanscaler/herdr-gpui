@@ -10,6 +10,7 @@
 mod flows;
 mod mute;
 mod notes;
+mod remote;
 #[cfg(test)]
 mod tests;
 mod worktrees;
@@ -75,11 +76,58 @@ pub(super) struct Herdr<'a> {
     pub snapshot: &'a ClientShellSnapshot,
 }
 
+/// A local socket caller, or a workspace derived from a remote terminal's
+/// authoritative host and driven tab. Remote JSON never constructs this.
+#[derive(Clone, Copy)]
+pub(super) enum Source<'a> {
+    Local(&'a Caller),
+    Remote {
+        index: usize,
+        scope: &'a crate::browser::Scope,
+        workspace: &'a str,
+    },
+}
+
+impl<'a> From<&'a Caller> for Source<'a> {
+    fn from(caller: &'a Caller) -> Self {
+        Self::Local(caller)
+    }
+}
+
 /// Finds the caller's workspace in `view`: on the caller's own daemon only
 /// when it names one, else on any endpoint showing a workspace of that ID. A
 /// caller in a herdr-core terminal is in the workspace of the tab holding
 /// it: Herdr 1's, or one the app keeps for Herdr 2.
-pub(super) fn find<'a>(view: &'a SheprdWindow, caller: &Caller) -> Result<Found<'a>, Response> {
+pub(super) fn find<'a, 'b>(
+    view: &'a SheprdWindow,
+    caller: impl Into<Source<'b>>,
+) -> Result<Found<'a>, Response> {
+    let caller = match caller.into() {
+        Source::Local(caller) => caller,
+        Source::Remote {
+            index,
+            scope,
+            workspace,
+        } => {
+            if view
+                .endpoints
+                .get(index)
+                .is_none_or(|endpoint| crate::browser::scope(endpoint) != *scope)
+            {
+                return Err(not_found("The caller's host changed"));
+            }
+            let workspace = view
+                .sessions(index)
+                .core
+                .and_then(|core| core.workspace(workspace).cloned())
+                .ok_or_else(|| not_found("The caller's workspace is no longer kept"))?;
+            return Ok(Found {
+                index,
+                workspace,
+                herdr: None,
+            });
+        }
+    };
     let target = target(caller);
     let focused_kept = (target.workspace.is_none()
         && target.terminal.is_none()
@@ -157,7 +205,10 @@ pub(super) fn find<'a>(view: &'a SheprdWindow, caller: &Caller) -> Result<Found<
 /// The caller's workspace ID, when it is on the window's selected host:
 /// dialogs act through that host alone, and a Herdr 1 workspace only while
 /// its daemon is connected.
-pub(super) fn selected_workspace(view: &SheprdWindow, caller: &Caller) -> Result<String, Response> {
+pub(super) fn selected_workspace<'a>(
+    view: &SheprdWindow,
+    caller: impl Into<Source<'a>>,
+) -> Result<String, Response> {
     let found = find(view, caller)?;
     if found.index != view.selected_endpoint {
         return Err(Response::error(

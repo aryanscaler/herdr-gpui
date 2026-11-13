@@ -1,92 +1,40 @@
+//! A dispatch journals its pre-start recovery identity before Git or the
+//! core is touched, so a failed first session write leaves nothing to undo;
+//! a failed write after the launch keeps everything the agent may be using.
 use super::*;
 use crate::store::faults;
 
 #[test]
-fn first_session_write_failure_is_recovered_without_replaying_launch_or_prompt() {
+fn a_failed_prestart_record_creates_no_checkout_and_starts_no_agent() {
     let dir = tempfile::tempdir().unwrap();
     let site = site(dir.path(), "");
     fake_core(dir.path(), "idle");
-    let _failure = faults::session_updates_after(1, 1);
+    let _failure = faults::session_updates_after(0, 1);
     let error = perform(
         &site,
         &Action::Dispatch(Box::new(herdr2_request())),
         &AtomicBool::new(false),
     )
     .unwrap_err();
-    // The run's receipt names its pending checkout before anything exists,
-    // so the write that fails is the one recording the started terminal.
-    let Error::Retained { source } = &error else {
-        panic!("a retained agent: {error:?}");
-    };
     assert!(
-        matches!(&**source, Error::Database(rusqlite::Error::SqliteFailure(code, _)) if code.code == rusqlite::ErrorCode::DatabaseBusy)
+        matches!(&error, Error::Database(rusqlite::Error::SqliteFailure(code, _)) if code.code == rusqlite::ErrorCode::DatabaseBusy),
+        "{error:?}"
     );
     assert!(std::error::Error::source(&error).is_some());
     let store = Store::open(&site.database).unwrap();
     let run = store.runs().unwrap().remove(0);
     assert_eq!(run.state, RunState::Failed);
-    assert!(run.workspace.is_some());
-    assert_eq!(
-        store.sessions().unwrap()[0].pane,
-        Pane::Herdr2 {
-            terminal: "t9".into()
-        }
-    );
-    assert_eq!(
-        core_calls(dir.path())
-            .iter()
-            .filter(|call| call.starts_with("run "))
-            .count(),
-        1
-    );
+    assert!(run.workspace.is_none());
+    assert!(!checkout(dir.path()).exists());
     assert!(
         !core_calls(dir.path())
             .iter()
-            .any(|call| call.contains("Fix the icons") || call.starts_with("kill "))
+            .any(|call| call.starts_with("run ") || call.contains("Fix the icons"))
     );
-    assert!(checkout(dir.path()).exists());
-    let cancelled = AtomicBool::new(false);
-    perform(
-        &site,
-        &Action::Send {
-            run: run.id.clone(),
-            text: "inspect retained work".into(),
-        },
-        &cancelled,
-    )
-    .unwrap();
-    perform(
-        &site,
-        &Action::Stop {
-            run: run.id.clone(),
-        },
-        &cancelled,
-    )
-    .unwrap();
-    perform(&site, &Action::Remove { run: run.id }, &cancelled).unwrap();
-    let calls = core_calls(dir.path());
-    assert!(
-        calls
-            .iter()
-            .any(|call| call == "send --json -- t9 inspect retained work")
-    );
-    assert!(
-        calls
-            .iter()
-            .any(|call| call == "keys --json -- t9 esc ctrl+c")
-    );
-    assert_eq!(
-        calls
-            .iter()
-            .filter(|call| call.starts_with("kill "))
-            .count(),
-        1
-    );
-    assert!(!checkout(dir.path()).exists());
 }
 
 #[test]
-fn recovery_write_is_bounded_and_keeps_the_original_database_cause() {
+fn a_failed_terminal_record_is_retried_once_and_keeps_its_database_cause() {
     let dir = tempfile::tempdir().unwrap();
     let site = site(dir.path(), "");
     fake_core(dir.path(), "idle");

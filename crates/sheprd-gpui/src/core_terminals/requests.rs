@@ -26,6 +26,88 @@ pub(crate) struct LabelRequests {
 }
 
 impl CoreTerminals {
+    pub(super) fn drives_browser_request(&self, scope: &Scope, terminal: &TerminalId) -> bool {
+        let host = Host::Remote(scope.clone());
+        self.tabs
+            .values()
+            .any(|tab| tab.host == host && !tab.observe && tab.panes.contains(terminal))
+    }
+
+    pub(crate) fn browser_terminal(&self, scope: &Scope, origin: &str) -> Option<TerminalId> {
+        let host = Host::Remote(scope.clone());
+        self.tabs
+            .values()
+            .filter(|tab| tab.host == host && !tab.observe)
+            .flat_map(|tab| tab.panes.terminals())
+            .find(|terminal| crate::chat::core_pane::key_on(&host, terminal) == origin)
+            .cloned()
+    }
+
+    pub(crate) fn browser_caller_live(&self, scope: &Scope, origin: &str) -> bool {
+        self.browser_backend(scope, origin).is_some()
+    }
+
+    pub(crate) fn browser_backend(&self, scope: &Scope, origin: &str) -> Option<&CoreBackend> {
+        self.browser_terminal(scope, origin)?;
+        self.backend_of(&Host::Remote(scope.clone()))
+            .filter(|backend| !backend.core().is_lost())
+    }
+
+    pub(crate) fn browser_request_value(
+        &self,
+        scope: &Scope,
+        terminal: &TerminalId,
+        name: &str,
+    ) -> Option<&str> {
+        let host = Host::Remote(scope.clone());
+        if !self.drives_browser_request(scope, terminal) {
+            return None;
+        }
+        let remote = self.remote.get(scope)?;
+        self.backend_of(&host)
+            .filter(|backend| !backend.core().is_lost())?;
+        remote
+            .infos
+            .all()
+            .find(|info| info.id == *terminal)?
+            .labels
+            .get(name)
+            .map(String::as_str)
+    }
+
+    /// Writes a bounded reply on the existing authenticated core connection.
+    /// The UI retains the notes until the caller acknowledges reading it.
+    pub(crate) fn browser_reply(
+        &self,
+        scope: &Scope,
+        terminal: &TerminalId,
+        name: String,
+        value: String,
+    ) -> Option<std::sync::mpsc::Receiver<sheprd_core_client::Result<()>>> {
+        let backend = self.backend_of(&Host::Remote(scope.clone()))?.clone();
+        let terminal = terminal.clone();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let spawned = std::thread::Builder::new()
+            .name("browser-reply".into())
+            .spawn(move || {
+                let result = backend
+                    .core()
+                    .label(
+                        terminal.as_str(),
+                        &BTreeMap::from([(name.as_str(), value.as_str())]),
+                    )
+                    .map(drop);
+                let _ = sender.send(result);
+            });
+        match spawned {
+            Ok(_) => Some(receiver),
+            Err(error) => {
+                tracing::warn!(%error, "Could not start browser reply worker");
+                None
+            }
+        }
+    }
+
     /// Every request label on terminals of other hosts' cores that this
     /// window shows in a tab driving them, each once: a request is served
     /// only the first time it is listed, and never when it predates the

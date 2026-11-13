@@ -1,8 +1,8 @@
 //! A window's side of requests from agents in Herdr 2 terminals on another
 //! host (see `core_terminals::requests`): serve each new one once, in the
 //! workspace of the tab that shows its terminal, then remove its labels.
-//! A request carries no pane, so its page reports to no agent and a reload
-//! is never asked for.
+//! Caller identity comes from the terminal carrying the labels, never from
+//! a pane identifier supplied by the requesting process.
 
 use super::{PART, PREFIX, Request, Seen, SeenKey};
 use crate::{SheprdWindow, browser::Store};
@@ -14,6 +14,7 @@ impl SheprdWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.poll_remote_feedback(window, cx);
         for found in self.core_terminals.label_requests() {
             let Some(index) = self
                 .endpoints
@@ -31,6 +32,17 @@ impl SheprdWindow {
             };
             let mut served = Vec::new();
             for request in Request::all(&found.tokens) {
+                if let super::Action::Feedback { wait_seconds } = request.action {
+                    self.begin_remote_feedback(
+                        &found.scope,
+                        &found.terminal,
+                        &request.id,
+                        wait_seconds,
+                        window,
+                        cx,
+                    );
+                    continue;
+                }
                 let name = format!("{PREFIX}{}", request.id);
                 let part = format!("{name}{PART}");
                 served.extend(
@@ -44,13 +56,15 @@ impl SheprdWindow {
                 let key = SeenKey {
                     scope: found.scope.clone(),
                     workspace: workspace.clone(),
-                    id: request.id.clone(),
-                    window: None,
+                    id: format!("{}:{}", found.terminal, request.id),
+                    window: matches!(request.action, super::Action::Reload)
+                        .then_some(window.window_handle().window_id().as_u64()),
                 };
-                // A request names no pane here, so it never asks for a
-                // reload, which needs the pane that opened the page.
                 let request = Request {
-                    pane: None,
+                    pane: Some(crate::chat::core_pane::key_on(
+                        &crate::core_terminals::Host::Remote(found.scope.clone()),
+                        &found.terminal,
+                    )),
                     ..request
                 };
                 if cx.default_global::<Seen>().first(key) {

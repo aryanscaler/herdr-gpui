@@ -1,0 +1,132 @@
+#cloud-config
+# DigitalOcean user data for one relay droplet (Ubuntu 24.04). It installs
+# Docker, opens only SSH, HTTP, HTTPS, and QUIC (UDP 443), writes the
+# compose files, makes a dashboard token, and starts the relay at
+# https://IP.sslip.io unless RELAY_DOMAIN is filled in below. create-droplet.sh fills the two
+# placeholders; to use this by hand, replace them yourself.
+#
+# start.sh runs only an image whose cosign signature comes from
+# relay-image.yml on sheprd-labs/sheprd's main branch, by the digest that
+# signature covers. Run it again to update; when the check fails, it
+# leaves the running relay alone and exits non-zero.
+#
+# The dashboard login is written to /root/sheprd-relay-login.txt (0600).
+
+package_update: true
+packages: [docker.io, docker-compose-v2, ufw, curl, jq]
+
+write_files:
+  - path: /opt/sheprd-relay/compose.yml
+    permissions: "0644"
+    encoding: b64
+    content: __COMPOSE_B64__
+  - path: /opt/sheprd-relay/Caddyfile
+    permissions: "0644"
+    encoding: b64
+    content: __CADDYFILE_B64__
+  - path: /etc/sysctl.d/90-sheprd-relay.conf
+    permissions: "0644"
+    content: |
+      # Room for QUIC's bursts, so the kernel does not drop datagrams.
+      net.core.rmem_max = 7500000
+      net.core.wmem_max = 7500000
+  - path: /opt/sheprd-relay/start.sh
+    permissions: "0700"
+    content: |
+      #!/bin/sh
+      set -eu
+      cd /opt/sheprd-relay
+      # cosign keeps its Sigstore trust root under HOME, which cloud-init's
+      # runcmd may leave unset.
+      export HOME="${HOME:-/root}"
+      domain="__RELAY_DOMAIN__"
+      # The sentinel is split so create-droplet.sh's substitution, which
+      # fills the line above, cannot also rewrite it.
+      if [ -z "$domain" ] || [ "$domain" = "__RELAY_""DOMAIN__" ]; then
+        ip=$(curl -fsS http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address)
+        domain="$(echo "$ip" | tr . -).sslip.io"
+      fi
+      if [ ! -f .env ]; then
+        umask 077
+        # 32 random bytes: guessing is hopeless, and three wrong tries
+        # block an address for 15 minutes anyway.
+        token=$(head -c 32 /dev/urandom | base64 | tr -d '/+=\n')
+        printf 'RELAY_DASHBOARD_TOKEN=%s\n' "$token" > .env
+        printf 'https://%s/dashboard\naccess token: %s\n' "$domain" "$token" > /root/sheprd-relay-login.txt
+      fi
+      # Ranges to ban by hand, one per line; the relay re-reads it. Made
+      # readable by the relay's non-root user: the umask above keeps .env
+      # private, and must not reach these.
+      (umask 022; mkdir -p bans; [ -f bans/list ] || printf '# One address or range per line, e.g. 203.0.113.0/24\n' > bans/list)
+      chmod 755 bans
+      chmod 644 bans/list
+      # QUIC's certificate lives here across restarts, for the relay's
+      # user only (65532, distroless's nonroot).
+      mkdir -p quic
+      chown 65532:65532 quic
+      chmod 700 quic
+      # cosign, pinned to the release relay-image.yml signs with, and checked
+      # against the SHA-256 in that release's signed cosign_checksums.txt.
+      cosign_version=v2.6.5
+      arch=$(dpkg --print-architecture)
+      case $arch in
+        amd64) cosign_sha256=c3b4f5410e608af03a5eb0aaac84a4313d8da131248e08ff1759ac70c79d1644 ;;
+        arm64) cosign_sha256=426193b4c5da4d4d643e822f48fe0cc8a476ca1782a272704831f5a0cef716d7 ;;
+        *) echo "sheprd-relay: no pinned cosign for $arch" >&2; exit 1 ;;
+      esac
+      cosign=/usr/local/bin/cosign-$cosign_version
+      if ! printf '%s  %s\n' "$cosign_sha256" "$cosign" | sha256sum -c --status 2>/dev/null; then
+        curl -fsSL -o "$cosign.download" \
+          "https://github.com/sigstore/cosign/releases/download/$cosign_version/cosign-linux-$arch"
+        if ! printf '%s  %s\n' "$cosign_sha256" "$cosign.download" | sha256sum -c --status; then
+          rm -f "$cosign.download"
+          echo "sheprd-relay: the cosign download does not match its pinned SHA-256" >&2
+          exit 1
+        fi
+        chmod 755 "$cosign.download"
+        mv "$cosign.download" "$cosign"
+      fi
+      # The image to run, as REPOSITORY@sha256:DIGEST. A tag (the default,
+      # :latest) is resolved by verifying it: cosign accepts only a keyless
+      # signature from relay-image.yml on sheprd-labs/sheprd's main branch,
+      # and the digest that signature covers is what runs, so a later push
+      # to the tag cannot slip in. A digest an operator pins in RELAY_IMAGE
+      # is theirs to have verified, and is used as given.
+      verified_image() {
+        image=${RELAY_IMAGE:-ghcr.io/sheprd-labs/sheprd-relay:latest}
+        case $image in
+          *@sha256:*) printf '%s' "$image"; return 0 ;;
+        esac
+        case ${image##*/} in
+          *:*) repository=${image%:*} ;;
+          *) repository=$image ;;
+        esac
+        if ! payload=$("$cosign" verify "$image" \
+          --certificate-identity https://github.com/sheprd-labs/sheprd/.github/workflows/relay-image.yml@refs/heads/main \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com); then
+          echo "sheprd-relay: $image has no valid signature from sheprd-labs/sheprd's relay-image.yml on main; the running relay is unchanged" >&2
+          return 1
+        fi
+        digest=$(printf '%s' "$payload" | jq -r '[.[].critical.image."docker-manifest-digest"] | unique | if length == 1 then .[0] else empty end') || digest=""
+        if ! printf '%s' "$digest" | grep -Eqx 'sha256:[0-9a-f]{64}'; then
+          echo "sheprd-relay: cosign verified $image but named no single digest; the running relay is unchanged" >&2
+          return 1
+        fi
+        printf '%s@%s' "$repository" "$digest"
+      }
+      image=$(verified_image) || exit 1
+      printf 'RELAY_DOMAIN=%s\nRELAY_IMAGE=%s\n' "$domain" "$image" > compose.env
+      # Set here too: a RELAY_IMAGE in the environment would otherwise win
+      # over compose.env's verified digest.
+      RELAY_IMAGE="$image" docker compose --env-file compose.env up -d
+
+runcmd:
+  - sysctl --system
+  - ufw default deny incoming
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw allow 443/udp
+  - ufw --force enable
+  - systemctl enable --now docker
+  - /opt/sheprd-relay/start.sh

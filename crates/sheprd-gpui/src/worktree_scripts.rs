@@ -8,6 +8,10 @@
 //! [`launch`]), never in the background, and only once the user has reviewed
 //! and trusted that exact file for that repository on that host.
 //!
+//! Before a setup reads its checkout's file, the ignored files the main
+//! checkout's `.worktreeinclude` names are copied in (see [`include`]), so a
+//! personal, ignored `.herdr/worktree.toml` reaches every new worktree.
+//!
 //! One script starts at a time. Its job is fenced by the selection epoch and
 //! connection generation it began under, like a menu action, so a reply from
 //! a replaced connection never opens a tab or types into one.
@@ -18,6 +22,7 @@
 
 mod config;
 mod error;
+mod include;
 mod kept;
 mod launch;
 mod trust;
@@ -221,12 +226,17 @@ impl SheprdWindow {
         let resolve = job.launch.kept() && checkout.root.is_none();
         let token = job.cancel.clone();
         let cancel = job.cancel.clone();
+        // The copy comes first, so a `.herdr/worktree.toml` it brings is read.
+        let setup = job.launch.kind == ScriptKind::Setup;
         let read = cx.background_executor().spawn(async move {
             let checkout = if resolve {
                 kept_script_checkout(&target, &checkout.path, &cancel)?
             } else {
                 checkout
             };
+            if setup {
+                include::copy(&target, &checkout)?;
+            }
             Ok::<_, crate::Error>((config::read(&target, &checkout.path, &cancel)?, checkout))
         });
         cx.spawn(async move |this, cx| {

@@ -1,0 +1,75 @@
+[package]
+description            = "Joins two peers' end-to-end encrypted streams when no direct path exists, seeing only ciphertext"
+edition.workspace      = true
+license.workspace      = true
+name                   = "sheprd-relay"
+publish.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[lints]
+workspace = true
+
+[features]
+# The relay service. Clients depend on this crate without it, for relay
+# endpoints, routes, and the listener's proof alone, so Tokio and axum
+# never reach them.
+default = ["server"]
+# Checking that Sheprd's relay list is genuine (`directory::signed`): the
+# maintainer's OpenPGP signature or the site workflow's Ed25519 one. For
+# clients that fetch the list; the relay itself never reads it.
+signed-directory = ["dep:ed25519-dalek", "dep:pgp"]
+server = [
+  "dep:axum",
+  "dep:futures-util",
+  "dep:hmac",
+  "dep:percent-encoding",
+  "dep:quinn",
+  "dep:rcgen",
+  "dep:rustls",
+  "dep:secrecy",
+  "dep:tokio",
+  "dep:tracing",
+  "dep:tracing-subscriber",
+]
+
+[[bin]]
+name              = "sheprd-relay"
+required-features = ["server"]
+
+[[example]]
+name              = "relays"
+required-features = ["signed-directory"]
+
+[dependencies]
+base64.workspace     = true
+getrandom.workspace  = true
+p256.workspace       = true
+serde.workspace      = true
+serde_json.workspace = true
+sha2.workspace       = true
+thiserror.workspace  = true
+url.workspace        = true
+
+axum          = { optional = true, workspace = true }
+ed25519-dalek = { optional = true, workspace = true }
+pgp           = { optional = true, workspace = true }
+# `split` lets each direction of a spliced pair wait on its own throttle.
+futures-util       = { features = ["std"], optional = true, workspace = true }
+hmac               = { optional = true, workspace = true }
+percent-encoding   = { optional = true, workspace = true }
+quinn              = { optional = true, workspace = true }
+rcgen              = { optional = true, workspace = true }
+rustls             = { optional = true, workspace = true }
+secrecy            = { optional = true, workspace = true }
+tokio              = { optional = true, workspace = true }
+tracing            = { optional = true, workspace = true }
+tracing-subscriber = { features = ["fmt"], optional = true, workspace = true }
+
+[dev-dependencies]
+anyhow.workspace            = true
+http-body-util.workspace    = true
+serde_json.workspace        = true
+tokio                       = { features = ["test-util"], workspace = true }
+tokio-tungstenite.workspace = true
+tower.workspace             = true

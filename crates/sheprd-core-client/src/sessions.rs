@@ -76,6 +76,12 @@ pub(crate) fn claude_record(pid: u32, home: &std::path::Path) -> Result<String> 
     Ok(record.session)
 }
 
+/// The OS birth token of a process on this host, or `None` once no process
+/// has `pid`. Doubt is an error, never absence.
+pub fn process_birth(pid: u32) -> Result<Option<String>> {
+    process::birth(pid)
+}
+
 fn record(core: &Core, terminal: &str, agent: AgentKind) -> Result<Terminal> {
     if terminal.contains('/') || terminal.is_empty() {
         return Err(Error::Identity.into());

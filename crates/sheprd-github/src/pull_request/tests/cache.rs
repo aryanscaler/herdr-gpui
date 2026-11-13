@@ -15,6 +15,7 @@ mod missing;
 mod pause;
 mod rate_indicator;
 mod shared;
+mod ssh_scope;
 mod undecided_merge;
 
 /// The view a [`Peer`] starts in: this machine, read with the fixture account.
@@ -233,7 +234,10 @@ fn scope_changes_fence_late_results_and_only_another_account_forgets_answers() {
         let (generation, _, _, _, _) = peer.incoming.try_recv().unwrap();
         let token = peer.cache.token.as_ref().unwrap().clone();
         match change {
-            0 => peer.cache.clear(), // sign-out
+            0 => {
+                peer.cache.clear(); // sign-out
+                true
+            }
             1 => peer.cache.scope(
                 scope(0, 1, "boot"),
                 Arc::new("other".into()),
@@ -261,8 +265,11 @@ fn scope_changes_fence_late_results_and_only_another_account_forgets_answers() {
                 "fixture",
                 Origin::Ssh("host".into()),
             ),
-            _ => peer.cache.retain(|input| input.branch == "new"),
-        }
+            _ => {
+                peer.cache.retain(|input| input.branch == "new");
+                true
+            }
+        };
         assert_eq!(
             peer.cache
                 .peek(&peer.cache.view, "/repo/.git", "cached")

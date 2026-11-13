@@ -9,6 +9,7 @@ sheprd-acp claude             # or codex, copilot, gemini, opencode
 sheprd-acp -- goose acp       # any ACP agent command
 sheprd-acp --load ID codex    # continue one of the agent's sessions
 sheprd-acp --resume ID codex  # the same, but never start a new session instead
+sheprd-acp restore ENDPOINT  # recover the chat in its kept Herdr 2 shell
 ```
 
 `sheprd-acp --help` lists every option and key.
@@ -222,7 +223,24 @@ to continue the session with `--resume` (see
 [Chats after a reboot](../../docs/rich-chat.md#chats-after-a-reboot), which
 also covers how Sheprd drops the record of a chat it saw end). A custom command (`-- COMMAND`), a
 chat started with extra agent arguments, one with `--no-attach`, and a chat
-outside a Herdr pane (including a Herdr 2 terminal) keep no record.
+outside a Herdr pane or core terminal keep no record.
+
+Herdr 2 chats keep the same exact-session information separately under
+`restore/core`, scoped by the core-injected `HC_TERMINAL_ID` and
+`HC_TERMINAL_SOCKET`, not a caller's `HC_SOCKET`. An endpoint lock is acquired
+before agent startup and held for the chat's lifetime. In the shell core keeps
+after unexpected loss, `sheprd-acp restore "$HERDR_ACP_ENDPOINT"` validates
+the original terminal, socket, endpoint and folder and resumes that session.
+Normal quits/successful exits remove the record; unexpected failures retain it.
+It does not automatically type a command into a recovered shell. It also
+publishes exact opened sessions to the owning core's versioned document store
+for desktop/phone new-terminal recovery. Replacement startup checks the durable
+generation while holding its endpoint lock; expected closure writes a tombstone.
+Explicit launch overrides and allowlisted agent configuration paths are retained,
+not the entire inherited process environment. See
+[Herdr 2 recovery](../../docs/rich-chat.md#herdr-2-recovery)
+for environment policy, supported launches, history limitations and remaining
+automatic-recovery work.
 
 It also writes OSC 7501 program status to the terminal, for terminals that read
 it; terminals that do not ignore it.

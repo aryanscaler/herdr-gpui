@@ -19,6 +19,7 @@ use super::{
     layout::{Row, Side, ToolFold, Voice, layout_for, side},
     visuals::Frame,
 };
+use crate::chat::code_block::scroll_sideways;
 use crate::{SheprdWindow, config::corners, fonts::StyledFont, i18n::fl, notifications::safe_text};
 use gpui::{prelude::*, *};
 use sheprd_chat_protocol::{
@@ -296,7 +297,7 @@ impl SheprdWindow {
                     .id(("chat-thought-text", id.0))
                     .min_w_0()
                     .when(!expanded, |row| row.truncate())
-                    .when(expanded, |row| row.overflow_x_scroll())
+                    .when(expanded, scroll_sideways)
                     .child(self.render_chat_text(
                         pane_id,
                         id,
@@ -438,7 +439,7 @@ impl SheprdWindow {
                         .debug_selector(move || format!("chat-tool-details-{}", entry.0))
                         .min_w_0()
                         .w_full()
-                        .overflow_x_scroll()
+                        .map(scroll_sideways)
                         .text_size(self.chat_tool_text())
                         .text_font(&self.config.terminal)
                         .text_color(rgb(theme.muted))
@@ -672,7 +673,7 @@ impl SheprdWindow {
                                 .id(("chat-notice-source", id.0))
                                 .debug_selector(move || format!("chat-notice-source-{}", id.0))
                                 .w_full()
-                                .overflow_x_scroll()
+                                .map(scroll_sideways)
                                 .text_font(&self.config.terminal)
                                 .text_size(self.chat_small_text())
                                 // Imported content is inert source text, including

@@ -9,6 +9,10 @@ use ratex_render::{RenderOptions, render_to_png};
 use ratex_types::{Color, MathStyle};
 use std::sync::Arc;
 
+/// Transparent margin around each formula's ink, in points, so antialiased
+/// glyph edges are not clipped. Inline layout takes it back out of the advance.
+pub(in crate::chat) const PADDING: f32 = 2.;
+
 pub(in crate::chat) fn draw(source: &str, mode: MathMode, size: f32, color: u32) -> Result<Drawn> {
     if !within_limits(source) {
         return Err(Error::MathLimit);
@@ -32,8 +36,8 @@ pub(in crate::chat) fn draw(source: &str, mode: MathMode, size: f32, color: u32)
     // KaTeX's lowercase height is about .44em versus .54em in our sans
     // prose. Match their optical sizes, including baselines and raster bounds.
     let size = (size * 1.22).clamp(10., 64.);
-    let width = list.width as f32 * size + 4.;
-    let height = (list.height + list.depth) as f32 * size + 4.;
+    let width = list.width as f32 * size + 2. * PADDING;
+    let height = (list.height + list.depth) as f32 * size + 2. * PADDING;
     // Includes the 2x raster: at most 4 MiB per formula and atlas-safe sides.
     if !width.is_finite()
         || !height.is_finite()
@@ -49,7 +53,7 @@ pub(in crate::chat) fn draw(source: &str, mode: MathMode, size: f32, color: u32)
         &list,
         &RenderOptions {
             font_size: size,
-            padding: 2.,
+            padding: PADDING,
             device_pixel_ratio: 2.,
             background_color: Color::new(0., 0., 0., 0.),
             ..Default::default()
@@ -66,7 +70,7 @@ pub(in crate::chat) fn draw(source: &str, mode: MathMode, size: f32, color: u32)
         texture: Arc::new(texture),
         width,
         height,
-        baseline: Some(list.height as f32 * size + 2.),
+        baseline: Some(list.height as f32 * size + PADDING),
     })
 }
 

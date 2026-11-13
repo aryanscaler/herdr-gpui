@@ -24,7 +24,7 @@ pub enum Error {
     NotUtf8(&'static str),
     #[error("give the agent command after `--`")]
     EmptyCommand,
-    #[error("`connect` needs a chat's endpoint id")]
+    #[error("this command needs a chat's endpoint id")]
     MissingEndpoint,
     #[error("`{0}` is not a chat endpoint id")]
     InvalidEndpoint(String),
@@ -43,6 +43,8 @@ pub(crate) enum Parsed {
     Run(Options),
     /// Carry a client connection to a running chat over stdin and stdout.
     Connect(sheprd_chat_protocol::EndpointId),
+    /// Continue the exact chat belonging to this kept core terminal.
+    Restore(sheprd_chat_protocol::EndpointId),
     /// Watch an existing CLI transcript without starting or driving an agent.
     Mirror(MirrorOptions),
     /// Project one verified running CLI process over standard streams.
@@ -113,6 +115,8 @@ Usage:
   sheprd-acp connect ID   Attach stdin and stdout to the running chat ID
                          (Sheprd runs this over SSH for remote chats)
   sheprd-acp agents       List the agents installed here, one per line
+  sheprd-acp restore ID   Resume this kept Herdr 2 terminal's exact chat
+                         (run at its shell prompt after unexpected loss)
   sheprd-acp session-report AGENT
                         Report bounded session JSON from stdin for HC_TERMINAL_ID.
   sheprd-acp session-install claude|codex|copilot|opencode|pi|omp|letta
@@ -178,15 +182,21 @@ pub(crate) fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Parsed, 
                 None => Ok(Parsed::Agents),
             };
         }
-        Some("connect") => {
-            args.next();
+        Some("connect" | "restore") => {
+            let restoring = args.next().is_some_and(|arg| arg == "restore");
             let id = utf8(args.next(), "connect").map_err(|_| Error::MissingEndpoint)?;
             if let Some(extra) = args.next() {
                 return Err(Error::UnknownOption(extra));
             }
             return id
                 .parse()
-                .map(Parsed::Connect)
+                .map(|id| {
+                    if restoring {
+                        Parsed::Restore(id)
+                    } else {
+                        Parsed::Connect(id)
+                    }
+                })
                 .map_err(|_| Error::InvalidEndpoint(id));
         }
         Some("mirror") => {

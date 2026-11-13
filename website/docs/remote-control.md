@@ -13,7 +13,7 @@ Remote control lets a phone, or any browser, follow the chats running on your co
 
 Turning on remote control installs a small daemon, `sheprd-remote-control`, as a user service: a LaunchAgent on macOS, a systemd user unit on Linux, or a logon task on Windows. It serves a mobile web app over HTTPS on your local network and, when Tailscale runs on the computer, over Tailscale. It keeps running when Sheprd quits, so phones keep working and notifications keep coming; pairing a new phone still needs Sheprd open.
 
-The phone reaches your computer directly at its network addresses; there is no account to create. The daemon never stops or upgrades your Herdr daemon, and never starts Herdr 1; without one running, the phone shows that Herdr is not running. On a machine with Herdr 2 (herdr-core) and no Herdr 1, such as a cloud machine, opening the phone, or asking for a new tab or chat, starts herdr-core when it is not running.
+The phone reaches your computer directly at its network addresses; there is no account to create. To reach it from anywhere without Tailscale, [relays](relays.md) are coming; you can already run your own. The daemon never stops or upgrades your Herdr daemon, and never starts Herdr 1; without one running, the phone shows that Herdr is not running. On a machine with Herdr 2 (herdr-core) and no Herdr 1, such as a cloud machine, opening the phone, or asking for a new tab or chat, starts herdr-core when it is not running.
 
 From the phone you can:
 

@@ -21,6 +21,7 @@ use sheprd_client::{
 };
 use std::sync::Arc;
 
+mod clear;
 mod finished;
 mod mutes;
 

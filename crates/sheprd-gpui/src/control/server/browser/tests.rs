@@ -3,6 +3,7 @@ use super::*;
 use crate::control::protocol::Request;
 
 mod holders;
+mod remote_origin;
 mod scoped_notes;
 
 #[test]

@@ -93,12 +93,25 @@ impl SheprdWindow {
         }
         if let Some(store) = cx.try_global::<Store>() {
             for scope in self.remote_core_scopes(store) {
+                let shown_folder = self
+                    .core_terminals
+                    .shown
+                    .as_ref()
+                    .filter(|(tab, _)| {
+                        self.core_terminals.host_of(*tab) == super::Host::Remote(scope.clone())
+                    })
+                    .and_then(|_| self.shown_core_folder());
                 if let Some(remote) = self.core_terminals.remote.get_mut(&scope) {
-                    let folders = store
+                    let mut folders: Vec<_> = store
                         .kept_workspaces(&scope)
                         .filter(|workspace| !workspace.cwd.is_empty())
                         .map(|workspace| workspace.cwd.clone())
                         .collect();
+                    if let Some(folder) = shown_folder
+                        && !folders.contains(&folder)
+                    {
+                        folders.push(folder);
+                    }
                     checkouts_changed |= remote.checkouts.poll_on(
                         folders,
                         std::time::Instant::now(),
@@ -134,7 +147,12 @@ impl SheprdWindow {
             .iter()
             .filter(|endpoint| endpoint.connection.target.is_remote())
             .map(scope)
-            .filter(|scope| store.kept_workspaces(scope).next().is_some())
+            .filter(|scope| {
+                store.kept_workspaces(scope).next().is_some()
+                    || self.core_terminals.shown.as_ref().is_some_and(|(tab, _)| {
+                        self.core_terminals.host_of(*tab) == super::Host::Remote(scope.clone())
+                    })
+            })
             .collect()
     }
 

@@ -3,6 +3,8 @@
 
 error-worktree-scripts-busy = Another worktree script is still starting
 error-worktree-scripts-checkout = The daemon did not identify this workspace's checkout
+error-worktree-scripts-copy = Could not copy the files .worktreeinclude names: { $error }
+error-worktree-scripts-copy-unsupported = .worktreeinclude is not supported on Windows yet; its files were not copied
 error-worktree-scripts-encoding = .herdr/worktree.toml is not valid UTF-8
 error-worktree-scripts-not-git = This workspace is not a Git checkout Herdr knows yet
 error-worktree-scripts-nul = .herdr/worktree.toml scripts must not contain NUL bytes

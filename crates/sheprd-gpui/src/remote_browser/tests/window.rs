@@ -12,6 +12,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod core_forwards;
+
 /// The fixture window, whose workspace `w1` carries `pairs` as tokens.
 fn window<'a>(
     cx: &'a mut gpui::TestAppContext,

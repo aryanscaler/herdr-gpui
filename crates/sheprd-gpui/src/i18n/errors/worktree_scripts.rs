@@ -9,6 +9,9 @@ impl Localize for Error {
             // keep-sorted start
             Self::Busy => fl!("error-worktree-scripts-busy"),
             Self::Checkout => fl!("error-worktree-scripts-checkout"),
+            Self::Copy(error) => fl!("error-worktree-scripts-copy", error = error.localize()),
+            #[cfg(windows)]
+            Self::CopyUnsupported => fl!("error-worktree-scripts-copy-unsupported"),
             Self::Encoding(_) => fl!("error-worktree-scripts-encoding"),
             Self::NotGit => fl!("error-worktree-scripts-not-git"),
             Self::Nul => fl!("error-worktree-scripts-nul"),

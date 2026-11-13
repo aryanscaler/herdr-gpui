@@ -12,6 +12,10 @@ mod shim;
 #[cfg(unix)]
 mod shim_core;
 
+/// How the remote work shim prints replies and the exit codes it returns.
+#[cfg(unix)]
+mod work_output;
+
 /// The scripts that put the shim and the skill on a host.
 #[cfg(unix)]
 mod install;

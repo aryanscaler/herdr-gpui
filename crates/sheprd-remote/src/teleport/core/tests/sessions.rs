@@ -96,22 +96,12 @@ fn a_record_of_another_process_is_never_taken() {
 }
 
 #[test]
-fn a_move_is_refused_once_an_agent_runs_another_session() {
+fn discovery_observes_a_new_conversation_in_the_same_process() {
     let start = "Sat Nov  7 01:17:05 2026";
     let processes = [("t3", 29421)];
     let reviewed = parse(&section("t3", start, start, RECORD), &processes);
-    let expected: Vec<(String, AgentSession)> = reviewed.clone().into_iter().collect();
-    assert!(unchanged(&expected, &reviewed).is_ok());
     // `/resume` picked another conversation in the same process.
     let resumed = RECORD.replace("6941a392", "7aa96a54");
     let now = parse(&section("t3", start, start, &resumed), &processes);
-    assert!(matches!(
-        unchanged(&expected, &now),
-        Err(Error::SourceSessionChanged)
-    ));
-    // Claude restarted, or quit: no session of its process is found.
-    assert!(matches!(
-        unchanged(&expected, &HashMap::new()),
-        Err(Error::SourceSessionChanged)
-    ));
+    assert_ne!(reviewed, now);
 }

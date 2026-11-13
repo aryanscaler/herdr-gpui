@@ -1,0 +1,50 @@
+# DigitalOcean App Platform: the relay from the published image, with no
+# server to manage.
+#
+#   doctl apps create --spec deploy/relay/app.yaml
+#
+# App Platform carries HTTP only, not UDP, so the relay runs here without
+# QUIC: clients use its WebSocket fallback. For QUIC, the faster transport,
+# use a droplet instead (create-droplet.sh).
+#
+# App Platform sets PORT, which the relay listens on; puts the caller's
+# address in do-connecting-ip; and fills ${APP_DOMAIN} with the app's own
+# name, which WebSocket proofs must cover. To turn the dashboard on, add
+# RELAY_DASHBOARD_TOKEN (24+ characters) as an encrypted variable in the
+# app's settings, then open https://APP_DOMAIN/dashboard.
+#
+# .do/deploy.template.yaml is the same app for the "Deploy to DigitalOcean"
+# button; a test keeps the two in step.
+name: sheprd-relay
+region: nyc
+services:
+  - name: relay
+    image:
+      registry_type: GHCR
+      registry: ghcr.io
+      repository: sheprd-labs/sheprd-relay
+      # Unverified: App Platform cannot check the image's cosign
+      # signature, and a push to :latest reaches the app on its next
+      # deploy. To pin, verify a digest (deploy/relay/README.md) and
+      # replace this line with `digest: sha256:...`.
+      tag: latest
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    http_port: 8080
+    health_check:
+      http_path: /healthz
+    routes:
+      - path: /
+    envs:
+      - key: RELAY_PUBLIC_HOST
+        scope: RUN_TIME
+        value: ${APP_DOMAIN}
+      - key: RELAY_CLIENT_IP_HEADER
+        scope: RUN_TIME
+        value: do-connecting-ip
+      - key: RELAY_QUIC
+        scope: RUN_TIME
+        value: "off"
+      - key: RELAY_METRICS
+        scope: RUN_TIME
+        value: "off"

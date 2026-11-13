@@ -1,0 +1,11 @@
+# The build needs the workspace manifests and crate sources only.
+target/
+.git/
+ios/
+site/
+website/
+design/
+docs/
+assets/screenshots/
+homebrew/
+**/node_modules/

@@ -37,5 +37,6 @@ fn batches_are_taken_once_per_pane_and_bounded() {
     );
 }
 
+mod retire;
 mod session_isolation;
 mod take_budget;

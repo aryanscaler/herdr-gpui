@@ -124,5 +124,10 @@ overview-reply-not-queued = { $count ->
 overview-alert-gone = That pane is no longer there
 # The Notification History command, when no host kept an alert yet.
 overview-alerts-empty = No alerts yet
+# The Recent alerts shelf's button: runs Clear All Notifications, which also
+# dismisses toasts and the app's OS notifications in every window.
+overview-alerts-clear = Clear
+# The tooltip of that button.
+overview-alerts-clear-hint = Clear all notifications in every window: alerts, toasts, and the app's system notifications
 # The host a Herdr 2 agent row names when no Herdr 1 runs on this computer.
 overview-core-host = This computer

@@ -17,3 +17,12 @@ herdr-core). No GPUI or async runtime.
   the same semantic input as with Herdr 1.
 
 Every call blocks: use it from a worker thread, never from the UI thread.
+
+`chat_recovery` is shared by desktop and phone workers. It keeps exact ACP
+session documents in the connected core, claims replacement generations with
+versioned writes, starts replacement terminals without PTY command injection,
+and writes expected-close tombstones before kills. `run` preserves explicit
+launch overrides; ACP calls `opened` with its real session and `claim` before
+replacement agent startup. Durable replacement labels feed host-scoped pane
+remapping through `mapping`. See [Herdr 2 recovery](../../docs/rich-chat.md#herdr-2-recovery)
+for supported loss observations, bounds and remaining runtime verification.

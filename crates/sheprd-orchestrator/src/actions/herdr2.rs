@@ -12,7 +12,7 @@ use chrono::Utc;
 use sheprd_client::shell_quote;
 use sheprd_remote::{
     teleport::Host,
-    work::{self, NewWorktree, Started, Worktree},
+    work::{self, NewWorktree, Started, Worktree, owned_agent::Purpose},
 };
 use std::sync::atomic::AtomicBool;
 
@@ -24,7 +24,11 @@ struct Listed {
 #[derive(serde::Deserialize)]
 struct Address {
     #[serde(default)]
+    address: String,
+    #[serde(default)]
     cwd: String,
+    #[serde(default)]
+    labels: std::collections::HashMap<String, String>,
     #[serde(default)]
     state: TerminalState,
 }
@@ -77,6 +81,39 @@ pub(super) fn unused_checkout(
     Ok(())
 }
 
+/// Whether the inventory proves the run has no agent left to end: neither
+/// its recorded terminal nor any terminal with its ownership label exists,
+/// and nothing else lives in its checkout. A restart interrupted after
+/// ending the previous agent, or before launching the next, resumes only
+/// on this proof.
+pub(super) fn gone(
+    host: &Host,
+    run: &Run,
+    session: &HerdrSession,
+    cancelled: &AtomicBool,
+) -> Result<bool> {
+    let Some(workspace) = run.workspace.as_ref() else {
+        return Ok(false);
+    };
+    let recorded = match &session.pane {
+        Pane::Herdr2 { terminal } => Some(terminal.as_str()),
+        Pane::Pending => None,
+        Pane::Herdr1 { .. } => return Ok(false),
+    };
+    let label = owner(&session.agent_name);
+    let listed = terminals(host, cancelled)?;
+    if listed.terminals.iter().any(|terminal| {
+        recorded.is_some_and(|recorded| terminal.address == recorded)
+            || terminal
+                .labels
+                .get(label.key)
+                .is_some_and(|value| value == label.value)
+    }) {
+        return Ok(false);
+    }
+    Ok(unused_checkout(host, workspace, cancelled).is_ok())
+}
+
 /// Makes the run's worktree from `checkout`, starts its agent there, and
 /// sends it the prompt once it is ready, recording each step in `store`.
 /// The worktree made is left in `created` for the caller to undo on failure;
@@ -125,7 +162,11 @@ pub(super) fn launch(
         agent_name: name.to_owned(),
         updated_at: run.updated_at,
     };
-    store.update_run(run, Some(&pending))?;
+    if let Err(error) = store.update_run(run, Some(&pending)) {
+        // Neither checkout creation nor launch has been attempted yet.
+        run.workspace = None;
+        return Err(error);
+    }
     work::owned_checkout::create(host, checkout, &worktree, &new, &run.id, cancelled)?;
     let agent = work::Agent {
         kind: request.kind,
@@ -180,18 +221,18 @@ pub(super) fn recover(
     session: &HerdrSession,
     cancelled: &AtomicBool,
 ) -> Result<Started> {
-    inspect(host, run, session, false, cancelled)
+    inspect(host, run, session, Purpose::Message, cancelled)
 }
 
 pub(super) fn inspect(
     host: &Host,
     run: &Run,
     session: &HerdrSession,
-    include_finished: bool,
+    purpose: Purpose,
     cancelled: &AtomicBool,
 ) -> Result<Started> {
     if let Some(receipt) = &session.adopted {
-        return super::legacy::verify(host, receipt, include_finished, cancelled);
+        return super::legacy::verify(host, receipt, purpose == Purpose::End, cancelled);
     }
     let workspace = run.workspace.as_ref().ok_or(Error::NothingToOpen)?;
     let path = workspace
@@ -220,7 +261,7 @@ pub(super) fn inspect(
         owner(&session.agent_name),
         &agent,
         expected,
-        include_finished,
+        purpose,
         cancelled,
     )?)
 }

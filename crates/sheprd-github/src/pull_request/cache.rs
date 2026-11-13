@@ -180,14 +180,14 @@ impl Cache {
 
     /// A different account, device, connection, daemon boot, or renewed token
     /// stops the work in flight and keeps what was found, each entry under
-    /// the device and account it belongs to.
+    /// the device and account it belongs to. Returns whether the scope changed.
     pub fn scope(
         &mut self,
         scope: (u64, u64, String),
         token: impl Into<crate::Tokens>,
         login: &str,
         origin: Origin,
-    ) {
+    ) -> bool {
         let token = token.into();
         let changed = self.scope.as_ref() != Some(&scope)
             || self.view.origin != origin
@@ -202,6 +202,7 @@ impl Cache {
                 login: login.to_owned(),
             };
         }
+        changed
     }
 
     /// Drops this device's checkouts that are gone. Other devices' entries

@@ -391,6 +391,10 @@ impl SheprdWindow {
             .when(!matches!(shelf, ShelfId::LongIdle), |row| {
                 row.child(count.to_string())
             })
+            .when(matches!(shelf, ShelfId::Alerts), |row| {
+                row.child(div().flex_1())
+                    .child(self.overview_alerts_clear(look, cx))
+            })
             .on_click(cx.listener(move |this, _, _, cx| {
                 let open = match shelf {
                     ShelfId::Snoozed => &mut this.overview.snoozed_open,

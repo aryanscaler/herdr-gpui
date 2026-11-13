@@ -1,10 +1,10 @@
 //! `worktree`: the mute of the caller's workspace. Mutes stay in this app;
 //! nothing reaches the daemon.
-use super::find;
+use super::{Source, find};
 use crate::{
     SheprdWindow,
     control::protocol::{
-        Caller, ErrorCode, Response,
+        ErrorCode, Response,
         work::{MuteInfo, Reply},
     },
     notification_mutes::{Daemon, Mutes, Scope},
@@ -12,7 +12,7 @@ use crate::{
 use gpui::{App, Context};
 use std::time::SystemTime;
 
-pub(super) fn status(view: &SheprdWindow, caller: &Caller, cx: &App) -> Response {
+pub(super) fn status<'a>(view: &SheprdWindow, caller: impl Into<Source<'a>>, cx: &App) -> Response {
     let found = match find(view, caller) {
         Ok(found) => found,
         Err(response) => return response,
@@ -42,12 +42,13 @@ pub(super) fn status(view: &SheprdWindow, caller: &Caller, cx: &App) -> Response
     }
 }
 
-pub(super) fn set(
+pub(super) fn set<'a>(
     view: &SheprdWindow,
-    caller: &Caller,
+    caller: impl Into<Source<'a>>,
     muted: bool,
     cx: &mut Context<SheprdWindow>,
 ) -> Response {
+    let caller = caller.into();
     let found = match find(view, caller) {
         Ok(found) => found,
         Err(response) => return response,

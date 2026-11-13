@@ -59,13 +59,21 @@ impl SheprdWindow {
             return;
         };
         let held = held_terminals(store);
+        let retired = sheprd_core_client::chat_recovery::mapping(
+            self.core_terminals
+                .infos
+                .all()
+                .map(|info| (info.id.as_str(), &info.labels)),
+        );
         let local = self.core_host().map(|index| scope(&self.endpoints[index]));
         let wanted: Vec<_> = self
             .core_terminals
             .infos
             .all()
             .filter(|info| {
-                !held.contains(&info.id) && !self.core_terminals.adopted.contains(&info.id)
+                !held.contains(&info.id)
+                    && !self.core_terminals.adopted.contains(&info.id)
+                    && !retired.contains_key(&info.id)
             })
             .filter_map(|info| {
                 // A phone's new workspace: kept in its folder, once a tab

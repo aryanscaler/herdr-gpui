@@ -31,14 +31,17 @@ fn a_scroll_through_the_history_slides_into_place(cx: &mut gpui::TestAppContext)
     let sliding = until(|| {
         cx.update(|window, cx| {
             view.update(cx, |view, cx| {
+                // Asked as of a moment no later than the slide's start, so a
+                // slow machine cannot see it under way already.
+                let started = crate::motion::now();
                 view.poll(window, cx);
-                view.sliding(crate::motion::now())
+                view.sliding(started)
             })
         })
     });
     // It starts where the frame before it was drawn: two rows up, with
     // that frame two rows below it.
-    assert!(sliding.lift > 1.5 && sliding.lift <= 2., "{}", sliding.lift);
+    assert_eq!(sliding.lift, 2.);
     assert_eq!(sliding.behind_at, 2.);
     let landed = crate::motion::now() + Duration::from_secs(1);
     cx.update(|_, cx| view.update(cx, |view, _| assert!(view.sliding(landed).is_none())));
@@ -70,9 +73,10 @@ fn a_scroll_during_a_slide_goes_no_further_than_the_frame_behind(cx: &mut gpui::
         until(|| {
             cx.update(|window, cx| {
                 view.update(cx, |view, cx| {
+                    let started = crate::motion::now();
                     view.poll(window, cx);
                     (view.top() == 7 - offset as u32)
-                        .then(|| view.sliding(crate::motion::now()))
+                        .then(|| view.sliding(started))
                         .flatten()
                 })
             })

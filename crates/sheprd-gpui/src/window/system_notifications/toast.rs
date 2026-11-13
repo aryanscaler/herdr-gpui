@@ -84,6 +84,13 @@ impl Toasts {
     }
 }
 
+/// Removes every toast of this app from Action Center, as Clear All
+/// Notifications does; GPUI's toasts, under the same AppUserModelID, too.
+pub(crate) fn clear() -> Result<(), Error> {
+    ToastNotificationManager::History()?.ClearWithId(&HSTRING::from(APP_ID))?;
+    Ok(())
+}
+
 /// The toast's XML. Text goes in through the DOM, never as markup, so a
 /// notification's text cannot add elements or attributes.
 fn document(notification: &SystemNotification) -> windows::core::Result<XmlDocument> {

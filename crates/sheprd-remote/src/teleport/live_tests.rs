@@ -334,6 +334,7 @@ fn teleport_between_two_daemons() {
         candidate,
         &review,
         |step| steps.push(step),
+        |_| Ok(()),
         &cancelled,
     )
     .unwrap();
@@ -423,7 +424,7 @@ fn teleport_between_two_daemons() {
     let home = &resolved;
     assert!(matches!(home.destination, Destination::Reclaim { .. }));
     let review = job::review(&back, home, &cancelled).unwrap();
-    let returned = job::run(&back, home, &review, |_| {}, &cancelled).unwrap();
+    let returned = job::run(&back, home, &review, |_| {}, |_| Ok(()), &cancelled).unwrap();
     assert!(returned.warnings.is_empty(), "{:?}", returned.warnings);
     assert_eq!(workspace_of(&returned), source_ws);
     assert_eq!(
@@ -540,7 +541,7 @@ fn teleport_copies_the_repository_where_it_is_missing() {
     );
 
     let review = job::review(&source, candidate, &cancelled).unwrap();
-    let outcome = job::run(&source, candidate, &review, |_| {}, &cancelled).unwrap();
+    let outcome = job::run(&source, candidate, &review, |_| {}, |_| Ok(()), &cancelled).unwrap();
     assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
 
     let snapshot = b.snapshot();

@@ -676,6 +676,7 @@ fn destination_argv(
                 .and_then(|cwd| remap(cwd, &review.checkout, path))
                 .unwrap_or_else(|| path.to_owned());
             let route = Route {
+                environment: None,
                 source: from,
                 destination: &review.destination.host,
                 from: &review.checkout,
@@ -712,7 +713,9 @@ fn resume_session(
     cancelled: &AtomicBool,
 ) -> Result<Vec<String>> {
     let reference = move_session(agent, session, route, cancelled)?;
-    Ok(agent.resume_argv(&reference, flags))
+    Ok(super::launch::resume_command(
+        agent, &reference, flags, route.from, route.to,
+    ))
 }
 
 /// A review of an idle shell into a new worktree on `destination`, for

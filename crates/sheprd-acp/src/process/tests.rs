@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod ownership;
+
 /// The agent exits at once on TERM, but leaves a tool behind that ignores
 /// it; stopping the chat must still end the tool.
 #[test]

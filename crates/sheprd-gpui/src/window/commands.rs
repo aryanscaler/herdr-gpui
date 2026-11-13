@@ -655,6 +655,10 @@ impl SheprdWindow {
                 self.show_notification_history(window, cx);
                 return;
             }
+            Command::ClearAllNotifications => {
+                self.clear_all_notifications(window, cx);
+                return;
+            }
             Command::NewCoreTerminal => {
                 self.new_core_terminal(window, cx);
                 return;

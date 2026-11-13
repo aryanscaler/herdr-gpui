@@ -58,6 +58,20 @@ pub(crate) struct Batch {
     pub text: String,
 }
 
+/// A reply offered but not yet acknowledged. Retains each original pending
+/// marker so a failed remote delivery restores the page's withdrawable batch.
+pub(crate) struct FeedbackLease(Vec<(Batch, Option<Arc<()>>, u64)>);
+
+impl FeedbackLease {
+    pub(crate) fn text(&self) -> String {
+        self.0
+            .iter()
+            .map(|(batch, ..)| batch.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Feedback {
     /// Each batch with its pending marker and its number in `added` order.
@@ -129,6 +143,19 @@ impl Feedback {
     /// text of at most [`TAKE_BUDGET`] (always at least one batch); the rest
     /// stays for the next take.
     pub(crate) fn take(&mut self, target: &FeedbackKey) -> Option<String> {
+        self.take_lease(target).map(|lease| lease.text())
+    }
+
+    pub(crate) fn restore_lease(&mut self, lease: FeedbackLease) {
+        for entry in lease.0.into_iter().rev() {
+            if self.kept.len() >= MAX_KEPT {
+                self.kept.pop_back();
+            }
+            self.kept.push_front(entry);
+        }
+    }
+
+    pub(crate) fn take_lease(&mut self, target: &FeedbackKey) -> Option<FeedbackLease> {
         let mut used = 0;
         let mut taken = Vec::new();
         let mut rest = VecDeque::with_capacity(self.kept.len());
@@ -149,13 +176,7 @@ impl Feedback {
             rest.push_back(entry);
         }
         self.kept = rest;
-        (!taken.is_empty()).then(|| {
-            taken
-                .into_iter()
-                .map(|(batch, ..)| batch.text)
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
+        (!taken.is_empty()).then_some(FeedbackLease(taken))
     }
 
     /// Whom the kept batches are for, oldest first, each with its number:
@@ -165,6 +186,13 @@ impl Feedback {
         self.kept
             .iter()
             .map(|(batch, _, added)| (*added, &batch.target))
+    }
+
+    /// Drops every batch and waiter for `scope`, whose saved device now
+    /// names another machine: terminal IDs there are not the same panes.
+    pub(crate) fn retire(&mut self, scope: &Scope) {
+        self.kept.retain(|(batch, ..)| batch.target.scope != *scope);
+        self.waiting.retain(|waiter| waiter.scope != *scope);
     }
 
     pub(crate) fn has(&self, target: &FeedbackKey) -> bool {

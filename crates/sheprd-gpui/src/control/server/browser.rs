@@ -166,8 +166,26 @@ pub(super) fn notes(request: &NotesRequest, cx: &mut App) -> Response {
             "Notes require the caller's daemon socket",
         );
     };
+    let windows: Vec<_> = main_windows(cx)
+        .into_iter()
+        .filter(|handle| {
+            caller
+                .window
+                .is_none_or(|id| handle.window_id().as_u64() == id)
+        })
+        .collect();
+    if caller.window.is_some() && windows.is_empty() {
+        return Response::error(ErrorCode::NotFound, "The requested window is not open");
+    }
+    let core = core_scope_in(&pane, caller.window, cx);
+    if pane.starts_with("core@") && core.is_none() {
+        return Response::error(
+            ErrorCode::NotFound,
+            "The remote core caller is not shown in a driving tab",
+        );
+    }
     let recipient = FeedbackKey {
-        scope: Scope::local(Path::new(daemon)),
+        scope: core.unwrap_or_else(|| Scope::local(Path::new(daemon))),
         pane_id: pane.clone().into_owned(),
     };
     let text = pastable(&request.text);
@@ -188,7 +206,7 @@ pub(super) fn notes(request: &NotesRequest, cx: &mut App) -> Response {
         pane: Some(&pane),
         terminal: None,
     };
-    for handle in main_windows(cx) {
+    for handle in windows {
         let taken = handle.update(cx, |view, _, cx| {
             view.deliver_requested_notes(&target, &text, cx)
         });
@@ -246,7 +264,15 @@ pub(super) fn feedback(
     // A herdr-core terminal's notes are kept under the daemon of the tab
     // holding it, where its pages opened, which need not be the session
     // whose socket the terminal inherited.
-    let scope = core_scope(&request.pane_id, cx).unwrap_or_else(|| Scope::local(Path::new(daemon)));
+    let core = core_scope(&request.pane_id, cx);
+    if request.pane_id.starts_with("core@") && core.is_none() {
+        incoming.respond(Response::error(
+            ErrorCode::NotFound,
+            "The remote core caller is not shown in a driving tab",
+        ));
+        return;
+    }
+    let scope = core.unwrap_or_else(|| Scope::local(Path::new(daemon)));
     let target = FeedbackKey {
         scope,
         pane_id: request.pane_id.clone(),
@@ -281,13 +307,19 @@ pub(super) fn feedback(
 /// The daemon whose tab holds the herdr-core terminal `pane_id` names, as
 /// browser tabs name it, in the first window holding it.
 pub(super) fn core_scope(pane_id: &str, cx: &App) -> Option<Scope> {
-    let terminal = crate::chat::core_pane::terminal_of(pane_id)?;
-    main_windows(cx).into_iter().find_map(|handle| {
-        handle
-            .read_with(cx, |view, _| view.core_terminal_scope(terminal.as_str()))
-            .ok()
-            .flatten()
-    })
+    core_scope_in(pane_id, None, cx)
+}
+
+fn core_scope_in(pane_id: &str, window: Option<u64>, cx: &App) -> Option<Scope> {
+    main_windows(cx)
+        .into_iter()
+        .filter(|handle| window.is_none_or(|id| handle.window_id().as_u64() == id))
+        .find_map(|handle| {
+            handle
+                .read_with(cx, |view, _| view.core_pane_scope(pane_id))
+                .ok()
+                .flatten()
+        })
 }
 
 /// Takes what is kept for `target`. A tab shows its batch as kept until an

@@ -12,7 +12,7 @@ fn select(list: List, path: &str, token: &str, expected: Option<&str>) -> Result
         },
         &["claude".into()],
         expected,
-        false,
+        Purpose::Message,
         crate::teleport::AgentKind::Claude,
     )
 }
@@ -76,7 +76,7 @@ fn cleanup_can_inspect_a_finished_owned_terminal_but_never_an_unknown_state() {
                 owner,
                 &["claude".into()],
                 Some("t7"),
-                true,
+                Purpose::End,
                 crate::teleport::AgentKind::Claude
             )
             .is_ok(),
@@ -106,7 +106,7 @@ fn a_kept_shell_does_not_inherit_the_original_agents_ownership() {
 /// which types into it, never takes the shell for the agent.
 #[test]
 fn cleanup_can_end_the_kept_shell_a_finished_agent_left() {
-    let inspect = |foreground: serde_json::Value, label: &str, include_finished| {
+    let inspect = |foreground: serde_json::Value, label: &str, purpose| {
         let mut shell = terminal(label, "/work/a", "t7");
         shell["foreground"] = foreground;
         super::select(
@@ -118,22 +118,22 @@ fn cleanup_can_end_the_kept_shell_a_finished_agent_left() {
             },
             &["claude".into()],
             Some("t7"),
-            include_finished,
+            purpose,
             crate::teleport::AgentKind::Claude,
         )
     };
     let prompt = || serde_json::json!({"name":"zsh", "argv":["-zsh"], "pid":43});
     assert!(matches!(
-        inspect(prompt(), "lane-a", true),
+        inspect(prompt(), "lane-a", Purpose::End),
         Ok(Started::Herdr2 { terminal }) if terminal == "t7"
     ));
     assert!(matches!(
-        inspect(prompt(), "lane-a", false),
+        inspect(prompt(), "lane-a", Purpose::Message),
         Err(Error::Uncertain)
     ));
     // Ownership still rests on the label: another lane's shell is not ours.
     assert!(matches!(
-        inspect(prompt(), "lane-b", true),
+        inspect(prompt(), "lane-b", Purpose::End),
         Err(Error::Uncertain)
     ));
     for work in [
@@ -142,7 +142,10 @@ fn cleanup_can_end_the_kept_shell_a_finished_agent_left() {
         serde_json::json!({"name":"sh", "argv":["sh", "-c", "make"], "pid":46}),
     ] {
         assert!(
-            matches!(inspect(work.clone(), "lane-a", true), Err(Error::Uncertain)),
+            matches!(
+                inspect(work.clone(), "lane-a", Purpose::End),
+                Err(Error::Uncertain)
+            ),
             "{work}"
         );
     }

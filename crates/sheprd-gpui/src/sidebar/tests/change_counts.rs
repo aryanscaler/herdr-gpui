@@ -6,6 +6,8 @@ use crate::{
 };
 use std::time::Instant;
 
+mod ssh_kept;
+
 fn input(branch: &str) -> crate::pull_request::Input {
     crate::pull_request::Input {
         checkout: None,

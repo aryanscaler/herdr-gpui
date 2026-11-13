@@ -1,6 +1,10 @@
 use super::*;
 use crate::teleport::remote::parse_remotes;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[path = "discover/core_only.rs"]
+mod core_only;
+
 fn identity(name: &str, origin: Option<&str>) -> RepoIdentity {
     let remotes = origin.map_or_else(Vec::new, |url| {
         parse_remotes(&format!("origin\t{url} (fetch)\n"))

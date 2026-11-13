@@ -44,7 +44,7 @@ NAV: list[tuple[str, list[str]]] = [
     ("Start", ["introduction", "install", "quick-start", "updates"]),
     ("Workspaces", ["worktrees", "terminals", "review", "browser", "editors"]),
     ("Agents", ["chat", "orchestrator", "usage", "notifications"]),
-    ("Machines", ["ssh-hosts", "cloud", "teleport", "windows", "remote-control"]),
+    ("Machines", ["ssh-hosts", "cloud", "teleport", "windows", "remote-control", "relays"]),
     ("Customize", ["appearance", "keyboard", "configuration"]),
     ("Extend", ["automations", "mods", "cli"]),
     ("Reference", ["platforms", "troubleshooting"]),

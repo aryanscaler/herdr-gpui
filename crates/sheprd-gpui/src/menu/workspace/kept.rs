@@ -133,6 +133,7 @@ impl SheprdWindow {
         });
         self.menu.anchor = anchor;
         self.menu.page = Some(Page::Workspace);
+        self.refresh_workspace_pr();
         self.discard_composition(cx);
         window.focus(&self.menu.focus, cx);
         cx.notify();

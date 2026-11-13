@@ -110,10 +110,13 @@ impl SheprdWindow {
         }
         self.merged_cleanup.kept.next_scan = Some(now + SCAN);
         let workspaces = self.kept_workspaces();
+        let Some(view) = self.endpoint_pr_view(self.selected_endpoint) else {
+            return;
+        };
         let cache = &self.menu.pr_cache;
         let ledger = &self.merged_cleanup.kept.ledger;
         let Some(candidate) = kept_candidates_on(&workspaces, self.selected_is_remote(), |input| {
-            cache.get(input)
+            cache.peek_input(&view, input)
         })
         .find(|candidate| !ledger.waiting(candidate, now)) else {
             return;
@@ -154,9 +157,12 @@ impl SheprdWindow {
         // Rechecked against what is kept now: the workspace may have closed
         // or changed branch while Git ran.
         let workspaces = self.kept_workspaces();
+        let Some(view) = self.endpoint_pr_view(self.selected_endpoint) else {
+            return;
+        };
         let cache = &self.menu.pr_cache;
         let current = kept_candidates_on(&workspaces, self.selected_is_remote(), |input| {
-            cache.get(input)
+            cache.peek_input(&view, input)
         })
         .any(|c| c == candidate);
         let workspace = workspaces

@@ -36,6 +36,8 @@ pub enum Action {
 
 #[derive(Debug, Clone)]
 pub struct PanePlan {
+    /// Exact source-host process/terminal evidence, retained through confirm.
+    pub binding: Option<sheprd_client::herdr::sessions::Binding>,
     pub pane_id: String,
     /// The directory the source program runs in.
     pub cwd: Option<String>,
@@ -216,18 +218,15 @@ pub fn review(source: &Source, destination: &Candidate, cancelled: &AtomicBool) 
         .collect();
     // The app's Herdr 2 tabs in the workspace, read from the host's core.
     let core_terminals = core::terminals(host, &core::ids(&source.core_tabs), cancelled)?;
-    // Sessions that cannot be read leave their agents to hand off.
-    let sessions = match core::sessions(host, &core_terminals, cancelled) {
-        Ok(sessions) => sessions,
-        Err(Error::Cancelled) => return Err(Error::Cancelled),
-        Err(error) => {
-            tracing::warn!(%error, "Could not read the sessions of Herdr 2 agents");
-            HashMap::new()
-        }
-    };
+    // Explicitly absent evidence permits handoff. Malformed or stale evidence,
+    // transport failures and unmapped configuration must not masquerade as it.
+    let sessions = core::sessions(host, &core_terminals, cancelled)?;
     works.extend(core::ids(&source.core_tabs).into_iter().map(|id| {
         let terminal = core_terminals.get(&id).cloned().unwrap_or_default();
-        let (work, cwd) = (core::work(&terminal, sessions.get(&id)), terminal.cwd());
+        let (work, cwd) = (
+            core::work(&terminal, sessions.sessions.get(&id)),
+            terminal.cwd(),
+        );
         (id, work, cwd)
     }));
     let mut programs: Vec<&str> = AgentKind::FALLBACKS.iter().map(|k| k.binary()).collect();
@@ -281,6 +280,13 @@ pub fn review(source: &Source, destination: &Candidate, cancelled: &AtomicBool) 
         planned.push(plan_tree(
             moves, kept, None, tree, &works, &installed, &mut notes,
         )?);
+    }
+    for tab in &mut planned {
+        if tab.generation == Generation::Herdr2 {
+            for pane in &mut tab.panes {
+                pane.binding = sessions.bindings.get(&pane.pane_id).cloned();
+            }
+        }
     }
     Ok(Review {
         checkout,
@@ -359,6 +365,7 @@ fn plan_tree(
                 path
             });
             Some(PanePlan {
+                binding: None,
                 pane_id: id,
                 cwd: cwd.clone(),
                 work: work.clone(),

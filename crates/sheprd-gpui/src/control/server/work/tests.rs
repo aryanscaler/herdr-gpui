@@ -12,6 +12,8 @@ mod kept_teleport;
 mod kept_worktrees;
 mod list_budget;
 mod muting;
+#[cfg(unix)]
+mod remote;
 
 /// A caller in workspace `workspace` of the fixture window's daemon.
 fn caller(workspace: Option<&str>) -> Caller {

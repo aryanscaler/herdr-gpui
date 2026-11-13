@@ -6,7 +6,9 @@ use crate::test_executable;
 
 mod cleanup;
 mod completed;
+mod interrupted_restart;
 mod journal;
+mod kept_shell;
 mod legacy;
 mod ownership;
 mod remote;
@@ -18,7 +20,7 @@ mod verified_end;
 pub(super) fn fake_core(dir: &Path, status: &str) {
     let script = format!(
         r#"#!/usr/bin/env python3
-import json, os, pathlib, sys
+import json, os, pathlib, sqlite3, sys
 home = pathlib.Path(os.environ['HOME'])
 args = sys.argv[1:]
 with (home / 'core-calls').open('a') as log:
@@ -31,6 +33,10 @@ if args[0] == 'run':
     terminal = {{'address':'t9', 'cwd': args[args.index('--cwd') + 1], 'argv': args[args.index('--') + 1:], 'labels': {{label[0]: label[1]}}, 'state': 'live', 'pid': 8}}
     terminal['foreground'] = {{'argv': terminal['argv'], 'name': 'claude', 'cwd': terminal['cwd'], 'pid': 9}}
     inventory.write_text(json.dumps({{'terminals': [terminal]}}))
+    failure = home / 'fail-receipt-write'
+    if failure.exists():
+        with sqlite3.connect(failure.read_text()) as database:
+            database.executescript("CREATE TRIGGER reject_receipt BEFORE UPDATE OF terminal ON herdr_sessions WHEN NEW.terminal IS NOT NULL BEGIN SELECT RAISE(FAIL, 'injected receipt write failure'); END;")
     if (home / 'lose-run-reply').exists():
         sys.exit(1)
     print('{{"address":"t9"}}')

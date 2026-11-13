@@ -1,6 +1,8 @@
 use super::super::snapshot::{Process, SessionKind};
 use super::*;
 
+mod identity;
+
 fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| (*s).to_owned()).collect()
 }

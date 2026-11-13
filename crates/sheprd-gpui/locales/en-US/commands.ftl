@@ -5,6 +5,7 @@
 commands-about = About Sheprd
 commands-annotate-selection = Annotate Selection for the Agent
 commands-back = Back
+commands-clear-all-notifications = Clear All Notifications
 commands-clear-pane = Clear Pane
 commands-close-pane = Close Pane
 commands-close-tab = Close Tab

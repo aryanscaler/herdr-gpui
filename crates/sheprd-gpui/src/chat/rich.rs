@@ -13,7 +13,7 @@ mod remote;
 
 pub(super) use code::{CodeText, MAX_CODE_LINE_CHARS, MAX_CODE_LINES, TAB_WIDTH};
 pub(super) use fence::Fence;
-pub(super) use math::draw as draw_math;
+pub(super) use math::{PADDING as MATH_PADDING, draw as draw_math};
 pub(super) use parse::parse;
 pub(super) use remote::remote_content;
 

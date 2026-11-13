@@ -101,6 +101,51 @@ impl Write for Size {
 }
 
 impl Spaces {
+    pub(super) fn remap(
+        &mut self,
+        replacements: &std::collections::BTreeMap<
+            sheprd_backend::TerminalId,
+            sheprd_backend::TerminalId,
+        >,
+    ) {
+        fn remap(
+            node: &mut Node,
+            replacements: &std::collections::BTreeMap<
+                sheprd_backend::TerminalId,
+                sheprd_backend::TerminalId,
+            >,
+            depth: usize,
+        ) {
+            if depth > 16 {
+                return;
+            }
+            match node {
+                Node::Block { content } => {
+                    if let Some(terminal) = &mut content.terminal
+                        && let Some((_, new)) = replacements
+                            .iter()
+                            .find(|(old, _)| old.as_str() == terminal)
+                    {
+                        *terminal = new.as_str().to_owned();
+                    }
+                }
+                Node::Column { children } | Node::Row { children } => {
+                    for child in children {
+                        remap(child, replacements, depth + 1);
+                    }
+                }
+            }
+        }
+        for space in self
+            .spaces
+            .iter_mut()
+            .filter(|space| space.machine.is_none())
+        {
+            for tab in &mut space.tabs {
+                remap(&mut tab.root, replacements, 0);
+            }
+        }
+    }
     pub(super) fn read(value: Value) -> Option<Self> {
         serde_json::to_writer(Size(0), &value).ok()?;
         let doc: Self = serde_json::from_value(value).ok()?;

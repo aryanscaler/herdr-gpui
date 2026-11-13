@@ -4,6 +4,8 @@
 //! caller's checkout; the user still confirms it in the app.
 use serde::{Deserialize, Serialize};
 
+pub mod remote;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkOp {

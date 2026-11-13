@@ -7,6 +7,8 @@ use crate::{
 use sheprd_backend::{RunState, TerminalId, TerminalInfo};
 use sheprd_client::{ConnectTarget, protocol::AgentStatus};
 
+mod identity;
+
 fn scope() -> Scope {
     Scope::endpoint("ssh:box")
 }

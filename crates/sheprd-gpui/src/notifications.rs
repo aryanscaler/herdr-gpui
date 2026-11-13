@@ -283,6 +283,8 @@ impl Notice {
 pub(crate) struct Toasts {
     pub entries: VecDeque<(u64, Notice)>,
     next_id: u64,
+    /// Daemon notices that arrived by then are dropped, wherever they wait:
+    /// delivery was off until then, or Clear All Notifications ran.
     pub(crate) enabled_since: Option<Instant>,
     /// The alerts that passed the policy, whether or not they were shown.
     pub(crate) history: History,
@@ -314,6 +316,17 @@ impl Toasts {
 
     pub fn dismiss(&mut self, id: u64) {
         self.entries.retain(|(entry, _)| *entry != id);
+    }
+
+    /// Drops every notice, shown, waiting, or kept only to answer an OS
+    /// notification's click, and empties the history. Daemon notices that
+    /// arrived by `cutoff` but are still in the connection's inbox are
+    /// dropped when they reach [`Self::receive`]. Ids keep counting, so
+    /// nothing that still names an old one can open a newer notice.
+    pub(crate) fn clear(&mut self, cutoff: Instant) {
+        self.entries.clear();
+        self.history.clear();
+        self.enabled_since = self.enabled_since.max(Some(cutoff));
     }
 }
 

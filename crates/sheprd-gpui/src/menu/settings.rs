@@ -401,6 +401,7 @@ impl SheprdWindow {
                 | Command::ToggleZenMode
                 | Command::DevicesOverview
                 | Command::NotificationHistory
+                | Command::ClearAllNotifications
                 | Command::NewCoreTerminal
                 | Command::MirrorCorePane
                 | Command::ConvertToChat

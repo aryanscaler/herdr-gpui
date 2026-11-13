@@ -9,6 +9,7 @@ use crate::{
 use std::sync::Arc;
 
 mod backdrop;
+mod clear_notifications;
 mod close_window;
 mod detach;
 mod en_xa;

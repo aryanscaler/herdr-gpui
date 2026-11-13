@@ -1,0 +1,218 @@
+name: Relay image
+
+# Builds sheprd-relay's container image for amd64 and arm64 on native
+# runners, checks that each starts and answers, and on main publishes one
+# multi-architecture image to GHCR, signed with cosign keyless and with
+# build provenance:
+#
+#   ghcr.io/<owner>/sheprd-relay:latest
+#   ghcr.io/<owner>/sheprd-relay:sha-<commit>
+#
+# Droplets from deploy/relay run :latest's digest only after verifying this
+# signature; App Platform cannot (see deploy/relay/README.md).
+# CI holds no relay secrets and deploys nothing.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/sheprd-relay/**'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
+      - 'scripts/relay-image.sh'
+      - 'deploy/relay/**'
+      - 'scripts/test_relay_deploy.py'
+      - '.github/workflows/relay-image.yml'
+  pull_request:
+    paths:
+      - 'crates/sheprd-relay/**'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
+      - 'scripts/relay-image.sh'
+      - 'deploy/relay/**'
+      - 'scripts/test_relay_deploy.py'
+      - '.github/workflows/relay-image.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: relay-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Pull requests: build and check both architectures; nothing is pushed,
+  # and the job cannot write packages.
+  check:
+    if: >-
+      (github.repository == 'sheprd-labs/sheprd' || github.repository == 'penso/herdr-gpui') &&
+      github.actor == 'penso' && github.triggering_actor == 'penso' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.user.login == 'penso' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    name: Check (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Buildx
+        # BuildKit pinned by digest (it was buildx-stable-1); Dependabot does
+        # not see this line, so move it by hand.
+        run: >-
+          docker buildx create --name relay --driver docker-container --use
+          --driver-opt image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+      - name: Check the DigitalOcean user data
+        if: matrix.arch == 'amd64'
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_relay_deploy.py
+      - name: Check the Caddyfile with the pinned Caddy
+        if: matrix.arch == 'amd64'
+        run: |
+          caddy=$(sed -n 's/^ *image: \(caddy:.*@sha256:[0-9a-f]\{64\}\).*/\1/p' deploy/relay/compose.yml)
+          test -n "$caddy"
+          docker run --rm -e RELAY_DOMAIN=relay.example.org \
+            -v "$PWD/deploy/relay/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            "$caddy" caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+      - name: Build and check
+        env:
+          ARCH: ${{ matrix.arch }}
+          OWNER: ${{ github.repository_owner }}
+        # Reads the layer cache main publishes, when the package is public.
+        run: scripts/relay-image.sh "$ARCH" "ghcr.io/${OWNER,,}/sheprd-relay"
+
+  # Main: build, check, and push each architecture by digest.
+  build:
+    if: >-
+      (github.repository == 'sheprd-labs/sheprd' || github.repository == 'penso/herdr-gpui') &&
+      github.actor == 'penso' && github.triggering_actor == 'penso' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main'
+    name: Build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Buildx
+        # BuildKit pinned by digest (it was buildx-stable-1); Dependabot does
+        # not see this line, so move it by hand.
+        run: >-
+          docker buildx create --name relay --driver docker-container --use
+          --driver-opt image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+      - name: Log in to GHCR
+        env:
+          ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+      - name: Build, check, and push by digest
+        env:
+          ARCH: ${{ matrix.arch }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          digest=$(scripts/relay-image.sh "$ARCH" "ghcr.io/${OWNER,,}/sheprd-relay" --push)
+          case $digest in sha256:*) ;; *) echo "no digest: $digest" >&2; exit 1 ;; esac
+          mkdir -p digests
+          printf '%s\n' "$digest" > "digests/$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: relay-digest-${{ matrix.arch }}
+          path: digests/${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 1
+
+  # Main: join both architectures under one tag, sign it, and attest it.
+  publish:
+    needs: build
+    name: Publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: relay-digest-*
+          path: digests
+          merge-multiple: true
+      - name: Log in to GHCR
+        env:
+          ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+      - name: Tag the multi-architecture image
+        id: manifest
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          image="ghcr.io/${OWNER,,}/sheprd-relay"
+          sources=()
+          for arch in amd64 arm64; do
+            sources+=("$image@$(cat "digests/$arch")")
+          done
+          tag="$image:sha-${GITHUB_SHA::12}"
+          docker buildx imagetools create --tag "$image:latest" --tag "$tag" "${sources[@]}"
+          digest=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' | jq -r .digest)
+          case $digest in sha256:*) ;; *) echo "no digest: $digest" >&2; exit 1 ;; esac
+          {
+            echo "image=$image"
+            echo "digest=$digest"
+          } >> "$GITHUB_OUTPUT"
+      # Pinned like release.yml, so signatures stay in the format deploys
+      # verify.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v2.6.5'
+      - name: Sign
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          IMAGE: ${{ steps.manifest.outputs.image }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.manifest.outputs.image }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
+          push-to-registry: true
+      - name: Summary
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          IMAGE: ${{ steps.manifest.outputs.image }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          {
+            echo "### sheprd-relay"
+            echo
+            echo '```sh'
+            echo "docker pull $IMAGE@$DIGEST"
+            echo "cosign verify $IMAGE@$DIGEST \\"
+            echo "  --certificate-identity https://github.com/$REPOSITORY/.github/workflows/relay-image.yml@refs/heads/main \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

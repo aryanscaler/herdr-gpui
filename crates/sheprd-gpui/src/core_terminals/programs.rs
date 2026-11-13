@@ -19,6 +19,18 @@ impl SheprdWindow {
         spawn: Spawn,
         cx: &mut Context<Self>,
     ) -> crate::Result<()> {
+        self.try_start_in_kept_workspace(id, spawn, cx).map(drop)
+    }
+
+    /// Starts `spawn` as [`Self::start_in_kept_workspace`] does, telling
+    /// whether herdr-core's start queue took it, so a caller that must not
+    /// lose it can try again.
+    pub(crate) fn try_start_in_kept_workspace(
+        &mut self,
+        id: &str,
+        spawn: Spawn,
+        cx: &mut Context<Self>,
+    ) -> crate::Result<bool> {
         if !self.focus_kept_workspace(id, cx) {
             return Err(crate::Error::StaleWorkspace);
         }
@@ -26,8 +38,7 @@ impl SheprdWindow {
             scope: scope_of(self),
             workspace: id.to_owned(),
         };
-        self.start_core_program(purpose, spawn, cx);
-        Ok(())
+        Ok(self.start_core_program(purpose, spawn, cx))
     }
 
     pub(crate) fn host_terminal_labelled(

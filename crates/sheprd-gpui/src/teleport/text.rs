@@ -96,6 +96,10 @@ pub(crate) fn warning(warning: &Warning) -> String {
             error = source.localize()
         ),
         Warning::EnvrcTracked => fl!("teleport-warning-envrc"),
+        Warning::DestinationTabsOpen { source } => fl!(
+            "error-teleport-session-destination-tabs-open",
+            error = source.localize()
+        ),
         Warning::GitHubAccess { source } => {
             fl!("teleport-warning-github", error = source.localize())
         }

@@ -1,5 +1,8 @@
 use super::*;
 
+mod closure;
+mod core;
+
 /// `path` made absolute on this platform: Windows needs a drive.
 fn abs(path: &str) -> PathBuf {
     if cfg!(windows) {

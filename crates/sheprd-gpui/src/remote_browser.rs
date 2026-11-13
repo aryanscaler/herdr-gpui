@@ -17,10 +17,19 @@
 // i18n: migrated
 
 mod core;
+mod feedback;
 mod install;
 mod window;
 
+pub(crate) use feedback::retire as retire_feedback;
 pub(crate) use window::Forwarding;
+
+/// The command installed on the caller's host, never the desktop executable.
+/// Only page notes use it, and Linux builds show no pages.
+#[cfg(any(target_os = "macos", windows))]
+pub(crate) fn reload_command() -> String {
+    format!("{} browser reload", install::SHIM_COMMAND) // i18n: data
+}
 
 use crate::browser::Scope;
 use gpui::Global;
@@ -50,6 +59,8 @@ pub(crate) enum Action {
     Open { address: String, focus: bool },
     /// Reload the tabs the requesting pane opened.
     Reload,
+    /// Collect notes through the same terminal that carried the request.
+    Feedback { wait_seconds: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -106,6 +117,13 @@ impl Request {
                         }
                     }
                     "reload" => Action::Reload,
+                    action if action.starts_with("feedback-") => Action::Feedback {
+                        wait_seconds: action
+                            .strip_prefix("feedback-")?
+                            .parse::<u64>()
+                            .ok()?
+                            .min(600),
+                    },
                     _ => return None,
                 };
                 Some(Self {

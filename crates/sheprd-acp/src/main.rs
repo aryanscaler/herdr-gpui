@@ -56,6 +56,13 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Ok(cli::Parsed::Restore(id)) => match restore::core::run(id) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("sheprd-acp: {error:#}");
+                ExitCode::FAILURE
+            }
+        },
         Ok(cli::Parsed::Session(command)) => {
             let discover = matches!(command, session_helpers::Command::Discover { .. });
             match session_helpers::run(command) {

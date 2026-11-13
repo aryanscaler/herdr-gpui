@@ -41,7 +41,7 @@ pub mod railway;
 #[cfg(feature = "sprites")]
 pub mod sprites;
 pub mod teleport;
-#[cfg(all(test, unix, feature = "coder"))]
+#[cfg(all(test, unix))]
 #[path = "../../test-support/executable.rs"]
 mod test_executable;
 pub mod work;

@@ -80,12 +80,36 @@ impl SheprdWindow {
         save: impl FnOnce(&[Option<Arc<Image>>]) -> crate::Result<Vec<Option<PathBuf>>> + Send + 'static,
         cx: &mut Context<Self>,
     ) {
+        // Classify from saved identity before consulting live connections. An
+        // offline remote core page must never fall through to local saving,
+        // even when its host's independent Herdr 1 connection is still alive.
+        let remote = if tab
+            .origin
+            .as_deref()
+            .is_some_and(|origin| origin.starts_with("core@"))
+        {
+            let Some(caller) = super::remote::Caller::of(self, tab) else {
+                self.show_flash(Flash::warning(fl!("agent-notes-session-not-shown")), cx);
+                return;
+            };
+            Some(caller)
+        } else {
+            None
+        };
         let (indexes, notes) = self.notes_round(tab);
         let Some((send, pending)) = self.tab_notes(tab.id).sending.start() else {
             self.show_flash(Flash::warning(fl!("browser-notes-pending")), cx);
             return;
         };
         let pane_id = tab.origin.clone();
+        // Remote core pages carry a host-qualified origin. Their notes belong
+        // to that saved scope even if the selected host changes during saving,
+        // and require no Herdr 1 snapshot or local caller impersonation.
+        if let Some(remote) = remote {
+            self.send_remote_page_notes(remote, tab.clone(), notes, pending, save, cx);
+            self.mark_notes_sent(tab.id, &indexes, send, cx);
+            return;
+        }
         // The page's daemon must still be the one shown, in the session
         // shown now, once the screenshots are saved.
         let origin = crate::agent_notes::Origin::of(self).filter(|_| {

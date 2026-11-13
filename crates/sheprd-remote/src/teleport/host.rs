@@ -216,7 +216,16 @@ exec "$herdr_core" "$@"
             ),
             None => r#"herdr-core "$@""#.to_owned(),
         };
-        let exports = CORE_ENV
+        let exports = self.core_exports();
+        // A subshell keeps the exports to the core's CLI.
+        format!("core_cli() ( {exports}{program} )")
+    }
+
+    fn core_exports(&self) -> String {
+        if !self.is_local() {
+            return String::new();
+        }
+        CORE_ENV
             .iter()
             .filter(|name| !self.sets(name))
             .filter_map(|name| {
@@ -226,9 +235,54 @@ exec "$herdr_core" "$@"
                     shell_quote(&value.to_string_lossy())
                 ))
             })
-            .collect::<String>();
-        // A subshell keeps the exports to the core's CLI.
-        format!("core_cli() ( {exports}{program} )")
+            .collect()
+    }
+
+    /// Read-only discovery runs beside the core it queries, with exactly the
+    /// same local socket/session overrides as `core_cli`. Never installs a
+    /// helper or starts Herdr 1 to obtain session evidence.
+    pub(super) fn session_discovery(&self, terminal: &str, agent: &str) -> String {
+        let bundled = self
+            .is_local()
+            .then(|| std::env::current_exe().ok())
+            .flatten()
+            .and_then(|exe| Some(exe.parent()?.join("sheprd-acp")))
+            .filter(|path| path.is_file())
+            .map(|path| shell_quote(&path.to_string_lossy()));
+        let bundled = bundled.unwrap_or_else(|| "''".into());
+        format!(
+            "( {exports}bundled={bundled}\n\
+             helper=\n\
+             if command -v sheprd-acp >/dev/null 2>&1; then helper=$(command -v sheprd-acp)\n\
+             elif [ -n \"$bundled\" ] && [ -x \"$bundled\" ]; then helper=$bundled\n\
+             else\n\
+               daemon=$(command -v sheprd-remote-control || command -v herdr-remote-control || :)\n\
+               links=0\n\
+               while [ -n \"$daemon\" ] && [ -L \"$daemon\" ]; do\n\
+                 links=$((links + 1)); [ \"$links\" -le 16 ] || exit 1\n\
+                 link=$(readlink \"$daemon\") || exit 1\n\
+                 case \"$link\" in /*) daemon=$link;; *) daemon=$(dirname \"$daemon\")/$link;; esac\n\
+               done\n\
+               if [ -n \"$daemon\" ] && [ -x \"$(dirname \"$daemon\")/sheprd-acp\" ]; then\n\
+                 helper=$(dirname \"$daemon\")/sheprd-acp\n\
+               else\n\
+                 count=0\n\
+                 for candidate in \"$HOME/.local/share/herdr-remote-control/bin/\"*/sheprd-acp; do\n\
+                   [ -x \"$candidate\" ] || continue\n\
+                   count=$((count + 1)); [ \"$count\" -le 64 ] || exit 1\n\
+                   if \"$candidate\" --help 2>/dev/null | grep -Fq session-discover; then\n\
+                     [ -z \"$helper\" ] || {{ echo 'Multiple session helpers; select sheprd-acp on PATH' >&2; exit 1; }}\n\
+                     helper=$candidate\n\
+                   fi\n\
+                 done\n\
+               fi\n\
+             fi\n\
+             [ -x \"$helper\" ] || exit 127\n\
+             exec \"$helper\" session-discover {terminal} {agent}\n)\n",
+            exports = self.core_exports(),
+            terminal = shell_quote(terminal),
+            agent = shell_quote(agent),
+        )
     }
 
     /// Whether a test host's environment sets `name` itself.

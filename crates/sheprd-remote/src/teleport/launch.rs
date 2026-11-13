@@ -27,6 +27,7 @@ impl Work {
         let argv = job.map(|job| job.argv.clone()).unwrap_or_default();
         if let Some(session) = &pane.agent_session
             && let Some(agent) = AgentKind::parse(&session.agent)
+            && pane.agent.as_deref().and_then(AgentKind::parse) == Some(agent)
             && agent.carries()
             && agent.accepts(session)
         {
@@ -118,6 +119,41 @@ pub fn remap_argv(argv: &[String], from: &str, to: &str) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// Resume a transferred reference with checkout-relative flag paths moved.
+pub(super) fn resume_command(
+    agent: AgentKind,
+    reference: &str,
+    flags: &[String],
+    from: &str,
+    to: &str,
+) -> Vec<String> {
+    resume_command_with(agent, reference, flags, |path| remap(path, from, to))
+}
+
+pub(super) fn resume_command_with(
+    agent: AgentKind,
+    reference: &str,
+    flags: &[String],
+    mapped: impl Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    // Only the retained flags are source paths. A path-valued session
+    // reference already names the destination and must not be remapped twice.
+    let flags = flags
+        .iter()
+        .map(|flag| {
+            if let Some((name, value)) = flag.split_once('=')
+                && name.starts_with('-')
+            {
+                return mapped(value)
+                    .map(|value| format!("{name}={value}"))
+                    .unwrap_or_else(|| flag.clone());
+            }
+            mapped(flag).unwrap_or_else(|| flag.clone())
+        })
+        .collect::<Vec<_>>();
+    agent.resume_argv(reference, &flags)
 }
 
 /// One POSIX shell command line for `argv`.

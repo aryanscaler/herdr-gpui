@@ -4,6 +4,7 @@
 
 pub mod agent;
 mod backend;
+pub mod chat_recovery;
 mod connection;
 pub mod convert;
 mod endpoint;

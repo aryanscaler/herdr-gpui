@@ -86,6 +86,30 @@ class WebsiteTests(unittest.TestCase):
             with self.subTest(file=name):
                 self.assertEqual((WEBSITE / name).read_bytes(), (ROOT / "site" / name).read_bytes())
 
+    def test_relay_list_is_valid_and_served_as_json(self):
+        """sheprd.org/relays.json lists Sheprd's relays; an empty list means
+        none are available for now. The Rust parser checks it too."""
+        import json
+
+        listing = json.loads((WEBSITE / "relays.json").read_text())
+        self.assertEqual(listing["version"], 1)
+        self.assertIsInstance(listing["relays"], list)
+        for relay in listing["relays"]:
+            self.assertTrue(relay["endpoint"].startswith("https://"), relay)
+        headers = (WEBSITE / "_headers").read_text()
+        rule = headers.split("/relays.json", 1)[1]
+        self.assertIn("Content-Type: application/json", rule)
+        self.assertIn("Cache-Control: public, max-age=300", rule)
+
+    def test_relay_setup_docs_exist_where_clients_link(self):
+        """sheprd_relay::directory::SETUP_URL points at the relays docs page."""
+        source = (ROOT / "crates/sheprd-relay/src/directory.rs").read_text()
+        self.assertIn('SETUP_URL: &str = "https://sheprd.org/docs/relays/"', source)
+        slugs, _ = docs_pages()
+        self.assertIn("relays", slugs)
+        page = (ROOT / "website/docs/relays.md").read_text()
+        self.assertIn("cloud.digitalocean.com/apps/new?repo=https://github.com/sheprd-labs/sheprd", page)
+
     def test_scripts_are_served_as_text(self):
         headers = (WEBSITE / "_headers").read_text()
         for name in ("install.sh", "install.ps1", "llms.txt"):

@@ -2,6 +2,9 @@ use super::*;
 use sheprd_client::ConnectTarget;
 use std::fs;
 
+#[path = "sessions/tests/identity.rs"]
+mod identity;
+
 struct Homes {
     _temp: tempfile::TempDir,
     source: Host,
@@ -50,6 +53,7 @@ const TO: &str = "/home/me/.herdr/worktrees/app/feat";
 
 fn route<'a>(homes: &'a Homes, cwd: &'a str) -> Route<'a> {
     Route {
+        environment: None,
         source: &homes.source,
         destination: &homes.destination,
         from: FROM,

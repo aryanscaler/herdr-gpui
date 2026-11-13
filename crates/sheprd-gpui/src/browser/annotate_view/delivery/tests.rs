@@ -5,6 +5,8 @@ use crate::browser::{Store, view::scope};
 use gpui::{Image, ImageFormat, TestAppContext};
 use std::sync::Arc;
 
+mod remote_offline;
+
 #[gpui::test]
 fn pending_send_covers_screenshot_saving_and_failure(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(crate::sidebar::layout_tests::fixture_window);

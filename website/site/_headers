@@ -17,3 +17,9 @@
 
 /llms.txt
   Content-Type: text/plain; charset=utf-8
+
+# Sheprd's relays, read by Sheprd and the phone apps (docs/relay-plan.md).
+# Short-lived, so adding or removing a relay reaches clients within minutes.
+/relays.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300

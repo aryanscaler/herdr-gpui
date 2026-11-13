@@ -403,7 +403,7 @@ impl Store {
     pub(crate) fn claim_restart(&self, run: &str, previous: &str, next: &str) -> Result<()> {
         self.writable()?;
         let changed = self.connection.execute(
-            "UPDATE herdr_sessions SET agent_name = ?3, terminal = NULL, pending = 1 WHERE run_id = ?1 AND agent_name = ?2 AND pending = 0",
+            "UPDATE herdr_sessions SET agent_name = ?3, terminal = NULL, pending = 1 WHERE run_id = ?1 AND agent_name = ?2",
             params![run, previous, next],
         )?;
         if changed != 1 {

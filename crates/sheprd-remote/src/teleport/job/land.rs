@@ -9,7 +9,7 @@ use crate::{
         error::{Error, Result, Step},
         git,
         host::Host,
-        snapshot::{SnapshotResult, TabCreated, TabList, WorktreeCreated},
+        snapshot::{SnapshotResult, TabCreated, WorktreeCreated},
     },
     work,
 };
@@ -31,7 +31,7 @@ pub(super) struct Landing {
 }
 
 /// The workspace a move landed in.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Landed {
     /// One that exists: a Herdr 1 workspace, or one the app keeps that the
     /// work came back to.
@@ -187,17 +187,30 @@ fn reclaim(
 /// Stop everything running in the source workspace but keep the workspace.
 /// One fresh shell tab replaces a Herdr 1 workspace's tabs; the app does the
 /// same for a workspace it keeps, whose Herdr 2 terminals the move ends.
-pub(super) fn retire(source: &Source, checkout: &str, cancelled: &AtomicBool) -> Result<()> {
+pub(super) fn retire(source: &Source, review: &Review, cancelled: &AtomicBool) -> Result<()> {
     if let Keeping::App { .. } = source.keeping {
         return Ok(());
     }
     let host = &source.place.host;
     let workspace_id = source.workspace_id.as_str();
-    let tabs: TabList = host.herdr(
-        Step::Retire,
-        &["tab", "list", "--workspace", workspace_id],
-        cancelled,
-    )?;
+    let snapshot: SnapshotResult = host.herdr(Step::Retire, &["api", "snapshot"], cancelled)?;
+    let tabs = snapshot.snapshot.tabs_of(workspace_id);
+    let expected: std::collections::HashSet<_> = review
+        .tabs
+        .iter()
+        .filter(|tab| tab.generation == sheprd_backend::Generation::Herdr1)
+        .flat_map(|tab| tab.panes.iter().map(|pane| pane.pane_id.as_str()))
+        .collect();
+    let now: std::collections::HashSet<_> = snapshot
+        .snapshot
+        .panes
+        .iter()
+        .filter(|pane| tabs.iter().any(|tab| tab.tab_id == pane.tab_id))
+        .map(|pane| pane.pane_id.as_str())
+        .collect();
+    if expected != now {
+        return Err(Error::SourceSessionChanged);
+    }
     host.herdr_ok(
         Step::Retire,
         &[
@@ -206,14 +219,14 @@ pub(super) fn retire(source: &Source, checkout: &str, cancelled: &AtomicBool) ->
             "--workspace",
             workspace_id,
             "--cwd",
-            checkout,
+            &review.checkout,
             "--label",
             "teleported",
             "--no-focus",
         ],
         cancelled,
     )?;
-    for tab in tabs.tabs {
+    for tab in tabs {
         host.herdr_ok(Step::Retire, &["tab", "close", &tab.tab_id], cancelled)?;
     }
     Ok(())

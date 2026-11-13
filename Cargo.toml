@@ -1,5 +1,5 @@
 [workspace]
-members  = ["crates/embed-resource", "crates/sheprd-acp", "crates/sheprd-apns", "crates/sheprd-automate", "crates/sheprd-automation", "crates/sheprd-backend", "crates/sheprd-chat-protocol", "crates/sheprd-client", "crates/sheprd-commands", "crates/sheprd-control-protocol", "crates/sheprd-core-client", "crates/sheprd-credentials", "crates/sheprd-diagnostics", "crates/sheprd-github", "crates/sheprd-gpui", "crates/sheprd-launcher", "crates/sheprd-i18n", "crates/sheprd-luau", "crates/sheprd-mods", "crates/sheprd-nearby", "crates/sheprd-orchestrator", "crates/sheprd-protocol", "crates/sheprd-push-relay", "crates/sheprd-remote", "crates/sheprd-remote-control", "crates/sheprd-session", "crates/sheprd-terminal", "crates/sheprd-updater", "crates/sheprd-usage", "crates/sheprd-vcs"]
+members  = ["crates/embed-resource", "crates/sheprd-acp", "crates/sheprd-apns", "crates/sheprd-automate", "crates/sheprd-automation", "crates/sheprd-backend", "crates/sheprd-chat-protocol", "crates/sheprd-client", "crates/sheprd-commands", "crates/sheprd-control-protocol", "crates/sheprd-core-client", "crates/sheprd-credentials", "crates/sheprd-diagnostics", "crates/sheprd-github", "crates/sheprd-gpui", "crates/sheprd-launcher", "crates/sheprd-i18n", "crates/sheprd-luau", "crates/sheprd-mods", "crates/sheprd-nearby", "crates/sheprd-orchestrator", "crates/sheprd-protocol", "crates/sheprd-push-relay", "crates/sheprd-relay", "crates/sheprd-remote", "crates/sheprd-remote-control", "crates/sheprd-session", "crates/sheprd-terminal", "crates/sheprd-updater", "crates/sheprd-usage", "crates/sheprd-vcs"]
 resolver = "2"
 
 [workspace.package]
@@ -182,6 +182,7 @@ aes-gcm              = { default-features = false, features = ["aes", "alloc"], 
 hkdf                 = "0.13"
 hmac                 = "0.13"
 p256                 = { default-features = false, features = ["ecdh", "ecdsa", "pem", "std"], version = "0.14" }
+pgp                  = { default-features = false, version = "0.21" }
 sha2                 = "0.11.0"
 # Reads embedded bitmap strikes to spot fonts GPUI's Linux rasterizer panics on.
 skrifa               = { default-features = false, features = ["std"], version = "0.49" }
@@ -208,6 +209,8 @@ tower                = { default-features = false, features = ["util"], version 
 # `ws` feature already links this version.
 tokio-tungstenite    = { default-features = false, features = ["handshake"], version = "0.30" }
 tokio-rustls         = { default-features = false, features = ["ring", "tls12"], version = "0.26" }
+# The relay's QUIC transport: streams, connection migration, TLS 1.3.
+quinn                = { default-features = false, features = ["runtime-tokio", "rustls-ring"], version = "0.11" }
 # sheprd-remote-control's APNs sender for iOS Live Activities: APNs speaks only
 # HTTP/2, which ureq lacks. hyper's own HTTP/2 client (plus h2) over the
 # tokio-rustls above on the daemon's Tokio runtime is the smallest maintained

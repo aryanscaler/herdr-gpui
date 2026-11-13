@@ -1,6 +1,50 @@
 use super::*;
 
 #[test]
+fn failed_first_terminal_receipt_write_keeps_the_prestart_recovery_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let site = site(dir.path(), "");
+    fake_core(dir.path(), "idle");
+    std::fs::write(
+        dir.path().join("home/fail-receipt-write"),
+        site.database.to_str().unwrap(),
+    )
+    .unwrap();
+    let cancelled = AtomicBool::new(false);
+    assert!(matches!(
+        perform(
+            &site,
+            &Action::Dispatch(Box::new(herdr2_request())),
+            &cancelled
+        ),
+        Err(Error::Retained { .. })
+    ));
+    let store = Store::open(&site.database).unwrap();
+    let run = store.runs().unwrap().remove(0);
+    assert_eq!(store.sessions().unwrap()[0].pane, Pane::Pending);
+    assert!(checkout(dir.path()).exists());
+    rusqlite::Connection::open(&site.database)
+        .unwrap()
+        .execute_batch("DROP TRIGGER reject_receipt")
+        .unwrap();
+    perform(&site, &Action::Recover { run: run.id }, &cancelled).unwrap();
+    assert!(matches!(
+        store.sessions().unwrap()[0].pane,
+        Pane::Herdr2 { .. }
+    ));
+    let calls = core_calls(dir.path());
+    assert_eq!(
+        calls.iter().filter(|call| call.starts_with("run ")).count(),
+        1
+    );
+    assert!(
+        !calls
+            .iter()
+            .any(|call| call.starts_with("send ") || call.starts_with("kill "))
+    );
+}
+
+#[test]
 fn lost_launch_reply_recovers_owned_terminal_without_replaying_prompt() {
     let dir = tempfile::tempdir().unwrap();
     let site = site(dir.path(), "");

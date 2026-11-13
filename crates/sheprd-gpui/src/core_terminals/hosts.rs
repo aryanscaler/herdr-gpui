@@ -47,6 +47,7 @@ impl Host {
 
 /// Another host's core and what it reports of its terminals.
 pub(super) struct Remote {
+    pub(super) work_requests: super::work_requests::Seen,
     pub(super) checkouts: super::checkouts::Checkouts,
     pub(super) hub: Hub,
     pub(super) infos: Infos,
@@ -195,6 +196,7 @@ impl CoreTerminals {
         self.remote.insert(
             scope,
             Remote {
+                work_requests: Default::default(),
                 checkouts: super::checkouts::Checkouts::default(),
                 hub,
                 infos: Infos::default(),
@@ -213,6 +215,7 @@ impl CoreTerminals {
         };
         shown.host = Host::Remote(scope.clone());
         let remote = self.remote.entry(scope).or_insert_with(|| Remote {
+            work_requests: Default::default(),
             checkouts: super::checkouts::Checkouts::default(),
             hub: Hub::remote(target.clone()),
             infos: Infos::default(),
@@ -251,8 +254,7 @@ impl CoreTerminals {
     }
 
     /// Shows `terminal` of `host`'s core in `tab`, as a restored tab would.
-    // Only the lifecycle tests, which need Unix sockets, use it.
-    #[cfg(all(test, unix))]
+    #[cfg(test)]
     pub(crate) fn show_on_host_for_test(&mut self, tab: TabId, host: Host, terminal: TerminalId) {
         let panes = super::panes::Panes::single(terminal);
         self.tabs
@@ -354,7 +356,7 @@ impl SheprdWindow {
     /// what is typed until that core answers again and each terminal is
     /// attached anew; nothing is started or replayed.
     pub(super) fn poll_core_hubs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let mut changed = self.forget_stale_core_hosts();
+        let mut changed = self.forget_stale_core_hosts(cx);
         if self.dispatch_sampling() {
             let hosts: Vec<_> = self
                 .endpoints
@@ -491,6 +493,7 @@ impl SheprdWindow {
             self.core_terminals.remote.insert(
                 scope.clone(),
                 Remote {
+                    work_requests: Default::default(),
                     checkouts: super::checkouts::Checkouts::default(),
                     hub: Hub::remote(target.clone()),
                     infos: Infos::default(),
@@ -514,7 +517,7 @@ impl SheprdWindow {
     /// somewhere else, with its views and a terminal wanted there, so no new
     /// terminal starts on a machine the device no longer names. A host still
     /// saved gets a new hub the next time its tabs ask. True when any went.
-    fn forget_stale_core_hosts(&mut self) -> bool {
+    fn forget_stale_core_hosts(&mut self, cx: &mut gpui::App) -> bool {
         let stale: Vec<Scope> = self
             .core_terminals
             .remote
@@ -525,6 +528,8 @@ impl SheprdWindow {
         for scope in &stale {
             self.core_terminals
                 .forget_host(&Host::Remote(scope.clone()));
+            // Notes for the old machine's panes never reach the new one's.
+            crate::remote_browser::retire_feedback(scope, cx);
         }
         !stale.is_empty()
     }

@@ -13,6 +13,11 @@ pub enum Warning {
         #[source]
         source: Error,
     },
+    #[error("An old destination tab stayed open: {source}")]
+    DestinationTabsOpen {
+        #[source]
+        source: Error,
+    },
     /// The repository tracks `.envrc`, so the token was not added to it.
     #[error(
         "The repository tracks .envrc, so GH_TOKEN was not added; git pull and push still work"

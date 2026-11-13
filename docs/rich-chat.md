@@ -207,9 +207,8 @@ Limitations:
 - Only Herdr 1 on this machine, on macOS and Linux, where the `herdr` CLI
   answers `pane process-info`. Windows, SSH hosts, WSL, cloud machines, and a
   daemon behind a custom socket are not continued.
-- Herdr 2 (herdr-core) is not continued yet. Its chats run `sheprd-acp` as the
-  terminal's own program, which records nothing there, and herdr-core shows no
-  boot identity to tell a restart from a chat that ended.
+- Herdr 2 uses the separate recovery path below. Reattaching to a chat that
+  survived a core restart needs no recovery.
 - A chat Sheprd never saw live (started and ended while no window was
   connected) is not continued, because nothing says which boot it ran under.
 - A pane identity can still be reused: a chat whose pane was closed while no
@@ -228,6 +227,93 @@ Limitations:
 - On a Linux shutdown, where chats may die before their daemon, a window
   still connected 30 seconds later counts them as ended, and they are not
   continued.
+
+### Herdr 2 recovery
+
+The desktop's core-list workers and the phone service share a recovery pass.
+When core replaces a lost chat's root process with a shell, they start a **new
+terminal**, preserving the recorded agent session, canonical folder, adapter
+choice, extra built-in-agent arguments and explicit launch environment overrides.
+Known agent configuration-directory variables are also captured from the ACP
+process using the shared session-evidence allowlist. They do not type into the
+old terminal. Native remote launch/attachment support is a separate feature;
+the recovery requests and documents belong to the connected host's core.
+
+ACP records an actually opened session in a versioned core document. A worker
+claims a new generation with compare-and-swap before launch. A deterministic
+terminal name reconciles an ambiguous run reply; even a finished attempt is not
+replayed. The replacement holds the host-local endpoint lock and validates its
+generation against the document before starting an agent. Closing a chat writes
+a durable tombstone before killing its terminal. A close that races a pending
+launch prevents that launch from claiming ownership, and workers end a
+replacement which claimed just before the close.
+
+Core labels retain both the replacement's prior addresses and a forward
+receipt on the retired shell. Desktop and phone readers replay these aliases
+into their host-scoped saved pane trees, retaining split geometry, names and
+zoom; the desktop also transfers focus. The app saves the rewritten layout
+through its existing writer. If it crashes before saving, the next reader
+replays the core-owned labels. The old shell is left running, never killed by
+recovery: a person may have begun using it. It is no longer adopted as another
+workspace tab. It remains accessible through the core CLI.
+
+Passes visit at most 16 chat records every three seconds, rotating through a
+bounded terminal listing. Recovery documents are at most 32 KiB; a chat's alias
+history is capped at 256 replacements. A missing original terminal, an explicit
+kill, a normal program exit, an unknown foreground, or a terminal now running
+another foreground program is not proof of unexpected root loss. No recovery
+is launched on those observations.
+
+#### Explicit recovery in the kept shell
+
+Desktop and phone-created chats use kept terminals. After an unexpected
+program loss or a stopped core starting again, core preserves the terminal's
+address, folder and launch environment overrides and starts a shell. Normal
+program exits and explicit terminal kills still end the terminal. A recovered
+shell is shown as a terminal, not as a live chat merely because it retained the
+old endpoint label.
+
+For new built-in chats without extra agent arguments, `sheprd-acp` keeps the
+exact opened agent session under `restore/core/<endpoint>.json` beside its
+attach sockets **on the terminal's host**. A normal quit or successful agent
+exit removes this record; process loss, a failed headless agent, or a failed
+view preserves it. Closing a viewer does not close the chat. Herdr 1's restore
+scanner never consumes these records.
+
+At that terminal's recovered shell prompt, run:
+
+```sh
+sheprd-acp restore "$HERDR_ACP_ENDPOINT"
+```
+
+In PowerShell, use `sheprd-acp restore $env:HERDR_ACP_ENDPOINT`. The command
+requires the original endpoint, injected terminal ID and terminal socket, and
+canonical working directory. It refuses a different terminal, named session,
+folder, or host instead of searching for a recent agent session. It takes an
+OS-held endpoint lock **before** starting an agent, and holds it for the whole
+chat lifetime; another launch cannot steal a slow starter's claim. A crash
+releases the lock. Empty `.lock` files remain so concurrent processes always
+lock the same file.
+
+Recovery uses the recorded adapter choice and the existing strict `--resume`
+path, including its agent-specific history support and Pi limitation described
+above. Environment overrides passed when core created the terminal remain core's
+responsibility; the record does not serialize credentials or the entire process
+environment. This path requires `HERDR_ACP_ENDPOINT` in the recovered shell;
+terminal-to-chat conversions that only set it for the original child cannot yet
+use this command.
+
+**Remaining limits:** the current core API has no process-identity-fenced
+in-place launch. Reading a safe shell and then calling `terminal.send` can
+deliver the line to a different foreground program after its draft/quiet wait.
+The new-terminal recovery path avoids that race. A converted chat lost while
+its original shell root remains unchanged is still not restarted automatically:
+that observation cannot establish cleanup of the ACP process's separately
+grouped agent child. Whole-terminal/core recovery, where the root is replaced,
+can use the durable session record even when conversion set the endpoint only
+for its child. Custom agent commands have no built-in session contract and are
+not automatically restarted. Runtime desktop, phone, remote-host and reboot QA
+remain required; unit tests alone do not establish full parity.
 
 ## What the agent is doing
 

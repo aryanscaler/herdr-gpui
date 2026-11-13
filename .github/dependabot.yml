@@ -16,6 +16,25 @@ updates:
       actions:
         patterns: ["*"]
 
+  # Images pinned by digest: the relay's build bases and the droplet's
+  # Caddy. Digests on a moving tag go stale as silently as action SHAs.
+  - package-ecosystem: docker
+    directory: /crates/sheprd-relay
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore
+  - package-ecosystem: docker-compose
+    directory: /deploy/relay
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore
+
   # Workspace dependencies. Grouped so the lockfile moves in one reviewable PR
   # rather than many, matching the "avoid unrelated lockfile upgrades" rule.
   - package-ecosystem: cargo

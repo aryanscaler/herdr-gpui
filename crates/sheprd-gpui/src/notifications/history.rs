@@ -20,8 +20,11 @@ pub(crate) struct Alert {
 #[derive(Default)]
 pub(crate) struct History {
     alerts: VecDeque<Alert>,
-    /// Counts every alert ever kept, which also numbers them.
+    /// Counts every alert ever kept, which also numbers them, so an id is
+    /// never reused, not even after [`History::clear`].
     recorded: u64,
+    /// Counts the times the list was emptied.
+    cleared: u64,
 }
 
 impl History {
@@ -50,8 +53,19 @@ impl History {
         self.alerts.iter().find(|alert| alert.id == id)
     }
 
-    /// Moves each time an alert is kept, so a page can tell it has news.
+    /// Forgets every alert. Later alerts keep counting from where the list
+    /// was, so a page or a click holding an old id finds nothing.
+    pub(super) fn clear(&mut self) {
+        if self.alerts.is_empty() {
+            return;
+        }
+        self.alerts.clear();
+        self.cleared += 1;
+    }
+
+    /// Moves each time an alert is kept or the list is emptied, so a page can
+    /// tell it has changed.
     pub(crate) fn revision(&self) -> u64 {
-        self.recorded
+        self.recorded + self.cleared
     }
 }

@@ -17,7 +17,7 @@ use sheprd_remote::{
         self, AgentKind, Envelope, FreshOrigin, Host, HostRepositories, HostSnapshot,
         SnapshotResult, WorkspaceCreated, WorktreeCreated,
     },
-    work::{self, Opened, Worktree},
+    work::{self, Opened, Worktree, owned_agent::Purpose},
 };
 use std::{path::PathBuf, sync::atomic::AtomicBool};
 
@@ -235,7 +235,7 @@ fn own_run(
     let host = host_of(site, &session)?;
     if matches!(session.pane, Pane::Pending) {
         let work::Started::Herdr2 { terminal } =
-            herdr2::inspect(&host, &run, &session, true, cancelled)?
+            herdr2::inspect(&host, &run, &session, Purpose::End, cancelled)?
         else {
             return Err(Error::NothingToOpen);
         };
@@ -326,7 +326,7 @@ fn remove_worktree(
         if exists && let (Some(token), Some(tree)) = (&session.checkout_token, &tree) {
             work::owned_checkout::verify(&host, tree, &workspace.branch, token, cancelled)?;
         }
-        match herdr2::inspect(&host, run, session, true, cancelled) {
+        match herdr2::inspect(&host, run, session, Purpose::End, cancelled) {
             Ok(work::Started::Herdr2 { terminal }) => herdr2::end(&host, &terminal)?,
             Ok(_) => return Err(Error::NothingToOpen),
             Err(error) => {

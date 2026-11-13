@@ -18,6 +18,7 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 
 mod delivery;
 mod panel;
+mod remote;
 mod screenshots;
 
 /// What the next note will be about, picked but not yet written, and its

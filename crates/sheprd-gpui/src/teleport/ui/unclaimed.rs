@@ -8,7 +8,7 @@ use super::{Error, Event, Outcome};
 use crate::{
     SheprdWindow,
     browser::{Location, Scope, Store, TabId},
-    core_terminals::{Host, Purpose},
+    core_terminals::Purpose,
     i18n::fl,
     teleport::{Keeping, Landed, Source},
     window::Flash,
@@ -117,12 +117,15 @@ impl SheprdWindow {
                 Location::CoreTerminal { panes, .. } => Some(panes.clone()),
                 _ => None,
             };
-            for tab in moved_tabs(handover.closing, panes) {
-                self.close_browser_tab(tab, window, cx);
+            if outcome.source_retired {
+                for tab in moved_tabs(handover.closing, panes) {
+                    self.close_browser_tab(tab, window, cx);
+                }
             }
             self.settle_teleport(&outcome, &handover.scope, window, cx);
-            // Only a finished move is left here: its programs stopped.
-            self.retire_kept_source(&handover.source, handover.source_scope, cx);
+            if outcome.source_retired {
+                self.retire_kept_source(&handover.source, handover.source_scope, cx);
+            }
         }
     }
 
@@ -154,8 +157,11 @@ impl SheprdWindow {
                 // give way to the work's, as Herdr 1's do in the move.
                 let stale: Vec<TabId> = cx
                     .try_global::<Store>()
-                    .filter(|store| store.kept_workspace(scope, id).is_some())
-                    .map(|store| store.in_workspace(scope, id).map(|tab| tab.id).collect())
+                    .filter(|store| outcome.source_retired && store.kept_workspace(scope, id).is_some())
+                    .map(|store| store.in_workspace(scope, id).filter(|tab| {
+                        !matches!(&tab.location, Some(Location::CoreTerminal { panes, .. })
+                            if outcome.core_tabs.iter().flat_map(Panes::terminals).any(|terminal| panes.contains(terminal)))
+                    }).map(|tab| tab.id).collect())
                     .unwrap_or_default();
                 for tab in stale {
                     self.close_browser_tab(tab, window, cx);
@@ -165,18 +171,20 @@ impl SheprdWindow {
             Landed::New { checkout, label } => {
                 let (label, custom) =
                     crate::core_terminals::kept_label(label.as_deref(), Some(Path::new(checkout)));
-                let kept = Store::update(cx, |store| {
-                    store.keep_workspace(scope, &label, checkout, custom)
-                });
+                let kept = cx
+                    .try_global::<Store>()
+                    .and_then(|store| {
+                        store
+                            .kept_workspaces(scope)
+                            .find(|workspace| workspace.cwd == *checkout)
+                            .map(|workspace| workspace.id.clone())
+                    })
+                    .or_else(|| {
+                        Store::update(cx, |store| {
+                            store.keep_workspace(scope, &label, checkout, custom)
+                        })
+                    });
                 let Some(id) = kept else {
-                    let host = Host::of(scope);
-                    let ending = outcome
-                        .core_tabs
-                        .iter()
-                        .flat_map(Panes::terminals)
-                        .map(|terminal| (host.clone(), terminal.clone()))
-                        .collect::<Vec<_>>();
-                    Store::update(cx, |store| store.end_terminals(ending));
                     self.show_flash(Flash::warning(fl!("core-workspaces-too-many")), cx);
                     return None;
                 };
@@ -191,7 +199,22 @@ impl SheprdWindow {
                     .core_tabs
                     .iter()
                     .filter(|panes| {
-                        let location = Location::core_terminal((*panes).clone(), false);
+                        let held: std::collections::HashSet<_> = store
+                            .tabs()
+                            .filter(|tab| &tab.scope == scope)
+                            .filter_map(|tab| match &tab.location {
+                                Some(Location::CoreTerminal { panes, .. }) => {
+                                    Some(panes.terminals())
+                                }
+                                _ => None,
+                            })
+                            .flatten()
+                            .cloned()
+                            .collect();
+                        let Some(panes) = unheld_panes(panes, &held) else {
+                            return false;
+                        };
+                        let location = Location::core_terminal(panes, false);
                         store
                             .open(scope.clone(), &workspace, Some(location), None)
                             .is_none()
@@ -225,4 +248,19 @@ impl SheprdWindow {
         let workspace = source.workspace_id.clone();
         self.start_core_program(Purpose::Tab { scope, workspace }, spawn, cx);
     }
+}
+
+fn unheld_panes(
+    panes: &Panes,
+    held: &std::collections::HashSet<sheprd_backend::TerminalId>,
+) -> Option<Panes> {
+    let ids = panes.terminals();
+    if ids.iter().all(|id| held.contains(*id)) {
+        return None;
+    }
+    let mut remaining = panes.clone();
+    for id in ids.into_iter().filter(|id| held.contains(*id)) {
+        remaining.remove(id);
+    }
+    Some(remaining)
 }

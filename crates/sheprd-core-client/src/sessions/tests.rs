@@ -109,3 +109,19 @@ fn carried_sessions_use_explicit_paths_and_qualified_letta_defaults() {
     assert_eq!(selected.value, "default:agent-123");
     assert!(selection(AgentKind::Letta, &json!({"conversation_id":"default"})).is_err());
 }
+
+#[test]
+fn process_birth_is_absent_only_for_a_pid_with_no_process() {
+    let mut child = std::process::Command::new(if cfg!(windows) { "cmd" } else { "true" })
+        .args(if cfg!(windows) {
+            &["/C", "exit"][..]
+        } else {
+            &[][..]
+        })
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    assert_eq!(process_birth(pid).unwrap(), None);
+    assert!(process_birth(std::process::id()).unwrap().is_some());
+}

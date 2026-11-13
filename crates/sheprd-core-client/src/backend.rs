@@ -21,6 +21,7 @@ pub use terminal::CoreTerminal;
 #[derive(Clone)]
 pub struct CoreBackend {
     core: Arc<Core>,
+    recovery: Arc<std::sync::Mutex<crate::chat_recovery::Sweep>>,
     /// Scrollback lines each attached terminal keeps.
     scrollback: usize,
 }
@@ -29,6 +30,7 @@ impl CoreBackend {
     pub fn new(core: Core, scrollback: usize) -> Self {
         Self {
             core: Arc::new(core),
+            recovery: Arc::default(),
             scrollback,
         }
     }
@@ -58,7 +60,15 @@ impl sheprd_backend::Backend for CoreBackend {
     }
 
     fn terminals(&self) -> Result<Vec<TerminalInfo>> {
-        self.core.list(false)?.terminals.iter().map(info).collect()
+        let listed = self.core.list(false)?.terminals;
+        if listed
+            .iter()
+            .any(|terminal| crate::chat_recovery::tracked(&terminal.labels))
+            && let Ok(mut recovery) = self.recovery.try_lock()
+        {
+            recovery.poll(&self.core);
+        }
+        listed.iter().map(info).collect()
     }
 
     fn watch(&self) -> Result<(Vec<TerminalInfo>, CoreChanges)> {
@@ -70,7 +80,9 @@ impl sheprd_backend::Backend for CoreBackend {
             .collect();
         let snapshot = records.values().map(info).collect::<Result<_>>()?;
         let changes = CoreChanges {
+            core: Arc::clone(&self.core),
             records,
+            recovery: Arc::clone(&self.recovery),
             seq: subscription.seq,
             subscription,
         };
@@ -101,18 +113,29 @@ impl sheprd_backend::Backend for CoreBackend {
             name: spawn.name.as_deref(),
             ..Run::default()
         };
-        info(&self.core.run(&run)?)
+        info(&crate::chat_recovery::run(&self.core, &run)?)
     }
 
     fn kill(&self, id: &TerminalId) -> Result<()> {
-        self.core.kill(id.as_str()).map(drop)
+        let terminal = self
+            .core
+            .list(false)?
+            .terminals
+            .into_iter()
+            .find(|terminal| terminal.address == id.as_str());
+        match terminal {
+            Some(terminal) => crate::chat_recovery::close_terminal(&self.core, &terminal),
+            None => self.core.kill(id.as_str()).map(drop),
+        }
     }
 }
 
 /// Events after a watch snapshot, applied to the records they change so
 /// every change carries the terminal's whole current facts.
 pub struct CoreChanges {
+    core: Arc<Core>,
     records: BTreeMap<String, Terminal>,
+    recovery: Arc<std::sync::Mutex<crate::chat_recovery::Sweep>>,
     seq: u64,
     subscription: crate::Subscription,
 }
@@ -121,6 +144,14 @@ impl sheprd_backend::Changes for CoreChanges {
     type Error = Error;
 
     fn next(&mut self, timeout: Duration) -> Result<Vec<Change>> {
+        if self
+            .records
+            .values()
+            .any(|terminal| crate::chat_recovery::tracked(&terminal.labels))
+            && let Ok(mut recovery) = self.recovery.try_lock()
+        {
+            recovery.poll(&self.core);
+        }
         let mut changes = Vec::new();
         for notice in self.subscription.next(timeout)? {
             match notice {

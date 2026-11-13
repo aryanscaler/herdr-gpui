@@ -1,10 +1,10 @@
 use super::Error;
 use crate::Result;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(windows, target_os = "macos")))]
 use sheprd_client::ScriptLimits;
 #[cfg(not(any(windows, target_os = "macos")))]
 use sheprd_client::{ScriptHost, run_script};
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(windows, target_os = "macos")))]
 use std::{sync::atomic::AtomicBool, time::Duration};
 
 pub(super) struct Process {
@@ -74,6 +74,9 @@ pub(super) fn read(pid: u32) -> Result<Process> {
 }
 
 #[cfg(windows)]
+mod powershell;
+
+#[cfg(windows)]
 pub(super) fn read(pid: u32) -> Result<Process> {
     if pid == 0 {
         return Err(Error::Identity.into());
@@ -83,21 +86,45 @@ pub(super) fn read(pid: u32) -> Result<Process> {
         std::path::PathBuf::from(root).join("System32/WindowsPowerShell/v1.0/powershell.exe");
     let mut command = sheprd_client::new_command(program);
     command.args(["-NoProfile", "-NonInteractive", "-Command", &format!(
-        "$ErrorActionPreference='Stop'; $p=Get-CimInstance Win32_Process -Filter 'ProcessId={pid}'; if(!$p){{exit 1}}; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); Write-Output $p.ParentProcessId; Write-Output ('windows:'+ $p.CreationDate.ToUniversalTime().Ticks); Write-Output $p.Name"
+        "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; $p=Get-CimInstance Win32_Process -Filter 'ProcessId={pid}'; if(!$p){{exit {ABSENT}}}; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); Write-Output $p.ParentProcessId; Write-Output ('windows:'+ $p.CreationDate.ToUniversalTime().Ticks); Write-Output $p.Name"
     )]);
-    let mut output = Vec::new();
-    sheprd_client::run_script_command(
-        command,
-        &[][..],
-        &mut output,
-        ScriptLimits {
-            output: 1024,
-            idle: Duration::from_secs(5),
-        },
-        &AtomicBool::new(false),
-    )
-    .map_err(Error::Probe)?;
+    let output = powershell::run(command).map_err(Error::Probe)?;
     parse(&output)
+}
+
+/// Exit code of the Windows probe when no process has the PID, so absence is
+/// never confused with a failed probe.
+#[cfg(windows)]
+const ABSENT: i32 = 3;
+
+/// `None` only when no process has `pid`; a failed probe stays an error, so
+/// callers deciding whether an old process is gone never treat doubt as gone.
+pub(super) fn birth(pid: u32) -> Result<Option<String>> {
+    #[cfg(unix)]
+    let gone = || {
+        i32::try_from(pid)
+            .ok()
+            .and_then(rustix::process::Pid::from_raw)
+            .is_some_and(|pid| {
+                rustix::process::test_kill_process(pid) == Err(rustix::io::Errno::SRCH)
+            })
+    };
+    #[cfg(unix)]
+    if gone() {
+        return Ok(None);
+    }
+    match read(pid) {
+        Ok(process) => Ok(Some(process.started)),
+        // It exited between the check and the read.
+        #[cfg(unix)]
+        Err(_) if gone() => Ok(None),
+        #[cfg(windows)]
+        Err(crate::Error::Sessions(Error::Probe(sheprd_client::Error::ScriptExit {
+            status,
+            ..
+        }))) if status.code() == Some(ABSENT) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(not(target_os = "macos"))]

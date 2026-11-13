@@ -1,9 +1,13 @@
 //! The Recent alerts shelf: what each host's notification history kept, newest
 //! first, where clicking one goes to its pane.
 
-use super::{presets, view::Frame};
+use super::{
+    presets,
+    view::{Frame, pill},
+};
 use crate::{
     SheprdWindow,
+    devices_overview::Look,
     i18n::fl,
     navigation::OwnedNavigationTarget,
     notifications::{Alert, HISTORY_LIMIT},
@@ -88,6 +92,36 @@ impl SheprdWindow {
         // The shelf is the last thing on the page.
         self.overview.scroll.scroll_to_bottom();
         cx.notify();
+    }
+
+    /// The shelf's Clear, which runs Clear All Notifications.
+    pub(super) fn overview_alerts_clear(
+        &self,
+        look: &Look,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let (foreground, surface) = (look.theme.foreground, look.theme.surface);
+        // It does more than its place suggests, so it says so.
+        let hint = SharedString::from(fl!("overview-alerts-clear-hint"));
+        pill(
+            "overview-alerts-clear".to_owned(),
+            "icons/x.svg",
+            fl!("overview-alerts-clear"),
+            look,
+        )
+        .tooltip(move |_, cx| {
+            cx.new(|_| crate::usage::Hint {
+                text: hint.clone(),
+                foreground,
+                surface,
+            })
+            .into()
+        })
+        .on_click(cx.listener(|this, _, window, cx| {
+            // The shelf folds and unfolds on a click; this one only clears.
+            cx.stop_propagation();
+            this.clear_all_notifications(window, cx);
+        }))
     }
 
     pub(super) fn overview_alert(

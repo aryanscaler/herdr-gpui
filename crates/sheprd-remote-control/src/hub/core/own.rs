@@ -106,10 +106,40 @@ impl Store {
             };
             return !fresh;
         }
+        let replacements = sheprd_core_client::chat_recovery::mapping(
+            records
+                .iter()
+                .map(|record| (record.address.as_str(), &record.labels)),
+        );
+        let mut rebound = false;
+        for tab in &mut layouts.tabs {
+            for (old, new) in &replacements {
+                if tab.panes.replace(old, new.clone()) {
+                    rebound = true;
+                    if tab.zoomed.as_ref() == Some(old) {
+                        tab.zoomed = Some(new.clone());
+                    }
+                    if tab.active.as_ref() == Some(old) {
+                        tab.active = Some(new.clone());
+                    }
+                }
+            }
+        }
+        // A phone names a lone chat without a tab, so names move on their own;
+        // a name left under a retired address would be dropped below.
+        for (old, new) in &replacements {
+            if !layouts.names.contains_key(new.as_str())
+                && let Some(name) = layouts.names.remove(old.as_str())
+            {
+                layouts.names.insert(new.as_str().to_owned(), name);
+                rebound = true;
+            }
+        }
         let mut live: HashSet<&str> = records
             .iter()
             .map(|record| record.address.as_str())
             .filter(|address| !held.contains(*address))
+            .filter(|address| !replacements.keys().any(|old| old.as_str() == *address))
             .collect();
         self.fresh
             .retain(|address, at| !live.contains(address.as_str()) && at.elapsed() < FRESH);
@@ -120,7 +150,7 @@ impl Store {
                 .filter(|address| !held.contains(*address)),
         );
         let before = (layouts.tabs.len(), layouts.names.len());
-        let mut changed = false;
+        let mut changed = rebound;
         layouts.tabs.retain_mut(|tab| {
             let dead: Vec<TerminalId> = tab
                 .panes

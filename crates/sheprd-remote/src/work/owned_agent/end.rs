@@ -1,7 +1,9 @@
 //! Stop only verified resources, and prove that `--keep` did not leave a
 //! replacement shell before callers remove the checkout.
 
-use super::{Agent, Error, Host, Owner, Result, Started, Step, Worktree, command, script, select};
+use super::{
+    Agent, Error, Host, Owner, Purpose, Result, Started, Step, Worktree, command, script, select,
+};
 use sheprd_client::shell_quote;
 use sheprd_core_client::wire::{List, TerminalState};
 use std::sync::atomic::AtomicBool;
@@ -58,7 +60,7 @@ pub fn end(
         owner,
         &command(agent),
         expected,
-        true,
+        Purpose::End,
         agent.kind,
     )?;
     let Started::Herdr2 { terminal } = started else {

@@ -158,6 +158,7 @@ pub fn request(command: Command, snapshot: &ClientShellSnapshot) -> Option<(Meth
         | Command::ToggleZenMode
         | Command::DevicesOverview
         | Command::NotificationHistory
+        | Command::ClearAllNotifications
         | Command::NewCoreTerminal
         | Command::MirrorCorePane
         | Command::ConvertToChat

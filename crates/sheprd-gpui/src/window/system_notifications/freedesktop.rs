@@ -6,10 +6,11 @@
 //!
 //! The click rule is registered before the first `Notify`, so a click on even
 //! the first notification is seen. Closes are not tracked: the bounded
-//! registry and coalesced outbox are the only per-notification state.
+//! registry and coalesced outbox are the only per-notification state, besides
+//! the bounded ids Clear All Notifications closes.
 
 mod outbox;
-pub(super) use outbox::{Outbox, post};
+pub(super) use outbox::{Outbox, post, withdraw};
 
 #[cfg(test)]
 mod tests;
@@ -131,6 +132,15 @@ fn plain(body: &str, markup: bool) -> Cow<'_, str> {
 fn clicked(message: &Message) -> Option<u32> {
     let (id, action) = message.body().deserialize::<(u32, String)>().ok()?;
     (action == DEFAULT_ACTION).then_some(id)
+}
+
+/// Closes the notification the server numbered `id`.
+pub(super) async fn close(session: &Session, id: u32) -> Result<(), Error> {
+    session
+        .connection
+        .call_method(Some(NAME), PATH, Some(NAME), "CloseNotification", &(id,)) // i18n: data
+        .await?;
+    Ok(())
 }
 
 /// Posts `notification`, replacing the daemon's `replaces` (0 for none), and

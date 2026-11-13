@@ -1,4 +1,5 @@
 //! Native rich blocks. No HTML is executed and code-copy buttons only copy.
+use crate::chat::code_block::scroll_sideways;
 use crate::chat::{
     rich::{Block, Inline, Kind, Style},
     visual::{Shown, VisualId, Visuals},
@@ -11,6 +12,7 @@ use std::ops::Range;
 
 mod accents;
 mod code;
+mod inline;
 mod links;
 mod rhythm;
 
@@ -21,7 +23,11 @@ use super::{
 };
 use crate::chat::selection::Cell;
 use accents::{Accents, code_ink};
+use inline::{Piece, Runs, rise, text_baseline};
 use links::Links;
+
+/// The prose's line height, in ems; inline formulas find its baseline with it.
+const LINE_HEIGHT: f32 = 1.6;
 
 struct RichContext<'a, 'b, 'c> {
     /// The chat drawing the blocks, whose buttons' choices they follow.
@@ -73,7 +79,7 @@ impl SheprdWindow {
             .when(!layout.mono_prose(), |view| view.text_font(&self.config.ui))
             .text_size(px(size))
             .when_some(layout.prose(&look), |view, ink| view.text_color(rgb(ink)))
-            .line_height(relative(1.6))
+            .line_height(relative(LINE_HEIGHT))
             .children(blocks.iter().enumerate().map(|(index, block)| {
                 let element = match block {
                     Block::Paragraph {
@@ -84,7 +90,7 @@ impl SheprdWindow {
                         .rich_paragraph(*kind, *indent, content, index, &mut context)
                         .into_any_element(),
                     Block::Math { id, source } => {
-                        let formula = self.rich_math(*id, source, visuals, false, size);
+                        let formula = self.rich_math(*id, source, visuals, false, size, context.cx);
                         let formula = match selection.fragment(Cell::block(index)) {
                             Some(fragment) => fragment.atomic(formula, &self.theme, context.cx),
                             None => formula,
@@ -233,13 +239,15 @@ impl SheprdWindow {
             // marks paint behind the text and retain normal text contrast.
             return selectable(fragment.as_ref(), view, layout, context.cx).child(content);
         }
-        let mut children = Vec::new();
+        let mut runs = Runs::default();
         let mut offset = 0;
+        let mut words = 0usize;
         for part in content.iter() {
             match part {
                 Inline::Text(text, style) => {
                     for word in text.split_inclusive(char::is_whitespace) {
-                        let index = children.len();
+                        let index = words;
+                        words += 1;
                         let mut item = div().flex_none().max_w_full().when(style.code, |item| {
                             item.text_font(&self.config.terminal)
                                 .bg(rgb(self.theme.active))
@@ -273,11 +281,19 @@ impl SheprdWindow {
                         } else {
                             item.child(styled)
                         };
-                        children.push(item.into_any_element());
+                        let spaced = word.ends_with(char::is_whitespace);
+                        runs.push(Piece::Word { spaced }, item.into_any_element());
                     }
                 }
                 Inline::Math { id, source, .. } => {
-                    let formula = self.rich_math(*id, source, context.visuals, true, context.size);
+                    let formula = self.rich_math(
+                        *id,
+                        source,
+                        context.visuals,
+                        true,
+                        context.size,
+                        context.cx,
+                    );
                     let formula = match &fragment {
                         Some(fragment) => fragment.range(offset..offset + source.len()).atomic(
                             formula,
@@ -287,11 +303,11 @@ impl SheprdWindow {
                         None => formula,
                     };
                     offset += source.len();
-                    children.push(formula.into_any_element());
+                    runs.push(Piece::Math, formula.into_any_element());
                 }
                 Inline::Break => {
                     offset += 1;
-                    children.push(div().w_full().h(px(0.)).into_any_element());
+                    runs.push(Piece::Break, div().w_full().h(px(0.)).into_any_element());
                 }
             }
         }
@@ -301,7 +317,7 @@ impl SheprdWindow {
             .items_baseline()
             .min_w_0()
             .gap_y(px(2.))
-            .children(children)
+            .children(runs.finish())
     }
 
     /// A formula, drawn for the chat's text and scaled to `size`, the text
@@ -313,10 +329,12 @@ impl SheprdWindow {
         visuals: &Visuals,
         inline: bool,
         size: f32,
+        cx: &App,
     ) -> Div {
+        let layout = layout_for(self.config.chat.layout);
         // Math textures use the theme's ink. Keep that surface behind them
         // when a layout supplies a different message fill, without re-rasterizing.
-        let backdrop = layout_for(self.config.chat.layout).backdrop(&self.chat_look());
+        let backdrop = layout.backdrop(&self.chat_look());
         let ground =
             |view: Div| view.when_some(backdrop, |view, fill| view.bg(rgb(fill)).rounded(px(2.)));
         let shown = visuals.shown(id);
@@ -352,30 +370,46 @@ impl SheprdWindow {
         // The texture is drawn for the chat's text size.
         let scale = size / self.chat_text_size();
         let (width, height) = (drawn.width * scale, drawn.height * scale);
-        // The zero-width text establishes a text baseline inside the math
-        // atom; the picture is positioned against its measured TeX baseline.
         ground(if inline {
-            let text_baseline = size * 0.8;
+            // The prose font's own metrics place its baseline in the line.
+            let font = if layout.mono_prose() {
+                &self.config.terminal
+            } else {
+                &self.config.ui
+            };
+            let line = size * LINE_HEIGHT;
+            let text = cx.text_system();
+            let id = text.resolve_font(&font.font());
+            let prose = text_baseline(
+                line,
+                f32::from(text.ascent(id, px(size))),
+                f32::from(text.descent(id, px(size))),
+            );
             let baseline = drawn.baseline.unwrap_or(drawn.height) * scale;
-            let top = (text_baseline - baseline).max(0.);
-            let before = (baseline - text_baseline).max(0.);
+            // Room for the 1px border `Fragment::atomic` draws around a
+            // selectable formula, so the picture still starts at its padding.
+            let border = 1.;
+            let rise = rise(line, prose, baseline, height, border);
             div()
                 .debug_selector(|| "chat-math-inline".into())
                 .flex_none()
                 .relative()
+                // As in KaTeX's HTML, the formula advances by its own width
+                // and its padding overlaps the neighboring spaces.
+                .mx(px(-super::super::rich::MATH_PADDING * scale - border))
                 .max_w_full()
-                .w(px(width))
-                .h(px((height + top).max(size * 1.4 + before)))
-                .child(div().pt(px(before)).child("\u{200b}"))
+                .w(px(width + 2. * border))
+                .h(px(rise.height))
+                .mb(px(rise.margin_bottom))
+                // Like KaTeX's HTML, no fit to the column: a percentage
+                // width on this absolute picture shrank short formulas.
                 .child(
                     img(drawn.texture.clone())
                         .absolute()
-                        .top(px(top))
+                        .top(px(rise.top))
                         .left(px(0.))
                         .w(px(width))
-                        .h(px(height))
-                        .max_w_full()
-                        .object_fit(ObjectFit::Contain),
+                        .h(px(height)),
                 )
         } else {
             div()
@@ -425,7 +459,7 @@ impl SheprdWindow {
             .id("table-scroll")
             .debug_selector(|| "chat-rich-table".into())
             .min_w_0()
-            .overflow_x_scroll()
+            .map(scroll_sideways)
             .rounded(px(5.))
             .border_1()
             .border_color(rgb(self.theme.active))

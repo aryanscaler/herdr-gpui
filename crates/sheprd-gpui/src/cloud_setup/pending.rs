@@ -134,7 +134,15 @@ impl SheprdWindow {
             tracing::warn!("a new cloud device was never shown for its setup script");
             self.show_flash(gave_up(&setup.label), cx);
         }
-        if self.script_slot_busy() || !self.live.status.is_connected() {
+        if self.script_slot_busy() {
+            return;
+        }
+        // A machine made without Herdr 1 runs its script in the workspace
+        // the app keeps there, as a dispatch to it opens one.
+        if self.live.herdr_1_unavailable() {
+            return self.poll_core_cloud_setup(cx);
+        }
+        if !self.live.status.is_connected() {
             return;
         }
         let Some(snapshot) = self.live.snapshot.as_ref() else {
@@ -167,6 +175,30 @@ impl SheprdWindow {
         let label = pending.label.clone();
         if let Err(error) = self.start_cloud_setup(pending, &workspace, boot) {
             self.fail_cloud_setup(&label, error, cx);
+        }
+    }
+
+    /// Starts the shown device's waiting script on its herdr-core, in the
+    /// workspace the app keeps in front there; it waits until one is.
+    fn poll_core_cloud_setup(&mut self, cx: &mut Context<Self>) {
+        let Some(workspace) = self.kept_in_front().map(str::to_owned) else {
+            return;
+        };
+        let shown = &self.endpoints[self.selected_endpoint].id;
+        let setups = &mut cx.global_mut::<PendingSetups>().0;
+        let Some(index) = setups.iter().position(|setup| &setup.endpoint_id == shown) else {
+            return;
+        };
+        let Some(pending) = setups.remove(index) else {
+            return;
+        };
+        let label = pending.label.clone();
+        match self.start_core_cloud_setup(pending, &workspace, cx) {
+            Ok(None) => {}
+            // The core cannot take it yet: it keeps its place and its
+            // deadline, and is given up on with a word if that passes.
+            Ok(Some(pending)) => cx.global_mut::<PendingSetups>().0.push_front(pending),
+            Err(error) => self.fail_cloud_setup(&label, error, cx),
         }
     }
 }

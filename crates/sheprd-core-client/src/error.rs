@@ -24,6 +24,8 @@ pub enum Error {
     #[error("too many herdr-core requests are waiting for an answer")]
     Busy,
     #[error(transparent)]
+    ChatRecovery(#[from] crate::chat_recovery::Error),
+    #[error(transparent)]
     Compat(#[from] hello::Mismatch),
     #[error("cannot reach herdr-core at {}", path.display())]
     Connect {

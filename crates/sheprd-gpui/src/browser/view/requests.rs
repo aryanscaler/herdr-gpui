@@ -103,6 +103,21 @@ impl SheprdWindow {
         ))
     }
 
+    /// Resolves a saved core origin against the exact driving pane, independent
+    /// of the selected Herdr session. Remote keys never enter the local-ID path.
+    pub(crate) fn core_pane_scope(&self, pane: &str) -> Option<Scope> {
+        if pane.starts_with("core@") {
+            return self.endpoints.iter().find_map(|endpoint| {
+                let scope = scope(endpoint);
+                self.core_terminals
+                    .browser_terminal(&scope, pane)
+                    .map(|_| scope)
+            });
+        }
+        crate::chat::core_pane::terminal_of(pane)
+            .and_then(|terminal| self.core_terminal_scope(terminal.as_str()))
+    }
+
     /// Whether one of this window's herdr-core tabs, or the shell shown in
     /// place of Herdr 1, holds `terminal`.
     pub(crate) fn holds_core_terminal(&self, terminal: &str) -> bool {

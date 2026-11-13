@@ -7,6 +7,8 @@ mod discard_identity;
 mod herdr_2;
 mod hosts;
 mod interrupt;
+#[cfg(unix)]
+mod owned_removal;
 mod spread;
 mod wanted;
 

@@ -21,7 +21,13 @@ fn a_spawn_sends_its_labels_and_reads_them_back() {
         assert_eq!(request["params"]["labels"], json!({"acp": "ab".repeat(16)}));
         assert_eq!(
             request["params"]["env"],
-            json!({"HERDR_ACP_ENDPOINT": "ab".repeat(16)})
+            // A chat launch clears any inherited recovery generation and
+            // records its explicit overrides for recovery.
+            json!({
+                "HERDR_ACP_ENDPOINT": "ab".repeat(16),
+                crate::chat_recovery::GENERATION_ENV: "",
+                crate::chat_recovery::OVERRIDES_ENV: "{}",
+            })
         );
         let mut made = terminal("t4");
         made["labels"] = request["params"]["labels"].clone();

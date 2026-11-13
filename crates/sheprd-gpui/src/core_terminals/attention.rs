@@ -149,6 +149,12 @@ impl Heard {
         self.posts.retain(|(_, terminal, _)| !muted(terminal));
     }
 
+    /// Drops the system notifications waiting out their delay; their
+    /// sounds still play.
+    fn forget_posts(&mut self) {
+        self.posts.clear();
+    }
+
     /// Records the terminals `window` shows in front: none unless it is
     /// active. Windows no longer `open` are forgotten.
     pub(super) fn show(
@@ -219,6 +225,14 @@ impl Heard {
             }
         }
         taken
+    }
+}
+
+/// Drops the Herdr 2 notifications not yet posted, as Clear All
+/// Notifications does, so none arrives after it.
+pub(crate) fn forget_pending_posts(cx: &mut App) {
+    if cx.has_global::<Heard>() {
+        cx.global_mut::<Heard>().forget_posts();
     }
 }
 

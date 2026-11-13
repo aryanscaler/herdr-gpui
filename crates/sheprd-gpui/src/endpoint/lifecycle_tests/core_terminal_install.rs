@@ -1,6 +1,7 @@
 //! A host's herdr-core seen from the window's other features: installing
 //! one clears what the window remembered of a host without it, and the
-//! agents working there count when dispatch ranks hosts.
+//! agents working there count when dispatch ranks hosts only while its
+//! core answers.
 
 use super::*;
 use crate::{

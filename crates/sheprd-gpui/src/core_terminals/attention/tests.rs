@@ -1,3 +1,5 @@
+mod cleared;
+
 use super::{Heard, News, in_front};
 use gpui::WindowId;
 use sheprd_backend::{AgentStatus, TerminalId};

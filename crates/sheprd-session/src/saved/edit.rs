@@ -12,6 +12,7 @@ use super::MAX_SAVED_BYTES;
 use crate::panes::{Axis, Panes};
 use serde_json::{Map, Value};
 use sheprd_backend::TerminalId;
+use std::collections::BTreeMap;
 
 /// One change to one saved tab of herdr-core terminals.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +112,70 @@ pub fn edit_tab(bytes: &[u8], scope: &str, tab: u64, change: Change<'_>) -> Resu
         Change::Close => {}
     }
     location.insert("panes".into(), serde_json::to_value(&panes)?);
+    write(&root)
+}
+
+/// `bytes` with a core's recovery aliases (old terminal to its replacement)
+/// applied to `scope`'s tabs, as [`crate::SavedTabs::remap`] applies them to
+/// what a reader holds: the replacement keeps the old pane's place, name,
+/// focus, and zoom. Made before a phone's change, so the change can name the
+/// replacement the phone shows. Every other field is written back as read.
+pub fn remap(
+    bytes: &[u8],
+    scope: &str,
+    replacements: &BTreeMap<TerminalId, TerminalId>,
+) -> Result<Vec<u8>, Error> {
+    let mut root = read(bytes)?;
+    let tabs = root
+        .get_mut("tabs")
+        .and_then(Value::as_array_mut)
+        .ok_or(Error::Tab)?;
+    for tab in tabs
+        .iter_mut()
+        .filter(|tab| tab["scope"].as_str() == Some(scope))
+    {
+        let Some(location) = tab
+            .get_mut("location")
+            .and_then(Value::as_object_mut)
+            .filter(|location| {
+                location.get("kind").and_then(Value::as_str) == Some("core_terminal")
+            })
+        else {
+            continue;
+        };
+        // Tabs saved before splits named their one terminal `terminal`.
+        let key = if location.contains_key("panes") {
+            "panes"
+        } else {
+            "terminal"
+        };
+        let Some(saved) = location.get(key) else {
+            continue;
+        };
+        let mut panes: Panes = serde_json::from_value(saved.clone())?;
+        let mut moved = Vec::new();
+        for (old, new) in replacements {
+            if panes.replace(old, new.clone()) {
+                moved.push((old.as_str(), new.as_str()));
+            }
+        }
+        if moved.is_empty() {
+            continue;
+        }
+        location.insert(key.into(), serde_json::to_value(&panes)?);
+        for (old, new) in moved {
+            for field in ["active", "zoomed"] {
+                if location.get(field).and_then(Value::as_str) == Some(old) {
+                    location.insert(field.into(), new.into());
+                }
+            }
+            if let Some(names) = location.get_mut("names").and_then(Value::as_object_mut)
+                && let Some(name) = names.remove(old)
+            {
+                names.insert(new.to_owned(), name);
+            }
+        }
+    }
     write(&root)
 }
 

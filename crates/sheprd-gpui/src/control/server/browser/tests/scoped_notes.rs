@@ -4,7 +4,7 @@ use super::*;
 #[cfg(unix)]
 mod cancellation;
 
-fn queued_feedback(
+pub(super) fn queued_feedback(
     server: &socket::Server,
     request: &FeedbackRequest,
 ) -> (

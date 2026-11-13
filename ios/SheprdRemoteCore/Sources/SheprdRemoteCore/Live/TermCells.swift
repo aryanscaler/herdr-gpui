@@ -8,6 +8,16 @@ extension TermScreen {
         text.reduce(0) { $0 + cells($1) }
     }
 
+    /// The columns the phone fits the screen to: its widest row, in cells,
+    /// and while the terminal is held at `held`, never fewer than that
+    /// size's columns, so the text stays at the size its rows were counted
+    /// at when no row on screen spans the terminal.
+    public func fitColumns(held: TermSize?) -> Int {
+        rows.reduce(max(columns, held?.cols ?? 0)) { widest, row in
+            max(widest, row.reduce(0) { $0 + Self.cells($1.text) })
+        }
+    }
+
     static func cells(_ character: Character) -> Int {
         guard let first = character.unicodeScalars.first else { return 0 }
         if first.properties.isEmojiPresentation || character.unicodeScalars.contains("\u{FE0F}") { return 2 }

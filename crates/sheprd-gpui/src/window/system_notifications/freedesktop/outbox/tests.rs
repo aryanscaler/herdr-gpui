@@ -1,3 +1,5 @@
+mod withdraw;
+
 use super::super::tests::posted;
 use super::*;
 use gpui::TestAppContext;
@@ -20,21 +22,28 @@ struct Request {
     reply: Rc<RefCell<Reply>>,
 }
 
+/// The requests sent, and the ids closed with how many posts were sent by
+/// then.
 #[derive(Clone, Default)]
-struct Server(Rc<RefCell<Vec<Request>>>);
+struct Server(Rc<RefCell<Vec<Request>>>, Rc<RefCell<Vec<(u32, usize)>>>);
 
 impl Server {
     fn post(&self, tag: &str, body: &str, cx: &mut TestAppContext) {
         let calls = self.0.clone();
+        let (closed, sent) = (self.1.clone(), self.0.clone());
         cx.update(|cx| {
-            cx.global_mut::<Registry>().record(posted(tag));
-            post_with(
-                SystemNotification {
-                    tag: tag.to_owned().into(),
-                    title: "test".into(),
-                    body: body.to_owned().into(),
-                    actions: Vec::new(),
-                },
+            let registry = cx.global_mut::<Registry>();
+            registry.record(posted(tag));
+            let notification = SystemNotification {
+                tag: tag.to_owned().into(),
+                title: "test".into(),
+                body: body.to_owned().into(),
+                actions: Vec::new(),
+            };
+            if !registry.outbox.enqueue(notification) {
+                return;
+            }
+            run_with(
                 cx,
                 move |notification, replaces| {
                     let reply = Rc::new(RefCell::new(Reply::default()));
@@ -54,9 +63,17 @@ impl Server {
                         }
                     })
                 },
+                move |id| {
+                    closed.borrow_mut().push((id, sent.borrow().len()));
+                    std::future::ready(Ok(()))
+                },
             );
         });
         cx.run_until_parked();
+    }
+
+    fn closed(&self) -> Vec<(u32, usize)> {
+        self.1.borrow().clone()
     }
 
     fn reply(&self, index: usize, result: Result<u32, Error>, cx: &mut TestAppContext) {

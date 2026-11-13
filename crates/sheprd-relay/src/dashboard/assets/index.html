@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sheprd relay</title>
+<link rel="stylesheet" href="/dashboard/style.css">
+<link rel="icon" href="/dashboard/icon.svg" type="image/svg+xml">
+<script src="/dashboard/app.js" defer></script>
+</head>
+<body class="viz-root">
+<header>
+  <h1>Sheprd relay <span id="version" class="muted"></span></h1>
+  <span id="status" class="muted" aria-live="polite">Loading…</span>
+  <form method="post" action="/dashboard/logout"><button type="submit">Sign out</button></form>
+</header>
+<main>
+  <section class="tiles" aria-label="Now">
+    <div class="tile"><span class="label">Sessions</span><span class="value" id="sessions">–</span><span class="note" id="sessions-limit"></span></div>
+    <div class="tile"><span class="label">Listeners</span><span class="value" id="listeners">–</span><span class="note" id="listeners-limit"></span></div>
+    <div class="tile"><span class="label">Connections</span><span class="value" id="connections">–</span><span class="note" id="connections-limit"></span></div>
+    <div class="tile"><span class="label">Throughput</span><span class="value" id="rate">–</span><span class="note" id="bandwidth-limit"></span></div>
+    <div class="tile"><span class="label">Carried</span><span class="value" id="carried">–</span><span class="note" id="uptime"></span></div>
+    <div class="tile"><span class="label">Refused</span><span class="value" id="refused">–</span><span class="note">connections at a limit</span></div>
+  </section>
+
+  <section aria-labelledby="throughput-title">
+    <h2 id="throughput-title">Throughput, last 10 minutes</h2>
+    <div class="legend">
+      <span><i class="swatch s1"></i>From dialers</span>
+      <span><i class="swatch s2"></i>From listeners</span>
+    </div>
+    <div class="chart-wrap">
+      <svg id="chart" role="img" aria-label="Throughput in bytes per second" preserveAspectRatio="none"></svg>
+      <div id="tooltip" class="tooltip" hidden></div>
+    </div>
+  </section>
+
+  <div class="columns">
+    <section aria-labelledby="dials-title">
+      <h2 id="dials-title">Dials</h2>
+      <table><tbody id="dials"></tbody></table>
+    </section>
+    <section aria-labelledby="listens-title">
+      <h2 id="listens-title">Listens</h2>
+      <table><tbody id="listens"></tbody></table>
+    </section>
+  </div>
+
+  <section aria-labelledby="bans-title">
+    <h2 id="bans-title">Banned</h2>
+    <p class="muted">Addresses that misbehaved are banned automatically, for 10 minutes, then an hour, then a day. Manual bans come from RELAY_BAN or the ban file.</p>
+    <table>
+      <thead><tr><th>Address</th><th>Reason</th><th class="num">Lifts in</th></tr></thead>
+      <tbody id="bans"></tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="active-title">
+    <h2 id="active-title">Busiest sessions</h2>
+    <p class="muted">Routes show their first eight characters only.</p>
+    <table>
+      <thead><tr><th>Route</th><th>Kind</th><th class="num">Age</th><th class="num">From dialer</th><th class="num">From listener</th></tr></thead>
+      <tbody id="active"></tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

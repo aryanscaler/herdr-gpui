@@ -5,6 +5,7 @@ use crate::teleport::{
 };
 use sheprd_client::ConnectTarget;
 
+mod arrival;
 mod closing;
 mod en_xa;
 mod kept;
@@ -51,6 +52,7 @@ fn candidate() -> Candidate {
 
 fn review(github: GitHubAccess) -> Review {
     let pane = |id: &str, action: Action| job::PanePlan {
+        binding: None,
         pane_id: id.into(),
         cwd: None,
         work: Work::Shell,

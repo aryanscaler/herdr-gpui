@@ -12,6 +12,19 @@ mod error;
 pub use end::{checkout_idle, end, end_verified};
 pub use error::{Error, Result};
 
+/// What a caller does with the terminal it inspects, which decides how much
+/// it must prove beyond the ownership label `run` attached atomically.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Purpose {
+    /// Type into it: the live foreground must still be the agent, never the
+    /// shell `--keep` leaves once it exits, nor anything typed there since.
+    Message,
+    /// End it, as cleanup and a confirmed restart do: a finished terminal, or
+    /// a live one whose agent exited into its kept shell at its prompt, is
+    /// still ours; another program started in that shell is not.
+    End,
+}
+
 /// A caller's namespace and durable operation identity, attached atomically.
 #[derive(Clone, Copy)]
 pub struct Owner<'a> {
@@ -95,19 +108,26 @@ pub fn recover(
     expected: Option<&str>,
     cancelled: &AtomicBool,
 ) -> Result<Started> {
-    inspect(host, tree, owner, agent, expected, false, cancelled)
+    inspect(
+        host,
+        tree,
+        owner,
+        agent,
+        expected,
+        Purpose::Message,
+        cancelled,
+    )
 }
 
-/// Inspect a retained terminal for cleanup. Finished terminals, and live
-/// ones whose agent exited and left the kept shell in front, are accepted
-/// only when explicitly requested; an unknown state is never ownership proof.
+/// Inspect a retained terminal for `purpose`; an unknown state is never
+/// ownership proof.
 pub fn inspect(
     host: &Host,
     tree: &Worktree,
     owner: Owner<'_>,
     agent: &Agent<'_>,
     expected: Option<&str>,
-    include_finished: bool,
+    purpose: Purpose,
     cancelled: &AtomicBool,
 ) -> Result<Started> {
     owner.validate()?;
@@ -123,13 +143,7 @@ pub fn inspect(
         })?;
     let argv = command(agent);
     select(
-        list,
-        &tree.path,
-        owner,
-        &argv,
-        expected,
-        include_finished,
-        agent.kind,
+        list, &tree.path, owner, &argv, expected, purpose, agent.kind,
     )
 }
 
@@ -139,7 +153,7 @@ fn select(
     owner: Owner<'_>,
     argv: &[String],
     expected: Option<&str>,
-    include_finished: bool,
+    purpose: Purpose,
     kind: crate::teleport::AgentKind,
 ) -> Result<Started> {
     let mut matches = list.terminals.into_iter().filter(|terminal| {
@@ -151,19 +165,18 @@ fn select(
     let terminal = matches.next().ok_or(Error::Uncertain)?;
     if matches.next().is_some()
         || !(terminal.state == TerminalState::Live
-            || (include_finished && terminal.state == TerminalState::Finished))
+            || (purpose == Purpose::End && terminal.state == TerminalState::Finished))
         || terminal.cwd != path
         || terminal.argv != argv
-        // Recovery types into the agent, so it must still be in front. A
-        // cleanup only ends the terminal, which may also be the shell
-        // `--keep` left at its prompt once the agent exited, as every
-        // finished run does; a program started there since is the user's.
+        // Messaging types into the agent, so it must still be in front.
+        // Ending may also find the shell `--keep` left at its prompt once
+        // the agent exited; a program started there since is the user's.
         || (terminal.state == TerminalState::Live
             && !terminal.foreground.as_ref().is_some_and(|foreground| {
                 crate::teleport::AgentKind::identify(None, &foreground.name, &foreground.argv)
                     == Some(kind)
                     || foreground.argv == argv
-                    || (include_finished && at_prompt(&foreground.name, &foreground.argv))
+                    || (purpose == Purpose::End && at_prompt(&foreground.name, &foreground.argv))
             }))
         || expected.is_some_and(|expected| terminal.address != expected)
     {
@@ -172,14 +185,6 @@ fn select(
     Ok(Started::Herdr2 {
         terminal: terminal.address,
     })
-}
-
-fn command(agent: &Agent<'_>) -> Vec<String> {
-    let mut argv = agent.kind.start_argv(None);
-    if let Some(model) = agent.model.filter(|model| super::valid_model(model)) {
-        argv.extend(["--model".into(), model.into()]);
-    }
-    argv
 }
 
 /// Whether a foreground process is a bare shell waiting at its prompt:
@@ -193,6 +198,14 @@ fn at_prompt(name: &str, argv: &[String]) -> bool {
         }
         None => crate::teleport::is_shell(name),
     }
+}
+
+fn command(agent: &Agent<'_>) -> Vec<String> {
+    let mut argv = agent.kind.start_argv(None);
+    if let Some(model) = agent.model.filter(|model| super::valid_model(model)) {
+        argv.extend(["--model".into(), model.into()]);
+    }
+    argv
 }
 
 #[cfg(test)]

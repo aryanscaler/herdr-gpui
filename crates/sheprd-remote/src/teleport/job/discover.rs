@@ -109,6 +109,10 @@ fn discover_host(
 ) -> Result<Vec<Candidate>> {
     let repositories = match &host.repositories {
         Some(repositories) => repositories.clone(),
+        // A disconnected Herdr 2-only host has no Herdr 1 inventory to ask.
+        // Probe the repository's mirrored path (and retired app checkouts)
+        // directly rather than requiring a second daemon to be installed.
+        None if host.lands_in == Keeper::App => Vec::new(),
         None => {
             let snapshot: SnapshotResult =
                 host.place

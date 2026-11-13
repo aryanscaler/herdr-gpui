@@ -4,6 +4,7 @@
 //! and the session's settings in a status line under the prompt box.
 
 use super::{super::Hues, ChatLayout, ComposerParts, Look, Row, Side, summary_row};
+use crate::chat::code_block::scroll_sideways;
 use crate::{
     config::{corners, mix},
     fonts::StyledFont,
@@ -159,7 +160,7 @@ impl ChatLayout for Terminal {
                             .flex_1()
                             .min_w_0()
                             .flex()
-                            .overflow_x_scroll()
+                            .map(scroll_sideways)
                             .items_center()
                             .gap(px(6.))
                             .child(parts.attach)

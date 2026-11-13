@@ -121,15 +121,32 @@ pub(super) fn workspace_badge(
         return RowBadge::new(None, None, false, false, false, muted);
     };
     let ((marks, endpoint), (git, counts)) = (marks, git);
+    // Kept SSH lookups include the checkout directory, unlike H1's
+    // repository-only metadata. Read exactly the key prefetch schedules.
+    let input = pr.and_then(|(_, view)| match workspace.keeper {
+        sheprd_session::Keeper::App => crate::pull_request::kept_input(
+            workspace,
+            view.origin != crate::pull_request::Origin::Local,
+        ),
+        sheprd_session::Keeper::Herdr1 => Some(crate::pull_request::Input {
+            checkout: None,
+            repo_key: Some(key.to_owned()),
+            branch: branch.to_owned(),
+        }),
+    });
     let ahead = git.and_then(|git| git.ahead(key, branch));
     // Commits past a merged pull request need a new one, so its number and
     // counts give way rather than read as covering them.
-    let unopened = pr
-        .zip(ahead)
-        .is_some_and(|((cache, view), ahead)| cache.unopened(view, key, branch, &ahead.head));
+    let unopened =
+        pr.zip(ahead)
+            .zip(input.as_ref())
+            .is_some_and(|(((cache, view), ahead), input)| {
+                cache.unopened_input(view, input, &ahead.head)
+            });
     let pr = pr
         .filter(|_| !unopened)
-        .and_then(|(cache, view)| cache.peek(view, key, branch));
+        .zip(input.as_ref())
+        .and_then(|((cache, view), input)| cache.peek_input(view, input));
     let counts = match counts {
         ChangeCounts::PullRequest => pr
             .as_ref()

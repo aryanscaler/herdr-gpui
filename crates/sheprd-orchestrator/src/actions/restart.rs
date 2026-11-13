@@ -5,7 +5,7 @@ use super::*;
 pub(super) fn recover(site: &Site, id: &str, cancelled: &AtomicBool) -> Result<()> {
     let (mut store, run, mut session, host) = own_run(site, id, cancelled)?;
     let work::Started::Herdr2 { terminal } =
-        herdr2::inspect(&host, &run, &session, true, cancelled)?
+        herdr2::inspect(&host, &run, &session, Purpose::End, cancelled)?
     else {
         return Err(Error::NothingToOpen);
     };
@@ -15,15 +15,26 @@ pub(super) fn recover(site: &Site, id: &str, cancelled: &AtomicBool) -> Result<(
 }
 
 pub(super) fn restart(site: &Site, id: &str, cancelled: &AtomicBool) -> Result<()> {
-    let (mut store, mut run, mut session, host) = own_run(site, id, cancelled)?;
-    if !matches!(session.pane, Pane::Herdr2 { .. }) {
+    // Not `own_run`: a pending agent is inspected below, where an interrupted
+    // restart that never launched it can still be proven gone.
+    let (mut store, mut run, session) = owned(site, id)?;
+    let mut session = session.ok_or_else(|| Error::RunNotFound(id.to_owned()))?;
+    let host = host_of(site, &session)?;
+    if matches!(session.pane, Pane::Herdr1 { .. }) {
         return Err(Error::NothingToOpen);
     }
     let prompt = store.prompt(id)?;
-    let work::Started::Herdr2 { terminal: previous } =
-        herdr2::inspect(&host, &run, &session, true, cancelled)?
-    else {
-        return Err(Error::NothingToOpen);
+    let previous = match herdr2::inspect(&host, &run, &session, Purpose::End, cancelled) {
+        Ok(work::Started::Herdr2 { terminal }) => Some(terminal),
+        Ok(_) => return Err(Error::NothingToOpen),
+        // A restart stopped after ending the previous agent, or before the
+        // next one ran, leaves nothing to end. Continue it only on proof.
+        Err(error) => {
+            if !herdr2::gone(&host, &run, &session, cancelled)? {
+                return Err(error);
+            }
+            None
+        }
     };
     let workspace = run.workspace.as_ref().ok_or(Error::NothingToOpen)?;
     let path = workspace
@@ -47,7 +58,9 @@ pub(super) fn restart(site: &Site, id: &str, cancelled: &AtomicBool) -> Result<(
     // perform() holds the cross-process action lease. Keep the old receipt
     // until its program is ended, so a crash cannot orphan a live agent.
     let outcome = (|| {
-        herdr2::end(&host, &previous)?;
+        if let Some(previous) = &previous {
+            herdr2::end(&host, previous)?;
+        }
         store.claim_restart(id, &session.agent_name, &next)?;
         session.adopted = None;
         session.agent_name = next.clone();

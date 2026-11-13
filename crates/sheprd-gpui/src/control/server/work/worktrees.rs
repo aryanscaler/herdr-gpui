@@ -1,9 +1,9 @@
 //! App-kept worktree commands use the same host-scoped dialogs as the menu.
-use super::{find, flows::bring_forward, selected_workspace};
+use super::{Source, find, flows::bring_forward, selected_workspace};
 use crate::{
     SheprdWindow,
     control::protocol::{
-        Caller, ErrorCode, Response,
+        ErrorCode, Response,
         work::{Reply, WorktreeInfo},
     },
     menu::{Page, WorkspaceAction},
@@ -16,7 +16,7 @@ pub(super) enum Dialog {
     Delete,
 }
 
-pub(super) fn list(view: &SheprdWindow, caller: &Caller) -> Response {
+pub(super) fn list<'a>(view: &SheprdWindow, caller: impl Into<Source<'a>>) -> Response {
     let found = match find(view, caller) {
         Ok(found) => found,
         Err(error) => return error,
@@ -47,9 +47,9 @@ pub(super) fn list(view: &SheprdWindow, caller: &Caller) -> Response {
     }
 }
 
-pub(super) fn dialog(
+pub(super) fn dialog<'a>(
     view: &mut SheprdWindow,
-    caller: &Caller,
+    caller: impl Into<Source<'a>>,
     dialog: Dialog,
     window: &mut Window,
     cx: &mut Context<SheprdWindow>,

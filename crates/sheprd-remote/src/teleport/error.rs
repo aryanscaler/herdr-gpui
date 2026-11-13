@@ -32,10 +32,10 @@ const MOVE: [Step; 13] = [
     Step::CreateWorktree,
     Step::Restore,
     Step::Tabs,
-    Step::Retire,
     Step::Sessions,
     Step::Credentials,
     Step::Launch,
+    Step::Retire,
 ];
 
 impl Step {
@@ -104,6 +104,8 @@ pub enum Error {
     #[error("The pane is in {path}, outside its space's checkout; change back into it first")]
     OutsideCheckout { path: String },
     // keep-sorted start
+    #[error(transparent)]
+    Arrival(#[from] super::arrival::Error),
     /// The destination opens new workspaces in Herdr 2, whose core did not
     /// answer there.
     #[error("Herdr 2 is not running on {host}, where the work would open")]
@@ -118,6 +120,10 @@ pub enum Error {
     OutsideHome { path: String },
     #[error("The agent is working. Move it once it is idle.")]
     SessionAgentWorking,
+    #[error(
+        "{agent} uses a custom session configuration path; Teleport needs an explicit destination mapping"
+    )]
+    SessionConfiguration { agent: &'static str },
     #[error("The pane's working directory could not be read")]
     SessionCwdUnavailable,
     /// `pane run` was accepted, but the agent never became the destination
@@ -128,6 +134,10 @@ pub enum Error {
     SessionProgramMissing { agent: &'static str, host: String },
     #[error("Only an agent with a transferable session can move without a Git repository")]
     SessionRequired,
+    #[error(
+        "{agent} did not acknowledge the transferred session on {host}; the source keeps running"
+    )]
+    SessionResumeUnconfirmed { agent: &'static str, host: String },
     #[error("{cause}; the new workspace {workspace_id} could not be closed")]
     SessionWorkspaceLeftBehind {
         workspace_id: String,

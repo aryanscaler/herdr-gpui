@@ -10,6 +10,7 @@ on:
       - website/requirements.txt
       - website/netlify.toml
       - netlify.toml
+      - crates/sheprd-relay/keys/actions.ed25519.hex
       - docs/automations.md
       - docs/cli.md
       - docs/mods.md
@@ -23,8 +24,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Signs the exact relays.json bytes this deploy publishes with the site
+  # workflow's Ed25519 key, which only this job of the protected `relays`
+  # environment receives (allow it main only). Clients take the list when
+  # this signature or the maintainer's OpenPGP one (relays.json.asc,
+  # committed by `just relays-sign`) holds (docs/relay-plan.md).
+  sign-relays:
+    if: github.repository == 'sheprd-labs/sheprd' || github.repository == 'penso/herdr-gpui'
+    runs-on: ubuntu-24.04
+    environment: relays
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Sign the relay list
+        env:
+          RELAYS_SIGNING_KEY: ${{ secrets.RELAYS_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          KEY_DIR="$(mktemp -d "$RUNNER_TEMP/relays-key.XXXXXX")"
+          trap 'rm -rf "$KEY_DIR"' EXIT
+          test -n "$RELAYS_SIGNING_KEY"
+          printf '%s' "$RELAYS_SIGNING_KEY" > "$KEY_DIR/private.pem"
+          unset RELAYS_SIGNING_KEY
+          # The key must be the one clients have compiled in.
+          public="$(openssl pkey -in "$KEY_DIR/private.pem" -pubout -outform DER | tail -c 32 | od -An -tx1 | tr -d ' \n')"
+          test "$public" = "$(tr -d ' \n' < crates/sheprd-relay/keys/actions.ed25519.hex)"
+          mkdir -p signed
+          openssl pkeyutl -sign -rawin -inkey "$KEY_DIR/private.pem" \
+            -in website/site/relays.json -out signed/relays.json.sig
+          openssl pkey -in "$KEY_DIR/private.pem" -pubout -out "$KEY_DIR/public.pem"
+          openssl pkeyutl -verify -rawin -pubin -inkey "$KEY_DIR/public.pem" \
+            -in website/site/relays.json -sigfile signed/relays.json.sig
+          test "$(wc -c < signed/relays.json.sig | tr -d ' ')" = 64
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: relays-signature
+          path: signed/relays.json.sig
+          retention-days: 1
+          if-no-files-found: error
+
   deploy:
     if: github.repository == 'sheprd-labs/sheprd' || github.repository == 'penso/herdr-gpui'
+    needs: sign-relays
     runs-on: ubuntu-24.04
     environment: website
     timeout-minutes: 10
@@ -45,6 +92,10 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/docs-venv"
           "$RUNNER_TEMP/docs-venv/bin/pip" install --quiet --require-hashes -r website/requirements.txt
           "$RUNNER_TEMP/docs-venv/bin/python" website/tools/docs.py
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: relays-signature
+          path: website/site
       - name: Deploy production site without a Netlify build
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}

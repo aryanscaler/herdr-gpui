@@ -90,3 +90,43 @@ fn a_journal_from_before_herdr_2_reads_as_herdr_1() {
         }
     );
 }
+
+#[test]
+fn a_planned_owned_checkout_is_saved_after_creation_was_already_reported() {
+    let mut record = record(1);
+    assert!(record.advance(&lane(0, Progress::CreatingWorktree)));
+    assert!(
+        record.advance(&lane(0, Progress::CreatingOwned(Box::new(kept_checkout())))),
+        "the planned checkout is new even though the step is not"
+    );
+    assert_eq!(record.lanes[0].step, Checkpoint::CreatingWorktree);
+    let saved = record.lanes[0].checkout.clone().unwrap();
+    assert_eq!(
+        saved.checkout(origin().host).worktree,
+        kept_checkout().worktree
+    );
+    assert!(
+        !record.advance(&lane(0, Progress::CreatingOwned(Box::new(kept_checkout())))),
+        "a second plan for the same lane is refused"
+    );
+}
+
+#[test]
+fn a_planned_owned_checkout_reaches_disk_before_git_creates_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    let journal = Journal::at(Some(path.clone()));
+    journal.begin(record(1)).unwrap().unwrap().write().unwrap();
+    journal
+        .record(1, &lane(0, Progress::CreatingWorktree))
+        .unwrap();
+    let owned = Progress::CreatingOwned(Box::new(kept_checkout()));
+    journal.record(1, &lane(0, owned)).unwrap();
+    let records = Journal::at(Some(path)).records();
+    let lane = &records[0].lanes[0];
+    assert_eq!(lane.step, Checkpoint::CreatingWorktree);
+    assert!(
+        lane.checkout.is_some(),
+        "recovery knows where the checkout goes"
+    );
+}

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sheprd relay · Sign in</title>
+<link rel="stylesheet" href="/dashboard/style.css">
+<link rel="icon" href="/dashboard/icon.svg" type="image/svg+xml">
+</head>
+<body class="viz-root login">
+<main>
+  <h1>Sheprd relay</h1>
+  <p class="muted">Read-only dashboard</p>
+  <!--message-->
+  <form method="post" action="/dashboard/login">
+    <label>Access token <input name="token" type="password" autocomplete="current-password" required maxlength="256" autofocus spellcheck="false"></label>
+    <button type="submit">Sign in</button>
+  </form>
+</main>
+</body>
+</html>

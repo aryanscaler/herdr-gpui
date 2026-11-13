@@ -67,8 +67,23 @@ fn in_a_herdr_2_terminal_a_request_is_labels_on_that_terminal() {
 }
 
 #[test]
-fn a_reload_from_a_herdr_2_terminal_is_refused() {
+fn a_reload_from_a_herdr_2_terminal_uses_its_own_labels() {
     let (home, output) = run(&["browser", "reload"]);
-    assert_eq!(output.status.code(), Some(8));
-    assert!(!home.path().join("core.args").exists());
+    assert!(output.status.success(), "{output:?}");
+    let (args, labels) = labels(&home);
+    assert_eq!(&args[..2], ["label", "t3"]);
+    assert_eq!(Request::all(&labels)[0].action, Action::Reload);
+}
+
+#[test]
+fn feedback_shim_round_trips_with_a_core_peer() {
+    let output = Command::new("python3")
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/tests/test_remote_browser_feedback.py"
+        ))
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
 }

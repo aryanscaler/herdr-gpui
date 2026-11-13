@@ -7,6 +7,7 @@
 
 use super::text;
 use unclaimed::Unclaimed;
+mod recovery;
 
 mod unclaimed;
 use crate::teleport::{
@@ -287,6 +288,7 @@ impl Teleport {
                 |step| {
                     let _ = sender.send(Event::Step(step));
                 },
+                |outcome| recovery::persist(&handover.scope, outcome),
                 cancelled,
             );
             unclaimed::deliver(sender, result, handover, &unclaimed);
@@ -307,14 +309,12 @@ impl Teleport {
                     }
                 }
                 Event::Step(step) => {
-                    // Steps after `Retire` start once the source's programs
-                    // stopped.
-                    self.retired |= step.progress() > Step::Retire.progress();
                     if let Stage::Moving(_, current) = &mut self.stage {
                         *current = Some(step);
                     }
                 }
                 Event::Moved(result) => {
+                    self.retired = result.as_ref().is_ok_and(|outcome| outcome.source_retired);
                     if let Err(error) = &result {
                         self.stage = Stage::Failed(error.localize());
                     }
@@ -339,6 +339,7 @@ impl Teleport {
 
 impl SheprdWindow {
     pub(crate) fn poll_teleport(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.recover_teleport_arrivals(window, cx);
         self.claim_teleports(window, cx);
         if self.teleport_marks.poll() {
             cx.notify();
@@ -368,8 +369,8 @@ impl SheprdWindow {
             _ => None,
         };
         // Past stopping its programs, a kept source keeps one idle shell.
-        let retired = result.is_ok() || teleport.retired;
-        let closed = teleport.closed_tabs(result.is_ok(), panes);
+        let retired = teleport.retired;
+        let closed = teleport.closed_tabs(retired, panes);
         for tab in closed {
             self.close_browser_tab(tab, window, cx);
         }
@@ -404,17 +405,19 @@ impl SheprdWindow {
         // if any, no longer is.
         self.teleport_marks
             .remove(&outcome.endpoint_id, &outcome.repo_key, &outcome.branch);
-        self.teleport_marks.add(Mark {
-            endpoint: source.place.endpoint_id.clone(),
-            repo_key: source.repo_key.clone(),
-            branch: outcome.branch.clone(),
-            destination: MarkDestination {
-                endpoint: outcome.endpoint_id.clone(),
-                label: destination.clone(),
-                repo_key: outcome.repo_key.clone(),
-                workspace_id: workspace.clone(),
-            },
-        });
+        if outcome.source_retired {
+            self.teleport_marks.add(Mark {
+                endpoint: source.place.endpoint_id.clone(),
+                repo_key: source.repo_key.clone(),
+                branch: outcome.branch.clone(),
+                destination: MarkDestination {
+                    endpoint: outcome.endpoint_id.clone(),
+                    label: destination.clone(),
+                    repo_key: outcome.repo_key.clone(),
+                    workspace_id: workspace.clone(),
+                },
+            });
+        }
         let flash = match outcome.warnings.first() {
             None => Flash::success(fl!("teleport-done", host = destination.as_str())),
             Some(first) => Flash::warning(fl!(
