@@ -16,6 +16,9 @@ Cargo.lock merge=cargo-lock
 # byte with what they write, so a Windows checkout must not turn LF to CRLF.
 ios/SheprdRemoteCore/Tests/SheprdRemoteCoreTests/Fixtures/** text eol=lf
 
-# The relay tests check signatures over these fixtures' exact bytes, which a
-# Windows checkout that turned LF into CRLF would no longer match.
+# Signatures cover these files' exact bytes: a Windows checkout turning LF
+# into CRLF would make every signature fail. Checked out byte for byte.
 crates/sheprd-relay/src/tests/fixtures/** -text
+website/site/relays.json -text
+website/site/relays.json.asc -text
+website/site/relays.json.sig -text
